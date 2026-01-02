@@ -22,12 +22,10 @@ def test_model_create_train():
         "image_transform_list" : None
     }
     train_dataset = MVTecDataset(DatasetArguments(**args))
-    train_dataset.load_dataset()
     train_dataset = Subset(train_dataset, list(range(0, 10)))  # use a subset for faster testing
 
     args["split"] = "test"
     test_dataset = MVTecDataset(DatasetArguments(**args))
-    test_dataset.load_dataset()
 
     model = STFPM(teacher, student).to(device)
     training_args = STFPMTrainArgs(epochs=2, batch_size=4)
