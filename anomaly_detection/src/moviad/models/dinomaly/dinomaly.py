@@ -13,6 +13,9 @@ from moviad.models.dinomaly.optimizers import StableAdamW
 from moviad.models.dinomaly.scheduler import WarmCosineScheduler
 
 import math
+from dataclasses import dataclass
+
+@dataclass
 class DinomalyTrainArgs(TrainingArgs):
 
     total_iters: int = 5000
@@ -192,7 +195,7 @@ class Dinomaly(VADModel):
             return anomaly_maps, anomaly_maps.amax(dim=(1,2))
 
     def train_step(self, batch: torch.Tensor, training_args: DinomalyTrainArgs):
-        batch = batch.to(self.device)
+        batch = batch.to(next(self.parameters()).device)
         en, de = self.forward(batch)
 
         p_final = 0.9
@@ -200,9 +203,8 @@ class Dinomaly(VADModel):
         loss = training_args.loss_function(en, de, p=p, factor=0.1)
 
         training_args.optimizer.zero_grad()
-        nn.utils.clip_grad_norm_(self.trainable.parameters(), max_norm=0.1)
-
         loss.backward()
+        nn.utils.clip_grad_norm_(self.trainable.parameters(), max_norm=0.1)
         training_args.optimizer.step()
         training_args.lr_scheduler.step()
         self.train_steps += 1

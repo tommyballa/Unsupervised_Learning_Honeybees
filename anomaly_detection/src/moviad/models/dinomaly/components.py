@@ -237,7 +237,7 @@ class LinearAttention(nn.Module):
         if attn_mask is not None:
             attn[:, :, attn_mask == 0.] = 0.
 
-        attn = attn / (torch.sum(attn, dim=-1, keepdim=True))
+        attn = attn / (torch.sum(attn, dim=-1, keepdim=True) + 1e-6)
 
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
@@ -267,7 +267,7 @@ class LinearAttention2(nn.Module):
         k = nn.functional.elu(k) + 1.
 
         kv = torch.einsum('...sd,...se->...de', k, v)
-        z = 1.0 / torch.einsum('...sd,...d->...s', q, k.sum(dim=-2))
+        z = 1.0 / (torch.einsum('...sd,...d->...s', q, k.sum(dim=-2)) + 1e-6)
         x = torch.einsum('...de,...sd,...s->...se', kv, q, z)
         x = x.transpose(1, 2).reshape(B, N, C)
 
