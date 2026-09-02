@@ -35,6 +35,18 @@ TORCH_BACKBONES = (
 
 class CustomFeatureExtractor:
 
+    def __init__(self, model_name: str, layers_idx: list, device: torch.device, frozen: bool = True, pretrained_path: str | None = None):
+        """
+        Constructor
+
+        Args:
+            model_name (str): name of the backbone to use
+            layers_idx (list): list of layers identifiers
+            device (torch.device): device to be used
+            frozen (bool): whether to freeze the backbone after loading
+            pretrained_path (str | None): optional path to a checkpoint containing backbone weights
+        """
+
     def __init__(self, model_name: str, layers_idx: list, device: torch.device, frozen: bool = True):
         """
         Constructor
@@ -48,6 +60,7 @@ class CustomFeatureExtractor:
         self.model_name = model_name
         self.layers_idx = layers_idx
         self.device = device
+        self.pretrained_path = pretrained_path
 
         #¢heck for backbone support
         if model_name not in OTHERS_BACKBONES + TORCH_BACKBONES:
@@ -78,6 +91,10 @@ class CustomFeatureExtractor:
 
         if model_name in TORCH_BACKBONES:
             self.model = CustomFeatureExtractor.get_feature_extractor(model_name, layers_idx)
+        # Load pretrained backbone weights if provided
+        if self.pretrained_path is not None:
+            state = torch.load(self.pretrained_path, map_location=self.device)
+            self.model.load_state_dict(state, strict=False)
 
 
         #load the model to the device

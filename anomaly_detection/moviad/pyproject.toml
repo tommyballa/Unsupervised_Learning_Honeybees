@@ -1,0 +1,48 @@
+[project]
+name = "moviad"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "FrancescoBorsatti", email = "francesco.borsatti.1@studenti.unipd.it" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "calflops>=0.3.2",
+    "einops>=0.8.1",
+    "faiss-cpu-cu11>=1.13.0",
+    "librosa>=0.11.0",
+    "matplotlib>=3.10.7",
+    "memory-profiler>=0.61.0",
+    "micromind>=0.2.1",
+    "opencv-python>=4.12.0.88",
+    "pandas>=2.3.3",
+    "pytest>=9.0.1",
+    "rich>=14.2.0",
+    "scikit-image>=0.25.2",
+    "scikit-learn>=1.7.2",
+    "seaborn>=0.13.2",
+    "thop>=0.1.1.post2209072238",
+    "torch>=2.9.1",
+    "torchvision>=0.24.1",
+    "tqdm>=4.67.1",
+    "transformers>=4.57.3",
+    "wandb>=0.23.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/moviad"]
+
+[dependency-groups]
+dev = [
+    "sphinx>=7,<8",
+    "sphinx-rtd-theme>=3.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["disk", ".venv", "_build", "docs", "examples"]

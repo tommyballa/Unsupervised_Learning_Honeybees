@@ -59,12 +59,13 @@ class Dinomaly(VADModel):
         fuse_layer_decoder=[[0, 1, 2, 3, 4, 5, 6, 7]],
         mask_neighbor_size=0,
         remove_class_token=False,
+        img_size=(224, 224)
     ) -> None:
         super(Dinomaly, self).__init__()
 
         self.encoder_name = encoder_name
 
-        encoder = timm.create_model(self.encoder_name, pretrained=True, img_size=(224, 224))
+        encoder = timm.create_model(self.encoder_name, pretrained=True, dynamic_img_size=True, img_size=img_size)
 
         def prepare_tokens(x):
             x = encoder.patch_embed(x)

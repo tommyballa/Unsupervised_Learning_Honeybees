@@ -1,7 +1,7 @@
 from moviad.utilities.custom_feature_extractor_trimmed import CustomFeatureExtractor
 from moviad.models.stfpm.stfpm import STFPM, STFPMTrainArgs
 from moviad.trainers.trainer import Trainer
-from moviad.datasets.mvtec import MVTecDataset
+from moviad.datasets.varroa.varroa_dataset import VarroaDataset
 from torch.utils.data import Subset
 from moviad.datasets.dataset_arguments import DatasetArguments
 from moviad.scenarios.continual.strategies.replay.replay_model import Replay
@@ -11,7 +11,8 @@ from moviad.scenarios.continual.continual_dataset import ContinualDataset
 from moviad.scenarios.continual.strategies.fine_tuning import FineTuning
 import torch
 from torchvision import transforms
-import wandb
+import random
+import numpy as np
 
 import argparse
 
@@ -22,18 +23,23 @@ BACKBONES = [
     "micronet-m1",
     "micronet-m2",
     "micronet-m3",
-    #"phinet_2.3_0.75_5",
     "phinet_1.2_0.5_6_downsampling",
-    #"phinet_0.8_0.75_8_downsampling",
-    #"phinet_1.3_0.5_7_downsampling",
-    #"phinet_0.9_0.5_4_downsampling_deep",
-    #"phinet_0.9_0.5_4_downsampling",
     "vgg19_bn",
     "resnet18",
     "wide_resnet50_2",
     "efficientnet_b5",
     "mobilenet_v2",
 ]
+
+
+def set_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    random.seed(seed)
+    np.random.seed(seed)
 
 
 def get_test():
@@ -43,6 +49,7 @@ def get_test():
     parser.add_argument("--epochs", type=int, required=True)
     parser.add_argument("--batch_size", type=int, required=True)
     parser.add_argument("--device", type=int, required=False)
+    parser.add_argument("--seed", type=int, default=1)
     args = parser.parse_args()
 
     return args
@@ -72,7 +79,7 @@ def train_stfpm_FT(dataset, backbone="wide_resnet50_2", layers=["layer1", "layer
             ProAuc(MetricLvl.PIXEL),
         ],
         training_args=STFPMTrainArgs(epochs=epochs, batch_size=batch_size),
-        logger=wandb
+        logger=None,
     )
 
     # check for parameter updates
@@ -111,7 +118,7 @@ def train_stfpm_multi_task(dataset, backbone="wide_resnet50_2", layers=["layer1"
             ProAuc(MetricLvl.PIXEL),
         ],
         device=device,
-        logger=wandb,
+        logger=None,
         save_path=None,
         saving_criteria=None,
     )
@@ -135,7 +142,7 @@ def train_stfpm_replay(dataset, backbone="wide_resnet50_2", layers=["layer1", "l
     trainer = ContinualTrainer(
         dataset,
         continual_model,
-        device,experiments/main_rd4ad.py
+        device,
         metrics=[
             RocAuc(MetricLvl.IMAGE),
             RocAuc(MetricLvl.PIXEL),
@@ -146,7 +153,7 @@ def train_stfpm_replay(dataset, backbone="wide_resnet50_2", layers=["layer1", "l
             ProAuc(MetricLvl.PIXEL),
         ],
         training_args=STFPMTrainArgs(epochs=epochs, batch_size=batch_size),
-        logger=None
+        logger=None,
     )
 
     # check for parameter updates
@@ -163,47 +170,27 @@ def main():
     batch_size = args.batch_size
     backbone = args.backbone
     model = args.model
-    device = args.device if args.device else 0
 
-    device = f"cuda:{device}" if torch.cuda.is_available() else "cpu"
+    set_seed(args.seed)
 
-    wandb.init(project="moviad_test", name=f"{model}_{backbone}_{numEpochs}_epochs_{batch_size}_minibatch")
-    wandb.define_metric("epoch")
-    wandb.define_metric("train_loss", step_metric="epoch")
-    wandb.define_metric("eval/*", step_metric="epoch")
-
-    imagenet_mean = (0.485, 0.456, 0.406)
-    imagenet_std  = (0.229, 0.224, 0.225)
-
-    mvtec_transform = [
-        transforms.Resize((256, 256), antialias=True),
-        transforms.ToTensor(),
-        transforms.Normalize(imagenet_mean, imagenet_std),
-    ]
+    device = "cuda:0" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+    if args.device is not None:
+        device = f"cuda:{args.device}" if torch.cuda.is_available() else device
 
     dataset_args = {
-        "dataset_path" : "/mnt/disk1/manuel_barusco/datasets/mvtec",
-        "img_size" : (256, 256),
-        "gt_mask_size" : (256, 256),
-        #"image_transform_list" : None
-        "image_transform_list": mvtec_transform
+        "dataset_path": "./data",
+        "img_size": (224, 224),
+        "gt_mask_size": (224, 224),
+        "image_transform_list": None,
     }
 
+    # Continual learning con video folder come task incrementali
     continual_dataset = ContinualDataset(
         dataset_arguments=DatasetArguments(**dataset_args),
-        dataset_class=MVTecDataset,
-        categories=[
-            "bottle",
-            "cable",
-            "capsule",
-            "hazelnut",
-            "transistor",
-            "metal_nut",
-            "pill",
-            "screw",
-            "zipper",
-            "toothbrush"
-        ],
+        dataset_class=VarroaDataset,
+        # Usa i video folder del train come task CL
+        # Per singola task iniziale puoi passare categories=["varroa"]
+        # Per CL incrementale, lascia None per usare tutti i video folder
     )
 
     if backbone == "mcunet-in3":

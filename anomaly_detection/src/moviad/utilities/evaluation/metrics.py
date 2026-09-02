@@ -11,6 +11,12 @@ from sklearn.metrics import (
 import numpy as np
 from skimage.measure import label, regionprops
 
+def _downsample_pixels(gt, pred, max_pixels=5000000):
+    if gt.size > max_pixels:
+        step = gt.size // max_pixels
+        return gt[::step], pred[::step]
+    return gt, pred
+
 
 class MetricLvl(Enum):
     """The metrics can be computed on image or pixel level."""
@@ -49,6 +55,7 @@ class SimpleMetric(Metric):
     def compute(self, gt, pred):
         if self.level == MetricLvl.PIXEL:
             pred, gt = pred.flatten(), gt.flatten()
+            gt, pred = _downsample_pixels(gt, pred)
         return self.compute(gt, pred)
 
     @property
@@ -64,6 +71,7 @@ class F1(Metric):
     def compute(self, gt, pred):
         if self.level == MetricLvl.PIXEL:
             pred, gt = pred.flatten(), gt.flatten()
+            gt, pred = _downsample_pixels(gt, pred)
         precision, recall, _ = precision_recall_curve(gt, pred)
         a = 2 * precision * recall
         b = precision + recall
@@ -89,6 +97,7 @@ class RocAuc(Metric):
         """
         if self.level == MetricLvl.PIXEL:
             pred, gt = pred.flatten(), gt.flatten()
+            gt, pred = _downsample_pixels(gt, pred)
         return roc_auc_score(gt, pred)
 
 
@@ -114,6 +123,7 @@ class RocCurve(Metric):
         """
         if self.level == MetricLvl.PIXEL:
             pred, gt = pred.flatten(), gt.flatten()
+            gt, pred = _downsample_pixels(gt, pred)
         fpr, tpr, _ = roc_curve(gt, pred)
         return fpr, tpr
 
@@ -136,6 +146,7 @@ class AvgPrec(Metric):
         """
         if self.level == MetricLvl.PIXEL:
             pred, gt = pred.flatten(), gt.flatten()
+            gt, pred = _downsample_pixels(gt, pred)
         return average_precision_score(gt, pred)
 
 
@@ -195,34 +206,35 @@ class ProAuc(Metric):
         threds = []
         fprs = []
 
-        binary_score_maps = np.zeros_like(pred, dtype=np.bool_)
+        # Precompute the prediction values for each region
+        gt_region_preds = []
+        for i in range(len(gt)):
+            if not gt[i].any():
+                continue
+            label_map = label(gt[i], connectivity=2)
+            region_ids = np.unique(label_map)[1:] # 0 is background
+            
+            for region_id in region_ids:
+                region_mask = (label_map == region_id)
+                gt_region_preds.append(pred[i][region_mask])
+
+        gt_neg = ~gt
+        pred_neg = pred[gt_neg]
+        gt_neg_sum = len(pred_neg)
 
         for step in range(max_step):
             thred = max_th - step * delta
 
-            # segment the scores with different thresholds
-            binary_score_maps[pred <= thred] = 0
-            binary_score_maps[pred > thred] = 1
-
             pro = []
-            for i in range(len(binary_score_maps)):
-
-                # label the regions in the ground truth
-                label_map = label(gt[i], connectivity=2)
-
-                # calculate some properties for every corresponding region
-                props = regionprops(label_map, binary_score_maps[i])
-
-                # calculate the per-regione overlap
-                for prop in props:
-                    pro.append(prop.intensity_image.sum() / prop.area)
+            for region_preds in gt_region_preds:
+                overlap = (region_preds > thred).sum()
+                pro.append(overlap / len(region_preds))
 
             # append the per-region overlap
-            pros_mean.append(np.array(pro).mean())
+            pros_mean.append(np.mean(pro) if pro else 0.0)
 
             # calculate the false positive rate
-            gt_neg = ~gt
-            fpr = np.logical_and(gt_neg, binary_score_maps).sum() / gt_neg.sum()
+            fpr = (pred_neg > thred).sum() / gt_neg_sum
             fprs.append(fpr)
             threds.append(thred)
 

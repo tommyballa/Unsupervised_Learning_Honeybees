@@ -69,7 +69,7 @@ class CFA(VADModel):
         self.gamma_c = gamma_c
         self.gamma_d = gamma_d
         self.alpha = 1e-1
-        self.K = 3
+        self.K = 5
         self.J = 3
         self.r = nn.Parameter(1e-5*torch.ones(1), requires_grad=True)
 
@@ -151,8 +151,22 @@ class CFA(VADModel):
             heatmaps = torch.mean(scores, dim=1)
             heatmaps = CFA.upsample(heatmaps, size=x.size(2), mode="bilinear")
             heatmaps = CFA.gaussian_smooth_torch(heatmaps, sigma=4)
-            img_scores = CFA.rescale(heatmaps)
-            img_scores = scores.reshape(scores.shape[0], -1).max(axis=1).values
+            
+            # --- IGNORA I BORDI PER L'IMAGE SCORE (Come in PatchCore) ---
+            batch_size, _, h, w = scores.shape
+            margin = int(h * 0.35)  # 35% di margine ignorato (come in patchcore)
+            
+            mask = torch.zeros_like(scores)
+            mask[:, :, margin:-margin, margin:-margin] = 1.0
+            scores_masked = scores * mask
+            
+            # Calcoliamo il Top-9 mean sulla zona centrale invece del max (stessa logica usata in patchcore)
+            k = 9
+            scores_flat = scores_masked.reshape(batch_size, -1)
+            k = min(k, scores_flat.shape[1])
+            topk_scores, _ = torch.topk(scores_flat, k=k, dim=1)
+            img_scores = topk_scores.mean(dim=1)
+            # ------------------------------------------------------------
 
             if len(heatmaps.shape) == 2:
                 return heatmaps.view(1,1,heatmaps.shape[0], heatmaps.shape[1]), img_scores

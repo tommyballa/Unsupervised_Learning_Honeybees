@@ -36,7 +36,7 @@ class PatchCoreCL(ContinualModel):
             train_dataset,
             batch_size=train_args.batch_size,
             shuffle=True,
-            num_workers=4
+            num_workers=0
         )
 
         embeddings = []
@@ -46,7 +46,12 @@ class PatchCoreCL(ContinualModel):
             print("Embedding Extraction:")
             for batch in tqdm(iter(train_dataloader)):
                 embedding = self.vad_model(batch)
-                embeddings.append(embedding)
+                # PatchCore generates a huge amount of patches at 384x384 (53GB+ of RAM for Varroa).
+                # Randomly subsample 10% of the patches to prevent CPU OOM.
+                num_patches = embedding.size(0)
+                subsample_size = int(num_patches * 0.1)
+                indices = torch.randperm(num_patches)[:subsample_size]
+                embeddings.append(embedding[indices].cpu())
 
             embeddings = torch.cat(embeddings, dim = 0)
             torch.cuda.empty_cache()

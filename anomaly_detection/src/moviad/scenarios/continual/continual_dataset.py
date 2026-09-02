@@ -34,10 +34,10 @@ class ContinualDataset:
     def __len__(self):
         return len(self.categories)
 
-    def get_task_data(self, task_index:int) -> Tuple[DataLoader, DataLoader]:
+    def get_task_data(self, task_index:int) -> Tuple[DataLoader, DataLoader, DataLoader]:
 
         """
-        Get the training and test data for the given task.
+        Get the training, validation, and test data for the given task.
 
         Args:
         ----
@@ -52,13 +52,15 @@ class ContinualDataset:
         -------
         (tuple):
             0: train dataloader
-            1: test dataloader
+            1: val dataloader
+            2: test dataloader
         """
 
         train_dataset = self.dataset_class(self.dataset_arguments, category=self.categories[task_index], split=Split.TRAIN)
+        val_dataset = self.dataset_class(self.dataset_arguments, category=self.categories[task_index], split=Split.VAL)
         test_dataset = self.dataset_class(self.dataset_arguments, category=self.categories[task_index], split=Split.TEST)
 
-        return train_dataset, test_dataset
+        return train_dataset, val_dataset, test_dataset
 
     def get_task_data_evaluation(self, task_index:int) -> torch.utils.data.DataLoader:
 
@@ -79,7 +81,7 @@ class ContinualDataset:
 
         return test_dataset 
 
-    def get_all_tasks_data(self) -> Tuple[torch.utils.data.Dataset, torch.utils.data.Dataset]:
+    def get_all_tasks_data(self) -> Tuple[torch.utils.data.Dataset, torch.utils.data.Dataset, torch.utils.data.Dataset]:
 
         """
         Get the data for all tasks.
@@ -90,18 +92,23 @@ class ContinualDataset:
             "train" or "test"
         """
         all_datasets_train = []
+        all_datasets_val = []
         all_datasets_test = []
         for category in self.categories:
 
             train_dataset = self.dataset_class(self.dataset_arguments, category=category, split=Split.TRAIN)
             all_datasets_train.append(train_dataset)
 
+            val_dataset = self.dataset_class(self.dataset_arguments, category=category, split=Split.VAL)
+            all_datasets_val.append(val_dataset)
+
             test_dataset = self.dataset_class(self.dataset_arguments, category=category, split=Split.TEST)
             all_datasets_test.append(test_dataset)
 
         train_dataset = torch.utils.data.ConcatDataset(all_datasets_train)
+        val_dataset = torch.utils.data.ConcatDataset(all_datasets_val)
         test_dataset = torch.utils.data.ConcatDataset(all_datasets_test)
-        return train_dataset, test_dataset
+        return train_dataset, val_dataset, test_dataset
 
     def get_previous_tasks(self, task_index):
         return range(len(self.categories))[:task_index+1]

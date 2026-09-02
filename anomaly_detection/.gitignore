@@ -213,3 +213,10 @@ benchmark/patchcore.json
 benchmark/stfpm.json
 
 /wandb
+
+# Added manually
+data/
+MIRAGE/
+heatmaps_debug/
+.DS_Store
+*.ipynb_checkpoints/

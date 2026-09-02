@@ -38,14 +38,14 @@ class ContinualTrainer:
 
             print(f"Training for task: {task_index} , {self.continual_dataset.get_task_category(task_index)}")
 
-            train_dataset, eval_dataset = self.continual_dataset.get_task_data(task_index)
+            train_dataset, val_dataset, test_dataset = self.continual_dataset.get_task_data(task_index)
 
             self.continual_model.start_task(task_index, train_dataset, self.trainer_arguments)
 
             self.continual_model.train_task(
                 task_index=task_index,
                 train_dataset=train_dataset,
-                eval_dataset=eval_dataset,
+                eval_dataset=val_dataset,
                 train_args=self.trainer_arguments,
                 metrics=self.metrics,
                 device=self.device,
@@ -55,7 +55,9 @@ class ContinualTrainer:
             self.continual_model.end_task(task_index, train_dataset, self.trainer_arguments)
 
             # Evaluate on all previous tasks and get summary metrics
+            # Evaluate on all previous tasks and get summary metrics
             summary_metrics = { metric.name: [] for metric in self.metrics }
+            individual_task_results = {}
 
             previous_tasks_index = self.continual_dataset.get_previous_tasks(task_index)
 
@@ -65,9 +67,13 @@ class ContinualTrainer:
                     eval_dataset,
                     batch_size=self.trainer_arguments.batch_size,
                     shuffle=False,
-                    num_workers=4
+                    num_workers=0
                 )
                 results = Evaluator.evaluate(self.continual_model, eval_dataloader, self.metrics, device=self.device)
+
+                # Store individual results for printing later
+                task_name = self.continual_dataset.get_task_category(prev_task_index)
+                individual_task_results[f"Task {prev_task_index} ({task_name})"] = results
 
                 # update summary metrics
                 for metric in summary_metrics.keys():
@@ -82,11 +88,18 @@ class ContinualTrainer:
                         }
                     )
 
-            print(f"Summary metrics after training on task {task_index}:")
+            print(f"\n--- Evaluation Results after training on task {task_index} ---")
+            for task_display_name, res in individual_task_results.items():
+                print(f"Metrics for evaluated {task_display_name}:")
+                for metric_name, value in res.items():
+                    print(f"  {metric_name}: {value}")
+                print()
+
+            print(f"Summary (Average) metrics:")
             for metric_name, values in summary_metrics.items():
                 avg_value = sum(values) / len(values)
                 summary_metrics[metric_name] = avg_value
-                print(f"Average {metric_name}: {avg_value}")
+                print(f"  Average {metric_name}: {avg_value}")
 
             if self.logger:
                 self.logger.log(

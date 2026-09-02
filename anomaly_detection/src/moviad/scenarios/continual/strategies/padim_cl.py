@@ -113,7 +113,7 @@ class PadimCLUnimodal(ContinualModel):
         padim.gauss_mean = mean
         padim.gauss_cov = cov
 
-    def end_task(self, task_index=None, train_dataset=None):
+    def end_task(self, task_index=None, train_dataset=None, train_args=None):
         pass
 
 
@@ -148,7 +148,7 @@ class PadimCLMultimodal(ContinualModel):
         padim.gauss_mean = mean
         padim.gauss_cov = cov
 
-    def end_task(self, task_index=None, train_dataset=None):
+    def end_task(self, task_index=None, train_dataset=None, train_args=None):
         pass
 
     def _extract_per_task_distances(self, batch: torch.Tensor):
@@ -318,7 +318,7 @@ class PadimLiteCLUnimodal(ContinualModel):
         padim.gauss_mean = mean
         padim.diagonal_gauss_cov = var
 
-    def end_task(self, task_index=None, train_dataset=None):
+    def end_task(self, task_index=None, train_dataset=None, train_args=None):
         pass
 
 
@@ -346,7 +346,7 @@ class PadimLiteCLMultimodal(ContinualModel):
         padim.gauss_mean = mean
         padim.diagonal_gauss_cov = var
 
-    def end_task(self, task_index=None, train_dataset=None):
+    def end_task(self, task_index=None, train_dataset=None, train_args=None):
         pass
 
     def _extract_per_task_distances(self, batch: torch.Tensor):

@@ -107,14 +107,20 @@ class CoresetExtractor:
 
         print(f"   Fitting random projections. Start dim = {z_lib.shape}.")
         try:
-            transformer = SparseRandomProjection(eps=eps)
-
-            if self.quantized:
-                z_lib = torch.int_repr(z_lib).to(torch.float64).cpu()
-            z_lib = torch.tensor(transformer.fit_transform(z_lib))
-            print(f"   DONE.                 Transformed dim = {z_lib.shape}.")
-        except ValueError:
-            print("   Error: could not project vectors. Please increase `eps`.")
+            # Sostituiamo scikit-learn con una proiezione casuale nativa in PyTorch
+            # per evitare i crash di memoria RAM in float64 ed essere estremamente veloci
+            target_dim = 128
+            if target_dim >= z_lib.shape[1]:
+                print(f"   Skipping projection: original dim ({z_lib.shape[1]}) is already small enough.")
+            else:
+                print(f"   PyTorch Random Projection from {z_lib.shape[1]} to {target_dim}...")
+                # Generiamo la matrice di proiezione Gaussiana
+                proj_matrix = torch.randn(z_lib.shape[1], target_dim, device=z_lib.device) / (target_dim ** 0.5)
+                # Applichiamo la proiezione vettoriale
+                z_lib = torch.matmul(z_lib, proj_matrix)
+                print(f"   DONE. Transformed dim = {z_lib.shape}.")
+        except Exception as e:
+            print(f"   Error projecting vectors: {e}. Skipping.")
 
         select_idx = 0
         last_item = z_lib[select_idx:select_idx + 1]
