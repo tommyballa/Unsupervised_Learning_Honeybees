@@ -87,6 +87,7 @@ class PatchCore(VADModel):
             features = list(features.values())
 
         # Apply smoothing (3x3 average pooling) to the features.
+        # Reintrodotto per richiedere una dimensione minima dell'anomalia e ridurre falsi positivi
         smoothing = torch.nn.AvgPool2d(kernel_size=3, stride=1, padding=1)
         features  = [smoothing(feature) for feature in features]
 
@@ -169,7 +170,7 @@ class PatchCore(VADModel):
         locations = locations.reshape((batch_size, -1))
 
         # compute the anomaly score of the images
-        pred_scores = self.compute_anomaly_score(patch_scores, locations, embedding, memory_bank)
+        pred_scores = self.compute_anomaly_score_old(patch_scores, locations, embedding, memory_bank)
 
         # reshape to w,h
         patch_scores = patch_scores.reshape((batch_size, 1, width, height))
@@ -189,8 +190,22 @@ class PatchCore(VADModel):
             print("Embedding Extraction:")
             for batch in tqdm(iter(train_dataloader)):
                 with autocast(device_type=self.device.type, enabled=True):
-                    embedding = self(batch.to(self.device))
-                    embeddings.append(embedding)
+                    if isinstance(batch, (tuple, list)):
+                        images = batch[0]
+                    elif isinstance(batch, dict):
+                        images = batch["image"]
+                    else:
+                        images = batch
+                    embedding = self(images.to(self.device))
+                    
+                    # Estrai una percentuale (10%) di patch da ogni immagine per garantire una visione 
+                    # completa senza esplodere in memoria, e rendere il k-center greedy molto più veloce.
+                    num_patches = embedding.shape[0]
+                    keep_n = max(1, int(num_patches * 0.10))
+                    indices = torch.randperm(num_patches, device=embedding.device)[:keep_n]
+                    embedding = embedding[indices]
+                    
+                    embeddings.append(embedding.cpu()) # spostiamo su CPU per non riempire la VRAM
 
             embeddings = torch.cat(embeddings, dim = 0)
             torch.cuda.empty_cache()
@@ -217,7 +232,13 @@ class PatchCore(VADModel):
             print("Embedding Extraction:")
             for batch in tqdm(iter(train_dataloader)):
                 with autocast(device_type=self.device.type, enabled=True):
-                    embedding = self(batch.to(self.device))
+                    if isinstance(batch, (tuple, list)):
+                        images = batch[0]
+                    elif isinstance(batch, dict):
+                        images = batch["image"]
+                    else:
+                        images = batch
+                    embedding = self(images.to(self.device))
                     embeddings.append(embedding)
 
             embeddings = torch.cat(embeddings, dim = 0)
@@ -400,40 +421,48 @@ class PatchCore(VADModel):
             return patch_scores.amax(1)
 
         batch_size, num_patches = patch_scores.shape
-        # 1. Find the patch with the largest distance to it's nearest neighbor in each image
-        max_patches = torch.argmax(patch_scores, dim=1)  # indices of m^test,* in the paper
-        # m^test,* in the paper
-        max_patches_features = embedding.reshape(batch_size, num_patches, -1)[torch.arange(batch_size), max_patches]
-
-        # 2. Find the distance of the patch to it's nearest neighbor, and the location of the nn in the membank
-        score = patch_scores[torch.arange(batch_size), max_patches]  # s^* in the paper
-        nn_index = locations[torch.arange(batch_size), max_patches]  # indices of m^* in the paper
-
-        # 3. Find the support samples of the nearest neighbor in the membank
-        nn_sample = memory_bank[nn_index, :]  # m^* in the paper
-
-        # indices of N_b(m^*) in the paper
-        memory_bank_effective_size = memory_bank.shape[0]  # edge case when memory bank is too small
-        if self.apply_quantization:
-            _, support_samples = self.nearest_neighbors_quantized(
-                nn_sample,
-                n_neighbors=min(self.num_neighbors, memory_bank_effective_size),
-            )
-        else:
-            _, support_samples = self.nearest_neighbors(
-                nn_sample,
-                n_neighbors=min(self.num_neighbors, memory_bank_effective_size),
-                memory_bank=memory_bank
-            )
-
-        # 4. Find the distance of the patch features to each of the support samples
-        distances = PatchCore.euclidean_distance(max_patches_features.unsqueeze(1), memory_bank[support_samples], self.feature_extractor.quantized)
-
-        # 5. Apply softmax to find the weights
-        weights = (1 - F.softmax(distances.squeeze(1), 1))[..., 0]
- 
-        # 6. Apply the weight factor to the score
-        return weights * score  # s in the paper
+        
+        # Number of top patches to average (Top-K)
+        k = 5
+        k = min(k, num_patches)
+        
+        topk_scores, topk_patches = torch.topk(patch_scores, k=k, dim=1) # (B, K)
+        
+        embedding_reshaped = embedding.reshape(batch_size, num_patches, -1)
+        batch_indices = torch.arange(batch_size, device=patch_scores.device).unsqueeze(1).expand(-1, k)
+        
+        topk_features = embedding_reshaped[batch_indices, topk_patches] # (B, K, D)
+        topk_nn_indices = locations[batch_indices, topk_patches] # (B, K)
+        
+        final_scores = []
+        
+        for i in range(k):
+            score_i = topk_scores[:, i]
+            nn_index_i = topk_nn_indices[:, i]
+            features_i = topk_features[:, i, :]
+            
+            nn_sample_i = memory_bank[nn_index_i, :]
+            
+            memory_bank_effective_size = memory_bank.shape[0]
+            if self.apply_quantization:
+                _, support_samples = self.nearest_neighbors_quantized(
+                    nn_sample_i,
+                    n_neighbors=min(self.num_neighbors, memory_bank_effective_size),
+                )
+            else:
+                _, support_samples = self.nearest_neighbors(
+                    nn_sample_i,
+                    n_neighbors=min(self.num_neighbors, memory_bank_effective_size),
+                    memory_bank=memory_bank
+                )
+                
+            distances = PatchCore.euclidean_distance(features_i.unsqueeze(1), memory_bank[support_samples], self.feature_extractor.quantized)
+            weights = (1 - F.softmax(distances.squeeze(1), 1))[..., 0]
+            
+            final_scores.append(weights * score_i)
+            
+        # Return the mean of the top-K reweighted scores
+        return torch.stack(final_scores, dim=1).mean(dim=1)
 
     def compute_anomaly_score(self, patch_scores: torch.Tensor, locations: torch.Tensor, embedding: torch.Tensor, memory_bank: torch.Tensor) -> torch.Tensor:
             """
@@ -446,22 +475,27 @@ class PatchCore(VADModel):
             scores_2d = patch_scores.reshape(batch_size, grid_size, grid_size)
             
             # 2. Crea la maschera per ignorare il 25% di bordo esterno (Sfondo)
-            margin = int(grid_size * 0.35) 
-            mask = torch.zeros_like(scores_2d)
+            # Modificato per immagini con api ammassate: valutiamo l'intera immagine
+            margin = 0 
+            mask = torch.ones_like(scores_2d)
             
-            # Attiviamo (1.0) solo il "cuore" dell'immagine dove si trova l'ape
-            mask[:, margin:-margin, margin:-margin] = 1.0
+            # Attiviamo (1.0) l'intera immagine
+            if margin > 0:
+                mask[:, margin:-margin, margin:-margin] = 1.0
             
             # 3. Applica la maschera ai punteggi (azzera i bordi)
             scores_2d_masked = scores_2d * mask
             patch_scores_masked = scores_2d_masked.reshape(batch_size, num_patches)
             
             # 4. Calcola il Top-K solo sulla zona centrale
-            k = 9  # Il valore ottimale trovato per la tua WideResNet a 384x384
+            # Modificato a k=3: la varroa è molto piccola e occupa poche patch.
+            # Se usiamo valori alti (es. k=12) il picco della varroa viene "diluito" con
+            # patch sane circostanti, avvicinando gli score delle immagini sane a quelle anomale.
+            k = 3
             k = min(k, patch_scores_masked.shape[1])
             topk_scores, _ = torch.topk(patch_scores_masked, k=k, dim=1)
             
-            # Il punteggio finale è la media delle 9 patch peggiori al centro
+            # Il punteggio finale è la media delle k patch peggiori (se k=1, è semplicemente il massimo)
             image_score = topk_scores.mean(dim=1)
             
             return image_score

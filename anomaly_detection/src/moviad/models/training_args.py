@@ -9,6 +9,7 @@ class TrainingArgs:
     evaluation_epoch_interval: int = 1 
     optimizer: torch.optim.Optimizer | None = None
     loss_function: Callable | None = None
+    scheduler: torch.optim.lr_scheduler.LRScheduler | None = None
 
     def __to_dict__(self):
 
@@ -20,6 +21,7 @@ class TrainingArgs:
             "evaluation_epoch_interval": self.evaluation_epoch_interval,
             "loss_function": self.loss_function,
             "optimizer": optimizer_dict,
+            "scheduler": str(self.scheduler) if self.scheduler else None,
         }
     
     @staticmethod

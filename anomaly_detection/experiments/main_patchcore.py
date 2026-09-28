@@ -1,3 +1,10 @@
+"""
+PatchCore — Anomaly detection su singole api (dataset Ceschi).
+
+Training: immagini normali da categoria_1 (10383 crop di api sane).
+Test: anomaly_dataset_synthetic con api normali, anomale e maschere.
+"""
+
 import os
 import random
 from pathlib import Path
@@ -6,11 +13,11 @@ import numpy as np
 import torch
 import cv2
 import matplotlib.pyplot as plt
-import argparse
 from torchvision import transforms
+from torch.utils.data import DataLoader
 
 from moviad.datasets.dataset_arguments import DatasetArguments
-from moviad.datasets.varroa.varroa_domain_shift_dataset import VarroaDomainShiftDataset
+from moviad.datasets.varroa.varroa_dataset import VarroaDataset
 from moviad.models import PatchCore
 from moviad.models.training_args import TrainingArgs
 from moviad.scenarios.continual.continual_dataset import ContinualDataset
@@ -54,10 +61,13 @@ def save_anomaly_heatmaps(model, dataloader, device, output_dir="./heatmaps_debu
     print(f"Global Min: {global_min:.4f} | Global Max: {global_max:.4f}")
     print(f"Generating heatmaps... saving to '{output_dir}'")
 
-    samples_saved = 0
+    saved_normal = 0
+    saved_anomal = 0
+    target_each = num_samples // 2
+
     with torch.no_grad():
         for batch in dataloader:
-            if samples_saved >= num_samples:
+            if saved_normal >= target_each and saved_anomal >= target_each:
                 break
 
             if isinstance(batch, dict):
@@ -72,8 +82,13 @@ def save_anomaly_heatmaps(model, dataloader, device, output_dir="./heatmaps_debu
             anomaly_scores = anomaly_scores.cpu().numpy()
 
             for i in range(images.size(0)):
-                if samples_saved >= num_samples:
-                    break
+                is_anomal = labels[i] == 1
+                
+                # Skip if we already have enough of this class
+                if is_anomal and saved_anomal >= target_each:
+                    continue
+                if not is_anomal and saved_normal >= target_each:
+                    continue
 
                 img_tensor = images[i].cpu()
                 mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
@@ -81,27 +96,45 @@ def save_anomaly_heatmaps(model, dataloader, device, output_dir="./heatmaps_debu
                 img_denorm = ((img_tensor * std + mean).clamp(0, 1).permute(1, 2, 0).numpy() * 255).astype(np.uint8)
 
                 amap = np.squeeze(anomaly_maps[i])
+                
+                # Normalizzazione GLOBALE invece che per-immagine.
+                # Se usassimo min/max dell'immagine stessa, il punto "meno sano" di un'ape 
+                # perfettamente sana verrebbe forzato a 1.0 (rosso). Usando il massimo globale,
+                # un'ape sana con score 0.6 rispetto a un max globale di 3.0 rimarrà completamente blu!
                 amap_norm = np.clip((amap - global_min) / (global_max - global_min + 1e-8), 0, 1)
+                
+                # Gamma > 1 per sopprimere i valori medi ed esaltare il vero picco (varroa)
+                amap_norm = amap_norm ** 3.0 
+                
                 heatmap = cv2.applyColorMap((amap_norm * 255).astype(np.uint8), cv2.COLORMAP_JET)
                 heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
-                overlay = cv2.addWeighted(img_denorm, 0.6, heatmap, 0.4, 0)
+                overlay = cv2.addWeighted(img_denorm, 0.4, heatmap, 0.6, 0)
 
-                status = "Varroa" if labels[i] == 1 else "Sana"
+                status = "Varroa" if is_anomal else "Sana"
                 fig, axes = plt.subplots(1, 3, figsize=(12, 4))
                 axes[0].imshow(img_denorm);  axes[0].set_title(f"Originale ({status})");  axes[0].axis("off")
-                im = axes[1].imshow(amap, cmap="jet", vmin=global_min, vmax=global_max)
+                
+                # Mostriamo l'amap_norm scalato da 0 a 1 (poiché abbiamo già applicato il global_max e il gamma)
+                im = axes[1].imshow(amap_norm, cmap="jet", vmin=0, vmax=1)
                 axes[1].set_title(f"Heatmap (Score: {anomaly_scores[i]:.2f})");  axes[1].axis("off")
                 plt.colorbar(im, ax=axes[1], fraction=0.046, pad=0.04)
+                
                 axes[2].imshow(overlay);  axes[2].set_title("Overlay");  axes[2].axis("off")
                 plt.tight_layout()
+                
+                current_id = saved_anomal if is_anomal else saved_normal
                 plt.savefig(
-                    os.path.join(output_dir, f"sample_{samples_saved}_{status}_score_{anomaly_scores[i]:.2f}.png"),
+                    os.path.join(output_dir, f"sample_{status}_{current_id}_score_{anomaly_scores[i]:.2f}.png"),
                     dpi=150, bbox_inches="tight"
                 )
                 plt.close()
-                samples_saved += 1
+                
+                if is_anomal:
+                    saved_anomal += 1
+                else:
+                    saved_normal += 1
 
-    print(f"Saved {samples_saved} debug images.")
+    print(f"Saved {saved_normal} normal images and {saved_anomal} anomalous debug images.")
 
 
 def train_patchcore_wideresnet():
@@ -119,26 +152,25 @@ def train_patchcore_wideresnet():
         std=[0.229, 0.224, 0.225],
     )
     dataset_args = DatasetArguments(
-        dataset_path="./data",
-        img_size=(384, 384),
-        gt_mask_size=(384, 384),
+        dataset_path="/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees",
+        img_size=(512, 512),
+        gt_mask_size=(512, 512),
         image_transform_list=[
             transforms.ToTensor(),
-            transforms.Resize((384, 384), antialias=True),
+            transforms.Resize((512, 512), antialias=True),
             transforms.GaussianBlur(kernel_size=3, sigma=0.5),
             imagenet_normalize,
         ],
     )
 
     # ------------------------------------------------------------------
-    # Build the continual dataset (needed even for pre-training to extract
-    # the healthy training split automatically)
+    # Build the dataset (single task: "varroa")
     # ------------------------------------------------------------------
-    print("\n Building the 3 domain shift tasks...")
+    print("\n Building the varroa dataset (Ceschi)...")
     continual_dataset = ContinualDataset(
         dataset_args,
-        VarroaDomainShiftDataset,
-        categories=["varroa_clean"],
+        VarroaDataset,
+        categories=["varroa"],
     )
 
     # ------------------------------------------------------------------
@@ -146,15 +178,15 @@ def train_patchcore_wideresnet():
     # ------------------------------------------------------------------
     feature_extractor = CustomFeatureExtractor(
         "wide_resnet50_2",
-        ["layer1", "layer2"],
+        ["layer1", "layer2", "layer3"],
         device,
         frozen=True
     )
-    model = PatchCore(feature_extractor=feature_extractor)
+    model = PatchCore(feature_extractor=feature_extractor, memory_bank_size=20000)
     continual_model = PatchCoreCL(model)
 
     # ------------------------------------------------------------------
-    # Continual training
+    # Training
     # ------------------------------------------------------------------
     trainer = ContinualTrainer(
         continual_dataset,
@@ -169,7 +201,7 @@ def train_patchcore_wideresnet():
             F1(MetricLvl.PIXEL),
             ProAuc(MetricLvl.PIXEL),
         ],
-        training_args=TrainingArgs(batch_size=8, epochs=1),
+        training_args=TrainingArgs(batch_size=32, epochs=1),
         logger=None,
     )
     trainer.train()
@@ -177,8 +209,6 @@ def train_patchcore_wideresnet():
     # ------------------------------------------------------------------
     # Evaluation + heatmaps
     # ------------------------------------------------------------------
-    from torch.utils.data import DataLoader
-
     with torch.inference_mode():
         for task_idx in range(len(continual_dataset)):
             test_dataset = continual_dataset.get_task_data_evaluation(task_index=task_idx)
@@ -188,7 +218,7 @@ def train_patchcore_wideresnet():
                 model=continual_model,
                 dataloader=test_dataloader,
                 device=device,
-                output_dir=f"./heatmaps_debug/task_{task_idx}_{task_name}",
+                output_dir=f"./heatmaps_debug/patchcore",
                 num_samples=20,
             )
 

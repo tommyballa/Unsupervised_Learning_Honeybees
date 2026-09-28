@@ -38,7 +38,7 @@ class Evaluator:
         gt_mask, gt_label, pred_anom_map, pred_anom_score = [], [], [], []
 
         for image, label, mask, path in tqdm(dataloader, desc="Eval"):
-            with torch.no_grad():
+            with torch.no_grad(), torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                 anom_maps, anom_scores = model(image.to(device))
             gt_mask.append((mask.cpu().numpy() > 0).astype(np.int8))
             gt_label.append((label.cpu().numpy() > 0).astype(np.int8))

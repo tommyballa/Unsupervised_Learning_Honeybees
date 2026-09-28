@@ -218,5 +218,12 @@ benchmark/stfpm.json
 data/
 MIRAGE/
 heatmaps_debug/
+heatmaps_*/
+checkpoints/
+*.pth
+*.jpg
+*.JPG
+*.jpeg
+*.png
 .DS_Store
 *.ipynb_checkpoints/

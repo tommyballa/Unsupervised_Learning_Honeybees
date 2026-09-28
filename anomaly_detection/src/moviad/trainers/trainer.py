@@ -29,14 +29,18 @@ class Trainer:
             train_dataset,
             batch_size=train_args.batch_size,
             shuffle=True,
-            num_workers=0   
+            num_workers=8,
+            pin_memory=True,
+            persistent_workers=True
         )
         
         self.eval_dataloader = torch.utils.data.DataLoader(
             eval_dataset,
             batch_size=train_args.batch_size,
             shuffle=False,
-            num_workers=0
+            num_workers=8,
+            pin_memory=True,
+            persistent_workers=True
         ) if eval_dataset is not None else None
 
         self.device = device
@@ -87,6 +91,9 @@ class Trainer:
                     f"{self.logging_prefix}train/train_loss" : avg_batch_loss
                 })
 
+            if self.train_args.scheduler is not None:
+                self.train_args.scheduler.step()
+
             if (epoch + 1) % self.train_args.evaluation_epoch_interval == 0:
                 print("Evaluating model...")
                 results = Evaluator.evaluate(self.model, self.eval_dataloader, self.metrics, self.device)
@@ -108,5 +115,5 @@ class Trainer:
 
         if self.saving_criteria is None and self.save_path is not None:
             print("Saving model...")
-            self.model.save_model()
+            torch.save(self.model.state_dict(), self.save_path)
             print(f"Model saved to {self.save_path}")

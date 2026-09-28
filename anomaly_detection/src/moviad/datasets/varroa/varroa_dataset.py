@@ -1,23 +1,30 @@
 """
-VarroaDataset — Dataset per il rilevamento di varroa su api.
+VarroaDataset — Dataset per il rilevamento di varroa su api (Ceschi).
 
 Struttura del dataset su disco:
-    data/
-    ├── train/
-    │   ├── gt_one.csv
-    │   ├── videos/<video_folder>/<image>.png
-    │   └── labels/<video_folder>/<image>.txt
-    ├── test/   (stessa struttura)
-    └── val/    (stessa struttura)
 
-Formato gt_one.csv (space-separated, senza header):
-    <path_relativo> <label> [x1 y1 x2 y2 ...]
-    - label: 0=normale, 1=varroa singola, 3=varroa multipla
-    - bbox opzionali in gruppi di 4 (possono esserci più bbox per riga)
+    Training:
+        .../train_single_bee/train_single_bee_clustered/categoria_1/
+            ├── bee_00000_conf0.96.png
+            ├── bee_00011_conf0.93.png
+            └── ...
+        Tutte le immagini sono normali (nessun CSV necessario).
+
+    Test:
+        .../test_single_bee/anomaly_dataset_synthetic/
+            ├── labels.csv          (bee_id, label, image_path, mask_path)
+            ├── normal/             immagini sane
+            ├── anomalous/          immagini con varroa
+            └── masks/              maschere pixel-level per le anomale
+
+    labels.csv:
+        bee_id,label,image_path,mask_path
+        - label: 0=normale, 1=anomala
+        - mask_path: vuoto per le normali
 
 Due modalità di utilizzo:
-    1. Singola task:  category="varroa"  → aggrega tutti i video folder
-    2. Per-video CL:  category="<nome_video_folder>" → un solo folder
+    1. Singola task:  category="varroa"  → usa i path hardcoded
+    2. Per-video CL:  non più supportato (dataset singolo)
 """
 
 from pathlib import Path
@@ -33,25 +40,24 @@ from moviad.datasets.dataset_arguments import DatasetArguments
 from moviad.utilities.configurations import Split, LabelName
 
 
-# Video folder presenti nel train set (ordine cronologico → ordine delle task CL)
-TRAIN_VIDEO_FOLDERS = (
-    "2017-08-28_09-30-00-1_500_dirty_glass",
-    "2017-08-28_16-31-55",
-    "2017-08-30_15-42-59",
-    "2017-09-20_19-24-55",
-    "2017-09-25_16-03-38-2",
-    "2017-10-17_16-41-10",
+# Default paths — overridden by dataset_arguments.dataset_path when provided
+_DEFAULT_TRAIN_DIR = Path(
+    "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees"
+)
+_DEFAULT_TEST_DIR = Path(
+    "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee_merged"
 )
 
-# Categoria speciale che aggrega tutti i video folder
+# Categoria speciale che aggrega tutti i dati
 _AGGREGATE_CATEGORY = "varroa"
 
 
 class VarroaDataset(VADDataset):
-    """Dataset per il rilevamento di varroa su api.
+    """Dataset per il rilevamento di varroa su api (Ceschi).
 
-    Supporta sia il caricamento di un singolo video folder (per CL)
-    sia l'aggregazione di tutti i folder (per training single-task).
+    - TRAIN: carica tutte le immagini da categoria_1 (tutte normali).
+    - TEST/VAL: carica da anomaly_dataset_synthetic con labels.csv,
+      usando le maschere pixel-level per le immagini anomale.
     """
 
     def __init__(
@@ -63,91 +69,117 @@ class VarroaDataset(VADDataset):
         super().__init__(dataset_arguments, category, split)
 
         self.samples: pd.DataFrame | None = None
-        self._cache: dict = {}
+        # Pre-converted lists for fast indexing (avoid pd.iloc overhead)
+        self.image_paths: list[str] = []
+        self.labels: list[int] = []
+        self.mask_paths: list[str] = []
         self._load_dataset()
 
     # ------------------------------------------------------------------
     # Loading
     # ------------------------------------------------------------------
 
-    def _split_dir(self) -> Path:
-        """Restituisce il path della directory dello split (train/test/val)."""
-        split_str = self.split.value if hasattr(self.split, "value") else self.split
-        # Mappa Split.VAL → "val" (la directory su disco si chiama "val")
-        if split_str == "valid":
-            split_str = "val"
-        return Path(self.dataset_arguments.dataset_path) / split_str
-
     def _load_dataset(self):
-        """Legge gt_one.csv e costruisce il DataFrame dei sample."""
-        split_dir = self._split_dir()
-        csv_path = split_dir / "gt_one.csv"
+        """Carica i sample in base allo split."""
+        if self.split == Split.TRAIN:
+            self._load_train()
+        else:
+            self._load_test()
+
+    def _load_train(self):
+        """Carica tutte le immagini da categoria_1 come sample normali."""
+        if self.dataset_arguments.dataset_path:
+            train_dir = Path(self.dataset_arguments.dataset_path)
+        else:
+            train_dir = _DEFAULT_TRAIN_DIR
+
+        if not train_dir.exists():
+            raise FileNotFoundError(
+                f"Directory di training non trovata: {train_dir}"
+            )
+
+        image_extensions = {".png", ".jpg", ".jpeg", ".bmp", ".tiff"}
+        image_files = sorted([
+            f for f in train_dir.iterdir()
+            if f.is_file() and f.suffix.lower() in image_extensions
+        ])
+
+        if not image_files:
+            raise RuntimeError(
+                f"Nessuna immagine trovata in {train_dir}"
+            )
+
+        rows = []
+        for img_path in image_files:
+            rows.append({
+                "image_path": str(img_path),
+                "label_index": LabelName.NORMAL.value,
+                "mask_path": "",
+            })
+
+        self.samples = pd.DataFrame(rows)
+        # Pre-convert to lists for fast __getitem__ indexing
+        self.image_paths = self.samples["image_path"].tolist()
+        self.labels = self.samples["label_index"].tolist()
+        self.mask_paths = self.samples["mask_path"].tolist()
+        print(
+            f"[VarroaDataset] TRAIN: {len(self.samples)} immagini normali "
+            f"da {train_dir.name}"
+        )
+
+    def _load_test(self):
+        """Carica i sample da anomaly_dataset_synthetic usando labels.csv."""
+        test_dir = _DEFAULT_TEST_DIR
+        csv_path = test_dir / "labels.csv"
 
         if not csv_path.exists():
             raise FileNotFoundError(
-                f"Ground truth CSV non trovato: {csv_path}"
+                f"Labels CSV non trovato: {csv_path}"
             )
 
-        rows: list[dict] = []
-        with open(csv_path, "r") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                parts = line.split()
-                rel_path = parts[0]          # es. "videos/<folder>/<img>.png"
-                label_int = int(parts[1])    # 0, 1, o 3
+        df = pd.read_csv(csv_path)
 
-                # Bounding box: gruppi di 4 float
-                bbox_coords = [float(x) for x in parts[2:]]
-                bboxes = []
-                for i in range(0, len(bbox_coords), 4):
-                    if i + 3 < len(bbox_coords):
-                        bboxes.append(bbox_coords[i : i + 4])
+        rows = []
+        for _, row in df.iterrows():
+            label_int = int(row["label"])
+            label_index = (
+                LabelName.NORMAL if label_int == 0
+                else LabelName.ABNORMAL
+            )
 
-                # Estrai il nome del video folder dal path relativo
-                # rel_path = "videos/<video_folder>/<filename>.png"
-                path_parts = Path(rel_path).parts
-                video_folder = path_parts[1] if len(path_parts) >= 3 else ""
+            # I path nel CSV potrebbero puntare alla vecchia directory;
+            # ricostruiamo i path corretti dalla directory effettiva.
+            bee_id = row["bee_id"]
+            if label_int == 0:
+                img_path = str(test_dir / "normal" / f"{bee_id}.png")
+                mask_path = ""
+            else:
+                img_path = str(test_dir / "anomalous" / f"{bee_id}.png")
+                mask_path = str(test_dir / "masks" / f"{bee_id}_mask.png")
 
-                # Filtra per category
-                if self.category != _AGGREGATE_CATEGORY:
-                    if video_folder != self.category:
-                        continue
-
-                abs_path = str(split_dir / rel_path)
-                label_index = LabelName.NORMAL if label_int == 0 else LabelName.ABNORMAL
-
-                rows.append(
-                    {
-                        "image_path": abs_path,
-                        "label_index": label_index.value,
-                        "label_raw": label_int,
-                        "video_folder": video_folder,
-                        "bboxes": bboxes,
-                    }
-                )
+            rows.append({
+                "image_path": img_path,
+                "label_index": label_index.value,
+                "mask_path": mask_path,
+            })
 
         if not rows:
             raise RuntimeError(
-                f"Nessun sample trovato per category='{self.category}' "
-                f"in {csv_path}"
+                f"Nessun sample trovato in {csv_path}"
             )
 
         self.samples = pd.DataFrame(rows)
+        # Pre-convert to lists for fast __getitem__ indexing
+        self.image_paths = self.samples["image_path"].tolist()
+        self.labels = self.samples["label_index"].tolist()
+        self.mask_paths = self.samples["mask_path"].tolist()
 
-        # Durante il training (unsupervised one-class), si usano SOLO sample normali.
-        # Il test e la val mantengono tutti i sample per la valutazione.
-        if self.split == Split.TRAIN:
-            n_total = len(self.samples)
-            self.samples = self.samples[
-                self.samples["label_index"] == LabelName.NORMAL.value
-            ].reset_index(drop=True)
-            n_normal = len(self.samples)
-            print(
-                f"[VarroaDataset] TRAIN split: {n_normal}/{n_total} sample normali "
-                f"(scartati {n_total - n_normal} anomali)"
-            )
+        n_normal = (self.samples.label_index == LabelName.NORMAL.value).sum()
+        n_anomal = (self.samples.label_index == LabelName.ABNORMAL.value).sum()
+        print(
+            f"[VarroaDataset] TEST: {len(self.samples)} sample totali "
+            f"({n_normal} normali, {n_anomal} anomali)"
+        )
 
     # ------------------------------------------------------------------
     # Dataset interface
@@ -167,65 +199,29 @@ class VarroaDataset(VADDataset):
             Altrimenti:
                 image (Tensor): (C, H, W)
                 label (int): 0 o 1
-                mask (Tensor): (1, H, W) — mask rettangolare dai bbox
+                mask (Tensor): (1, H, W) — mask pixel-level o zero mask
                 path (str): path assoluto dell'immagine
         """
-        if index in self._cache:
-            return self._cache[index]
+        img_path = self.image_paths[index]
 
-        row = self.samples.iloc[index]
-
-        image = Image.open(row.image_path).convert("RGB")
+        image = Image.open(img_path).convert("RGB")
         image = self.transform_image(image)
 
         if self.split == Split.TRAIN:
-            self._cache[index] = image
             return image
 
-        label = row.label_index
-        path = row.image_path
-        bboxes = row.bboxes
+        label = self.labels[index]
+        mask_path = self.mask_paths[index]
 
-        if label == LabelName.ABNORMAL.value and bboxes:
-            mask = self._bboxes_to_mask(bboxes)
+        if label == LabelName.ABNORMAL.value and mask_path:
+            mask = Image.open(mask_path).convert("L")
+            mask = self.transform_mask(mask)
+            # Binarizza la mask (threshold 0.5)
+            mask = (mask > 0.5).int()
         else:
             mask = torch.zeros(1, *self.dataset_arguments.gt_mask_size)
 
-        result = (image, label, mask.int(), path)
-        self._cache[index] = result
-        return result
-
-    def _bboxes_to_mask(self, bboxes: list[list[float]]) -> torch.Tensor:
-        """Genera una mask binaria dai bounding box.
-
-        I bbox nel CSV sono in coordinate pixel dell'immagine originale (160×280).
-        La mask viene generata alla dimensione gt_mask_size.
-        """
-        # Dimensione originale delle immagini varroa
-        orig_w, orig_h = 160, 280
-
-        mask_h, mask_w = self.dataset_arguments.gt_mask_size
-        mask = torch.zeros(1, mask_h, mask_w)
-
-        for bbox in bboxes:
-            x1, y1, x2, y2 = bbox
-            # Scala le coordinate alla dimensione della mask
-            sx1 = int(x1 / orig_w * mask_w)
-            sy1 = int(y1 / orig_h * mask_h)
-            sx2 = int(x2 / orig_w * mask_w)
-            sy2 = int(y2 / orig_h * mask_h)
-
-            # Clamp
-            sx1 = max(0, min(sx1, mask_w - 1))
-            sy1 = max(0, min(sy1, mask_h - 1))
-            sx2 = max(0, min(sx2, mask_w))
-            sy2 = max(0, min(sy2, mask_h))
-
-            mask[0, sy1:sy2, sx1:sx2] = 1
-
-        return mask
-
-
+        return (image, label, mask.int(), img_path)
 
     # ------------------------------------------------------------------
     # Abstract methods da VADDataset
@@ -247,10 +243,10 @@ class VarroaDataset(VADDataset):
         return n_abnormal / len(self.samples)
 
     # ------------------------------------------------------------------
-    # Categories per il continual learning
+    # Categories
     # ------------------------------------------------------------------
 
     @staticmethod
     def get_categories() -> list:
-        """Restituisce i video folder del train come task per il CL."""
-        return list(TRAIN_VIDEO_FOLDERS)
+        """Restituisce la lista delle category disponibili."""
+        return [_AGGREGATE_CATEGORY]

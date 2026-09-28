@@ -128,6 +128,8 @@ def visualize_patchcore(
         norm_map = (anomaly_map - anomaly_map.min()) / (
             anomaly_map.max() - anomaly_map.min() + 1e-8
         )
+        # Gamma correction per rendere i picchi più evidenti e rossi
+        norm_map = norm_map ** 0.7
 
         label_text = "Anomalo (Varroa)" if label == 1 else "Normale"
 
@@ -151,7 +153,7 @@ def visualize_patchcore(
 
         # 4. Overlay
         axes[row_idx, 3].imshow(rgb_img)
-        axes[row_idx, 3].imshow(norm_map, cmap="jet", alpha=0.45)
+        axes[row_idx, 3].imshow(norm_map, cmap="jet", alpha=0.65)
         axes[row_idx, 3].set_title("Overlay (Image + Heatmap)", fontsize=11)
         axes[row_idx, 3].axis("off")
 

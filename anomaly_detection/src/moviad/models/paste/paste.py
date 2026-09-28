@@ -408,6 +408,9 @@ class PaSTe(nn.Module):
         x = batch_imgs if self.student_bootstrap_layer is None else bootstrap_feat
         s_feat, _ = self.student(x)
 
+        if len(t_feat) > len(s_feat):
+            t_feat = t_feat[-len(s_feat):]
+
         if self.training:
             return t_feat, s_feat
         else:

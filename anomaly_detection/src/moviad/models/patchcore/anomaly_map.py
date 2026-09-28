@@ -20,7 +20,7 @@ class AnomalyMapGenerator(nn.Module):
 
     def __init__(
         self,
-        sigma: int = 4,
+        sigma: int = 2,
     ) -> None:
         super().__init__()
         kernel_size = 2 * int(4.0 * sigma + 0.5) + 1
@@ -48,7 +48,7 @@ class AnomalyMapGenerator(nn.Module):
         else:
             anomaly_map = F.interpolate(patch_scores, size=(image_size[0], image_size[1]), mode="bilinear", align_corners=False)
         anomaly_map = self.blur(anomaly_map)
-        return AnomalyMapGenerator.rescale(anomaly_map)
+        return anomaly_map
 
     def forward(
         self,

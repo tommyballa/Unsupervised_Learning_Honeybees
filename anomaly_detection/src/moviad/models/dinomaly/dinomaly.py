@@ -119,6 +119,7 @@ class Dinomaly(VADModel):
         self.train_steps = 0
 
         self.mask_neighbor_size = mask_neighbor_size
+        self._cached_attn_mask = None
 
     def to(self, device: torch.device):
         super().to(device)
@@ -159,7 +160,9 @@ class Dinomaly(VADModel):
             x = blk(x)
 
         if self.mask_neighbor_size > 0:
-            attn_mask = self.generate_mask(side, x.device)
+            if self._cached_attn_mask is None:
+                self._cached_attn_mask = self.generate_mask(side, x.device)
+            attn_mask = self._cached_attn_mask
         else:
             attn_mask = None
 
@@ -196,14 +199,16 @@ class Dinomaly(VADModel):
             return anomaly_maps, anomaly_maps.amax(dim=(1,2))
 
     def train_step(self, batch: torch.Tensor, training_args: DinomalyTrainArgs):
-        batch = batch.to(next(self.parameters()).device)
-        en, de = self.forward(batch)
+        batch = batch.to(self.device, non_blocking=True)
+        
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            en, de = self.forward(batch)
 
-        p_final = 0.9
-        p = min(p_final * self.train_steps / 1000, p_final)
-        loss = training_args.loss_function(en, de, p=p, factor=0.1)
+            p_final = 0.9
+            p = min(p_final * self.train_steps / 1000, p_final)
+            loss = training_args.loss_function(en, de, p=p, factor=0.1)
 
-        training_args.optimizer.zero_grad()
+        training_args.optimizer.zero_grad(set_to_none=True)
         loss.backward()
         nn.utils.clip_grad_norm_(self.trainable.parameters(), max_norm=0.1)
         training_args.optimizer.step()
@@ -235,9 +240,9 @@ class Dinomaly(VADModel):
         mask = mask.view(h * w, h * w)
         if self.remove_class_token:
             return mask
-        mask_all = torch.ones(h * w + 1 + self.encoder.num_register_tokens,
-                              h * w + 1 + self.encoder.num_register_tokens, device=device)
-        mask_all[1 + self.encoder.num_register_tokens:, 1 + self.encoder.num_register_tokens:] = mask
+        mask_all = torch.ones(h * w + 1 + self.encoder.num_reg_tokens,
+                              h * w + 1 + self.encoder.num_reg_tokens, device=device)
+        mask_all[1 + self.encoder.num_reg_tokens:, 1 + self.encoder.num_reg_tokens:] = mask
         return mask_all
 
     def get_model_size(self):

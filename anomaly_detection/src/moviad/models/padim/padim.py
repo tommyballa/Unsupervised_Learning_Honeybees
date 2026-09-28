@@ -121,7 +121,7 @@ class Padim(VADModel):
         s = int(H1 / H2)
         x = F.unfold(x, kernel_size=s, dilation=1, stride=s)
         x = x.view(B, C1, -1, H2, W2)
-        z = torch.zeros(B, C1 + C2, x.size(2), H2, W2)
+        z = torch.zeros(B, C1 + C2, x.size(2), H2, W2, device=x.device)
         for i in range(x.size(2)):
             z[:, :, i, :, :] = torch.cat((x[:, :, i, :, :], y), 1)
         z = z.view(B, -1, H2 * W2)
@@ -167,8 +167,11 @@ class Padim(VADModel):
             # _ = self.backbone(x)
             _ = self.backbone(x)
         # get intermediate layer outputs
-        for layer, output in zip(self.layers_idxs, self.outputs):  # new
-            layer_outputs[layer].append(output.cpu().detach())  # new
+        for layer, output in zip(self.layers_idxs, self.outputs):
+            if self.training:
+                layer_outputs[layer].append(output.cpu().detach())
+            else:
+                layer_outputs[layer].append(output.detach())
         # initialize hook outputs
         self.outputs = []
 
@@ -182,16 +185,13 @@ class Padim(VADModel):
         # 3. compute the distance matrix
         dist_list = self.compute_distances(embedding_vectors)
         # 4. upsample
-        score_map = (
-            F.interpolate(
-                dist_list.unsqueeze(1),
-                size=x.size(2),
-                mode="bilinear",
-                align_corners=False,
-            )
-            .squeeze(1)
-            .numpy()
-        )
+        score_map_tensor = F.interpolate(
+            dist_list.unsqueeze(1),
+            size=x.size(2),
+            mode="bilinear",
+            align_corners=False,
+        ).squeeze(1)
+        score_map = score_map_tensor.cpu().numpy()
         # 5. apply gaussian smoothing on the score map
         for i in range(score_map.shape[0]):
             score_map[i] = gaussian_filter(score_map[i], sigma=4)
@@ -290,6 +290,8 @@ class Padim(VADModel):
                 )
         if update_params:
             self.gauss_mean, self.gauss_cov = mean, cov
+            self.inv_cov_tensor = None
+            self.mean_tensor = None
         return mean, cov
 
     def load_backbone(self):
@@ -348,27 +350,28 @@ class Padim(VADModel):
         multivariate Gaussian distribution.
         """
         B, C, H, W = embedding_vectors.size()
-        embedding_vectors = embedding_vectors.view(B, C, H * W).cpu().numpy()
+        
         assert (
             self.gauss_mean is not None and self.gauss_cov is not None
         ), "The model must be trained first."
 
-        # (C, C, H*W) -> (H*W, C, C) -> inv -> (H*W, C, C)
-        cov = np.transpose(self.gauss_cov, (2, 0, 1))  # (H*W, C, C)
-        cov_inv = np.linalg.inv(cov)  # single batched call
+        if not hasattr(self, "inv_cov_tensor") or self.inv_cov_tensor is None:
+            # Calcoliamo l'inversa su CPU una sola volta per evitare picchi di memoria VRAM (>37GB)
+            # e spostiamo solo il risultato finale (float32) su GPU (circa 18.5 GB)
+            cov_np = np.transpose(self.gauss_cov, (2, 0, 1)).astype(np.float32)
+            cov_inv = np.linalg.inv(cov_np)
+            self.inv_cov_tensor = torch.from_numpy(cov_inv).to(self.device)
+            
+            mean_np = self.gauss_mean.astype(np.float32)
+            self.mean_tensor = torch.from_numpy(mean_np).to(self.device)
 
-        # (B, C, H*W) - (1, C, H*W) -> (B, C, H*W)
-        diff = embedding_vectors - self.gauss_mean[np.newaxis, :, :]
-
-        # Rearrange to (H*W, B, C) for batched matmul
-        diff_t = np.transpose(diff, (2, 0, 1))  # (H*W, B, C)
-
-        # Batched matmul: (H*W, B, C) @ (H*W, C, C) -> (H*W, B, C)
-        temp = np.matmul(diff_t, cov_inv)
-
-        # Mahalanobis distance squared: element-wise multiply and sum over C
-        dist_sq = np.sum(temp * diff_t, axis=2)  # (H*W, B)
-
-        dist_list = np.sqrt(dist_sq).T.reshape(B, H, W)  # (B, H, W)
-        return torch.tensor(dist_list)
+        embedding_flat = embedding_vectors.view(B, C, H * W)
+        diff = embedding_flat - self.mean_tensor.unsqueeze(0)
+        
+        diff_t = diff.permute(2, 0, 1)  # (H*W, B, C)
+        temp = torch.matmul(diff_t, self.inv_cov_tensor)
+        dist_sq = torch.sum(temp * diff_t, dim=2)
+        dist_list = torch.sqrt(dist_sq).t().view(B, H, W)
+        
+        return dist_list
 

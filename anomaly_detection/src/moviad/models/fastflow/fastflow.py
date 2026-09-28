@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Callable, List, Tuple, Union, Iterable
-
+import itertools
+import torchvision.transforms.functional as TF
 import numpy as np
 import torch
 import torch.nn as nn
@@ -32,7 +33,7 @@ class FastFlowTrainArgs(TrainingArgs):
 
 
 def create_fastflow(img_shape, backbone_name, device):
-    fast_flow_model = CompleteFastFlowModel(backbone_name, input_size=img_shape, normalize=True, device=device)
+    fast_flow_model = CompleteFastFlowModel(backbone_name, input_size=img_shape, normalize=False, device=device)
     fast_flow_module = FastflowModel(
         input_size=img_shape, flow_steps=8, conv3x3_only=False,
         hidden_ratio=1.0, channels=fast_flow_model.channels, scales=fast_flow_model.scales
@@ -505,22 +506,7 @@ class SequenceINN(InvertibleModule):
 
         return x_or_z if self.force_tuple_output else x_or_z[0], log_det_jac
 
-
 def subnet_conv_func(kernel_size: int, hidden_ratio: float) -> Callable:
-    """Subnet Convolutional Function.
-
-    Callable class or function ``f``, called as ``f(channels_in, channels_out)`` and
-        should return a torch.nn.Module.
-        Predicts coupling coefficients :math:`s, t`.
-
-    Args:
-        kernel_size (int): Kernel Size
-        hidden_ratio (float): Hidden ratio to compute number of hidden channels.
-
-    Returns:
-        Callable: Sequential for the subnet constructor.
-    """
-
     def subnet_conv(in_channels: int, out_channels: int) -> nn.Sequential:
         hidden_channels = int(in_channels * hidden_ratio)
         return nn.Sequential(
@@ -528,8 +514,8 @@ def subnet_conv_func(kernel_size: int, hidden_ratio: float) -> Callable:
             nn.ReLU(),
             nn.Conv2d(hidden_channels, out_channels, kernel_size, padding="same"),
         )
-
     return subnet_conv
+
 
 def create_fast_flow_block(
     input_dimensions: List[int],
@@ -538,21 +524,6 @@ def create_fast_flow_block(
     flow_steps: int,
     clamp: float = 2.0,
 ) -> SequenceINN:
-    """Create NF Fast Flow Block.
-
-    This is to create Normalizing Flow (NF) Fast Flow model block based on
-    Figure 2 and Section 3.3 in the paper.
-
-    Args:
-        input_dimensions (List[int]): Input dimensions (Channel, Height, Width)
-        conv3x3_only (bool): Boolean whether to use conv3x3 only or conv3x3 and conv1x1.
-        hidden_ratio (float): Ratio for the hidden layer channels.
-        flow_steps (int): Flow steps.
-        clamp (float, optional): Clamp. Defaults to 2.0.
-
-    Returns:
-        SequenceINN: FastFlow Block.
-    """
     nodes = SequenceINN(*input_dimensions)
     for i in range(flow_steps):
         if i % 2 == 1 and not conv3x3_only:
@@ -567,7 +538,6 @@ def create_fast_flow_block(
         )
     return nodes
 
-
 class AnomalyMapGenerator(nn.Module):
     """Generate Anomaly Heatmap."""
 
@@ -576,35 +546,24 @@ class AnomalyMapGenerator(nn.Module):
         self.input_size = input_size if isinstance(input_size, tuple) else tuple(input_size)
 
     def forward(self, hidden_variables: List[Tensor]) -> Tensor:
-        """Generate Anomaly Heatmap.
-
-        This implementation generates the heatmap based on the flow maps
-        computed from the normalizing flow (NF) FastFlow blocks. Each block
-        yields a flow map, which overall is stacked and averaged to an anomaly
-        map.
-
-        Args:
-            hidden_variables (List[Tensor]): List of hidden variables from each NF FastFlow block.
-
-        Returns:
-            Tensor: Anomaly Map.
-        """
         flow_maps: List[Tensor] = []
         for hidden_variable in hidden_variables:
-            log_prob = -torch.mean(hidden_variable**2, dim=1, keepdim=True) * 0.5
-            prob = torch.exp(log_prob)
+            distance = torch.mean(hidden_variable**2, dim=1, keepdim=True)
             flow_map = F.interpolate(
-                input=-prob,
+                input=distance,
                 size=self.input_size,
                 mode="bilinear",
                 align_corners=False,
             )
             flow_maps.append(flow_map)
+            
         flow_maps = torch.stack(flow_maps, dim=-1)
         anomaly_map = torch.mean(flow_maps, dim=-1)
 
-        return anomaly_map
+        # Apply 2D Gaussian blur using torchvision
+        anomaly_map = TF.gaussian_blur(anomaly_map, kernel_size=[33, 33], sigma=[4.0, 4.0])
 
+        return anomaly_map
 
 class CompleteFastFlowModel(VADModel):
     def __init__(self, backbone_name, input_size, normalize, device):
@@ -706,6 +665,8 @@ class CompleteFastFlowModel(VADModel):
         return self
 
     def parameters(self):
+        if hasattr(self, 'norms'):
+            return itertools.chain(self.fast_flow_module.parameters(), self.norms.parameters())
         return self.fast_flow_module.parameters()
 
     def train_epoch(self, epoch, train_dataloader, training_args: TrainingArgs):
@@ -736,15 +697,10 @@ class CompleteFastFlowModel(VADModel):
             List[Tensor]: List of features.
         """
         with torch.no_grad():
-            features = self.feature_extractor(input_tensor.to(self.device)) 
-            #features = features.to(self.device_1)
-            # for i,feature in enumerate(features):
-            #     print(feature.shape)
-            #     print(feature.device)
-                
-            features = [feature for feature in features]
-            features = [self.norms[i](feature) for i, feature in enumerate(features)]
-            return features
+            features = self.feature_extractor(input_tensor.to(self.device))
+        # Apply LayerNorm outside no_grad so gradients flow through norms
+        features = [self.norms[i](feature) for i, feature in enumerate(features)]
+        return features
 
     def _get_cait_features(self, input_tensor: Tensor) -> List[Tensor]:
         """Get Class-Attention-Image-Transformers (CaiT) features.

@@ -2,7 +2,7 @@
 VarroaDomainShiftDataset — Dataset per CL con domain shift progressivo.
 
 Estende VarroaDataset per creare automaticamente 3 task con condizioni
-di acquisizione diverse, a partire dallo stesso dataset aggregato:
+di acquisizione diverse, a partire dallo stesso dataset:
 
     - varroa_clean:      Immagini originali (nessuna trasformazione)
     - varroa_dirty_lens: Blur + macchie (simula lente sporca)
@@ -67,7 +67,7 @@ class VarroaDomainShiftDataset(VarroaDataset):
 
     Quando viene istanziato con una delle category di domain shift
     (varroa_clean, varroa_dirty_lens, varroa_low_light), carica l'intero
-    dataset aggregato e poi seleziona automaticamente solo il sottoinsieme
+    dataset e poi seleziona automaticamente solo il sottoinsieme
     corrispondente alla propria partizione, applicando la trasformazione
     corretta.
 

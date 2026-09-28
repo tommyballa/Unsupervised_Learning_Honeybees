@@ -36,7 +36,8 @@ class PatchCoreCL(ContinualModel):
             train_dataset,
             batch_size=train_args.batch_size,
             shuffle=True,
-            num_workers=0
+            num_workers=4,
+            prefetch_factor=2
         )
 
         embeddings = []
@@ -89,7 +90,7 @@ class PatchCoreCL(ContinualModel):
           locations_2d   = locations.reshape(batch_size, -1)           # (batch, H*W)
 
           # Anomaly score
-          pred_score = self.vad_model.compute_anomaly_score(
+          pred_score = self.vad_model.compute_anomaly_score_old(
               patch_scores_2d, locations_2d, embedding, task_memory_bank
           )
 
