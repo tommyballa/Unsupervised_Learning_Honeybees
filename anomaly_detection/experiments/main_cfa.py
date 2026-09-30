@@ -1,155 +1,73 @@
+"""
+CFA (Coupled-hypersphere-based Feature Adaptation) - Anomaly detection su
+singole api (single bee crops).
+
+Addestramento: backbone wide_resnet50_2 ImageNet congelato (layer1 + layer2),
+               memory bank inizializzata con le feature adattate delle api
+               sane e ridotta con KMeans (gamma_c), patch descriptor
+               addestrato con la soft-boundary loss (AdamW lr 1e-3,
+               wd 5e-4, amsgrad, 30 epoche come nel paper).
+Valutazione:   distanza dai centroidi più vicini, upsampling + gaussiano
+               (sigma 4), score immagine = massimo della heatmap (paper);
+               metriche a livello immagine e pixel (AUROC, AvgPrec, F1, AUPRO).
+Visualizzazione: heatmap normalizzate GLOBALMENTE e ancorate alla soglia pixel
+                 F1-ottimale (moviad.utilities.evaluation.report).
+
+Correzioni rispetto alla versione precedente:
+  - rimosso CropBeeTransform: ritagliava l'immagine ma non la maschera GT,
+    quindi mappa e maschera erano disallineate e le metriche pixel sbagliate;
+  - dataset completo (VarroaDataset) invece della sola partizione
+    "varroa_clean" di VarroaDomainShiftDataset (1/3 di train e test);
+  - path di training corretto (prima "./data");
+  - loop di training diretto (la strategia Replay valutava a ogni epoca);
+  - in cfa.py: score immagine senza il margine del 35% (contava solo il 30%
+    centrale del crop) e kernel gaussiano coerente con sigma 4.
+"""
+
 import os
 import random
+
 import numpy as np
 import torch
-import cv2
-from PIL import Image
-import matplotlib.pyplot as plt
+from torch.utils.data import DataLoader
+from torchvision import transforms
 
 from moviad.datasets.dataset_arguments import DatasetArguments
-from moviad.datasets.varroa.varroa_domain_shift_dataset import VarroaDomainShiftDataset
+from moviad.datasets.varroa.varroa_dataset import VarroaDataset
 from moviad.models.cfa.cfa import CFA, CFATrainArgs
-from moviad.scenarios.continual.continual_dataset import ContinualDataset
-from moviad.scenarios.continual.continual_trainer import ContinualTrainer
-from moviad.scenarios.continual.strategies.cfa_continual import CFAContinual
+from moviad.utilities.configurations import Split
 from moviad.utilities.custom_feature_extractor_trimmed import CustomFeatureExtractor
-from moviad.utilities.evaluation.metrics import (
-    AvgPrec,
-    F1,
-    MetricLvl,
-    ProAuc,
-    RocAuc,
+from moviad.utilities.evaluation.report import (
+    IMAGENET_MEAN, IMAGENET_STD, compute_metrics, evaluate_and_report, print_metrics, run_inference,
 )
 
-class CropBeeTransform:
-    def __init__(self, padding=15):
-        self.padding = padding
 
-    def __call__(self, img):
-        # Convert PIL Image to OpenCV format
-        img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-        
-        gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        _, thresh = cv2.threshold(blurred, 40, 255, cv2.THRESH_BINARY)
-        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        if not contours:
-            return img
-            
-        largest_contour = max(contours, key=cv2.contourArea)
-        x, y, w, h = cv2.boundingRect(largest_contour)
-        
-        x1 = max(0, x - self.padding)
-        y1 = max(0, y - self.padding)
-        x2 = min(img_cv.shape[1], x + w + self.padding)
-        y2 = min(img_cv.shape[0], y + h + self.padding)
-        
-        cropped_img = img_cv[y1:y2, x1:x2]
-        
-        # Convert back to PIL Image
-        cropped_rgb = cv2.cvtColor(cropped_img, cv2.COLOR_BGR2RGB)
-        return Image.fromarray(cropped_rgb)
+# ──────────────────────────────────────────────────────────────────────
+# Configurazione
+# ──────────────────────────────────────────────────────────────────────
+TRAIN_DIR     = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees"
+
+BACKBONE      = "wide_resnet50_2"
+LAYERS        = ["layer1", "layer2"]
+FEATURE_CHANNELS = 768      # layer1 (256) + layer2 (512)
+# gamma_c=4: memory bank ridotta di un fattore 4 con KMeans
+# gamma_d=2: canali del patch descriptor dimezzati (768 -> 384)
+GAMMA_C       = 4
+GAMMA_D       = 2
+IMG_SIZE      = (384, 384)
+EPOCHS        = 30
+BATCH_SIZE    = 16
+EVAL_INTERVAL = 5            # valuta ogni N epoche (e sempre all'ultima)
+NUM_WORKERS   = 8
+SEED          = 1
+
+NUM_HEATMAPS  = 20           # metà sane, metà con varroa
+OUTPUT_DIR    = "./heatmaps_cfa_debug"
+CHECKPOINT    = "./checkpoints/cfa_single_bee.pth"
 
 
-def save_anomaly_heatmaps(model, dataloader, device, output_dir="./heatmaps_debug", num_samples=15):
-    os.makedirs(output_dir, exist_ok=True)
-    model.eval()
-    
-    print("\nCalculating global min/max across the dataset...")
-    global_min = float('inf')
-    global_max = float('-inf')
-    
-    # pass 1: find dataset-wide min and max limits for normalization
-    with torch.no_grad():
-        for batch in dataloader:
-            if isinstance(batch, dict):
-                images = batch["image"].to(device)
-            else:
-                images = batch[0].to(device)
-                
-            anomaly_maps, _ = model(images)
-            batch_min = anomaly_maps.min().item()
-            batch_max = anomaly_maps.max().item()
-            
-            if batch_min < global_min:
-                global_min = batch_min
-            if batch_max > global_max:
-                global_max = batch_max
-
-    print(f"Global Min: {global_min:.4f} | Global Max: {global_max:.4f}")
-    print(f"📸 Generating heatmaps... saving to '{output_dir}'")
-    
-    samples_saved = 0
-    
-    # pass 2: generate images using global thresholds
-    with torch.no_grad():
-        for batch in dataloader:
-            if samples_saved >= num_samples:
-                break
-                
-            if isinstance(batch, dict):
-                images = batch["image"].to(device)
-                labels = batch["label"].cpu().numpy() 
-            else:
-                images = batch[0].to(device)
-                labels = batch[1].cpu().numpy() 
-            
-            anomaly_maps, anomaly_scores = model(images)
-            anomaly_maps = anomaly_maps.cpu().numpy()
-            anomaly_scores = anomaly_scores.cpu().numpy()
-            
-            for i in range(images.size(0)):
-                if samples_saved >= num_samples:
-                    break
-                    
-                img_tensor = images[i].cpu()
-                mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
-                std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
-                img_denorm = ((img_tensor * std + mean).clamp(0, 1).permute(1, 2, 0).numpy() * 255).astype(np.uint8)
-                
-                amap = np.squeeze(anomaly_maps[i])
-                
-                # apply global normalization
-                amap_norm = (amap - global_min) / (global_max - global_min + 1e-8)
-                amap_norm = np.clip(amap_norm, 0, 1)
-                amap_uint8 = (amap_norm * 255).astype(np.uint8)
-                
-                heatmap = cv2.applyColorMap(amap_uint8, cv2.COLORMAP_JET)
-                heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
-                
-                overlay = cv2.addWeighted(img_denorm, 0.6, heatmap, 0.4, 0)
-                
-                fig, axes = plt.subplots(1, 3, figsize=(12, 4))
-                status = "Varroa" if labels[i] == 1 else "Sana"
-                
-                axes[0].imshow(img_denorm)
-                axes[0].set_title(f"Originale ({status})")
-                axes[0].axis("off")
-                
-                # lock colormap to global limits
-                im = axes[1].imshow(amap, cmap="jet", vmin=global_min, vmax=global_max)
-                axes[1].set_title(f"Heatmap (Score: {anomaly_scores[i]:.2f})")
-                axes[1].axis("off")
-                plt.colorbar(im, ax=axes[1], fraction=0.046, pad=0.04)
-                
-                axes[2].imshow(overlay)
-                axes[2].set_title("Overlay")
-                axes[2].axis("off")
-                
-                plt.tight_layout()
-                save_path = os.path.join(output_dir, f"sample_{samples_saved}_{status}_score_{anomaly_scores[i]:.2f}.png")
-                plt.savefig(save_path, dpi=150, bbox_inches="tight")
-                plt.close()
-                
-                samples_saved += 1
-
-    print(f"✅ Saved {samples_saved} debug images.")
-
-
-def set_seed(seed=1):
+def set_seed(seed: int):
     torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
@@ -157,90 +75,78 @@ def set_seed(seed=1):
     np.random.seed(seed)
 
 
-def train_cfa_wideresnet():
-    SEEDS = [1]
+def train_cfa_single_bee():
+    set_seed(SEED)
+    device = torch.device(
+        "cuda:0" if torch.cuda.is_available()
+        else "mps" if torch.backends.mps.is_available()
+        else "cpu"
+    )
+    print(f"\nDevice: {device}")
+    if torch.cuda.is_available():
+        print(f"GPU: {torch.cuda.get_device_name(0)}")
 
-    for seed in SEEDS:
-        set_seed(seed)
+    # --- Modello ---
+    feature_extractor = CustomFeatureExtractor(BACKBONE, LAYERS, device, frozen=True)
+    model = CFA(
+        feature_extractor=feature_extractor,
+        backbone=BACKBONE,
+        gamma_c=GAMMA_C,
+        gamma_d=GAMMA_D,
+        feature_maps_channels=FEATURE_CHANNELS,
+    )
+    model.to(device)
 
-        device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        print(f"\n Device in use: {device}")
-        if torch.cuda.is_available():
-            print(f" GPU: {torch.cuda.get_device_name(0)}")
+    # --- Dataset ---
+    dataset_args = DatasetArguments(
+        dataset_path=TRAIN_DIR,
+        img_size=IMG_SIZE,
+        gt_mask_size=IMG_SIZE,
+        image_transform_list=[
+            transforms.ToTensor(),
+            transforms.Resize(IMG_SIZE, antialias=True),
+            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+        ],
+    )
+    train_dataset = VarroaDataset(dataset_args, "varroa", Split.TRAIN)
+    test_dataset = VarroaDataset(dataset_args, "varroa", Split.TEST)
 
-        feature_extractor = CustomFeatureExtractor(
-            "wide_resnet50_2", ["layer1", "layer2"], device, frozen=True
-        )
-        # L'uso di gamma_c e gamma_d riduce notevolmente il costo computazionale
-        # gamma_c=8 raggruppa i centroidi della memory bank di un fattore 8 (via KMeans)
-        # gamma_d=2 dimezza la dimensione dei canali (da 768 a 384 in questo caso)
-        # layer1 (256) + layer2 (512) = 768 channels
-        model = CFA(feature_extractor=feature_extractor, backbone="wide_resnet50_2", gamma_c=4, gamma_d=2, feature_maps_channels=768)
-        model.to(device)
+    train_loader = DataLoader(
+        train_dataset, batch_size=BATCH_SIZE, shuffle=True,
+        num_workers=NUM_WORKERS, pin_memory=True, persistent_workers=NUM_WORKERS > 0,
+    )
+    test_loader = DataLoader(
+        test_dataset, batch_size=BATCH_SIZE, shuffle=False,
+        num_workers=NUM_WORKERS, pin_memory=True,
+    )
 
-        from torchvision import transforms
-        imagenet_normalize = transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225],
-        )
-        dataset_args = DatasetArguments(
-            dataset_path="./data",
-            img_size=(384, 384),
-            gt_mask_size=(384, 384),
-            image_transform_list=[
-                CropBeeTransform(padding=15),
-                transforms.ToTensor(),
-                transforms.Resize((384, 384), antialias=True),
-                imagenet_normalize,
-            ],
-        )
+    # AdamW(lr 1e-3, wd 5e-4, amsgrad) su patch descriptor e raggio + soft-boundary loss
+    training_args = CFATrainArgs(epochs=EPOCHS, batch_size=BATCH_SIZE)
+    training_args.init_train(model)
 
-        print("\n Building the 3 domain shift tasks...")
-        continual_dataset = ContinualDataset(
-            dataset_args,
-            VarroaDomainShiftDataset,
-            categories=["varroa_clean"],
-        )
+    # --- Training (all'epoca 0 train_epoch inizializza la memory bank) ---
+    print(f"\n{'='*60}")
+    print(f"Training CFA single-bee | {EPOCHS} epoche | {len(train_loader)} batch/epoca")
+    print(f"{'='*60}\n")
 
-        continual_model = CFAContinual(model)
+    for epoch in range(EPOCHS):
+        loss = model.train_epoch(epoch, train_loader, training_args)
+        print(f"Epoca {epoch + 1}/{EPOCHS} — loss: {loss:.6f}")
 
-        trainer = ContinualTrainer(
-            continual_dataset,
-            continual_model,
-            device,
-            metrics=[
-                RocAuc(MetricLvl.IMAGE),
-                RocAuc(MetricLvl.PIXEL),
-                AvgPrec(MetricLvl.IMAGE),
-                AvgPrec(MetricLvl.PIXEL),
-                F1(MetricLvl.IMAGE),
-                F1(MetricLvl.PIXEL),
-                
-            ],
-            training_args=CFATrainArgs(
-                batch_size=16, 
-                epochs=30,
-            ),
-            logger=None,
-        )
+        if (epoch + 1) % EVAL_INTERVAL == 0 and epoch != EPOCHS - 1:
+            maps, scores, labels, masks = run_inference(model, test_loader, device)
+            print_metrics(compute_metrics(maps, scores, labels, masks, with_pro=False))
 
-        trainer.train()
+    os.makedirs(os.path.dirname(CHECKPOINT), exist_ok=True)
+    torch.save(model.state_dict(), CHECKPOINT)
+    print(f"\nModello CFA salvato in {CHECKPOINT}")
 
-        with torch.inference_mode():
-            from torch.utils.data import DataLoader
-            for task_idx in range(len(continual_dataset)):
-                test_dataset = continual_dataset.get_task_data_evaluation(task_index=task_idx)
-                test_dataloader = DataLoader(test_dataset, batch_size=16, shuffle=False)
-                
-                task_name = continual_dataset.get_task_category(task_idx)
-                
-                save_anomaly_heatmaps(
-                    model=continual_model,
-                    dataloader=test_dataloader,
-                    device=device,
-                    output_dir=f"./heatmaps_debug/task_{task_idx}_{task_name}",
-                    num_samples=20,
-                )
+    # --- Valutazione finale + heatmap normalizzate ---
+    evaluate_and_report(
+        model, test_dataset, test_loader, device, OUTPUT_DIR,
+        title="CFA single-bee", num_heatmaps=NUM_HEATMAPS, seed=SEED,
+    )
+
 
 if __name__ == "__main__":
-    train_cfa_wideresnet()
+    train_cfa_single_bee()

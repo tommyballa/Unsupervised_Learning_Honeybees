@@ -2,7 +2,7 @@
 Diagnostica FastFlow su Varroa: capire se il problema e' il modello o i dati.
 
 Uso:
-    python experiments/diagnose_fastflow_varroa.py --checkpoint ./checkpoints/task_0.pth
+    python experiments/diagnose_fastflow_varroa.py --checkpoint ./checkpoints/fastflow_single_bee.pth
 
 Stampa:
   A. statistiche del test set (quota anomalie, area delle maschere, file mancanti)

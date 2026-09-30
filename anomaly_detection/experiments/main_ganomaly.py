@@ -1,51 +1,78 @@
 """
 GANomaly - Anomaly detection su singole api (single bee crops).
 
-Addestramento: usa il TrainerGanomaly con il VarroaDataset (single-bee crops).
-Inferenza: forward pass diretto, con anomaly maps (errore di ricostruzione) e scores (distanza latente).
-Visualizzazione: heatmap normalizzate globalmente con gamma correction
-                 per evidenziare le anomalie in rosso.
+Addestramento: encoder-decoder-encoder avversariale sulle api sane
+               (VarroaDataset, TRAIN): loss del generatore = avversariale
+               (feature matching) + 50 * ricostruzione L1 + encoding; il
+               discriminatore viene reinizializzato quando collassa (come nel
+               paper). Adam lr 2e-4, betas (0.5, 0.999).
+Valutazione:   score immagine = ||z - z'||^2 fra i due latenti (score nativo
+               del paper); mappa = errore di ricostruzione per pixel smussato
+               con un gaussiano (sigma 2); metriche a livello immagine e pixel
+               (AUROC, AvgPrec, F1, AUPRO).
+Visualizzazione: heatmap normalizzate GLOBALMENTE e ancorate alla soglia pixel
+                 F1-ottimale (moviad.utilities.evaluation.report).
+
+Correzioni rispetto alla versione precedente:
+  - input normalizzato in [-1, 1] (mean = std = 0.5): il decoder termina con
+    una Tanh e non può ricostruire valori fuori da [-1, 1]; con la
+    normalizzazione ImageNet (range ~[-2.1, 2.6]) i pixel chiari e scuri
+    avevano un errore di ricostruzione irriducibile;
+  - path di training corretto (prima /mnt/disk1/borsattifr/...);
+  - metriche effettivamente calcolate (prima solo heatmap);
+  - reinizializzazione del discriminatore quando la sua loss collassa.
+IMG_SIZE deve essere una potenza di 2 (GANomaly fa padding alla potenza di 2
+successiva e la mappa deve coincidere con la maschera GT).
 """
 
 import os
 import random
+from functools import partial
 
-import cv2
 import numpy as np
 import torch
-import matplotlib.pyplot as plt
-from torchvision import transforms
-from torch.utils.data import DataLoader
-
-from moviad.models.ganomaly.ganomaly import Ganomaly
-from moviad.models.components.ganomaly.loss import GeneratorLoss, DiscriminatorLoss
-from moviad.datasets.varroa.varroa_dataset import VarroaDataset
-from moviad.datasets.dataset_arguments import DatasetArguments
-from moviad.scenarios.continual.continual_dataset import ContinualDataset
-from moviad.utilities.evaluation.metrics import MetricLvl, RocAuc, AvgPrec, F1, ProAuc
-from moviad.utilities.configurations import Split
-
+import torchvision.transforms.functional as TF
 from torch.optim import Adam
+from torch.utils.data import DataLoader
+from torchvision import transforms
 from tqdm import tqdm
+
+from moviad.datasets.dataset_arguments import DatasetArguments
+from moviad.datasets.varroa.varroa_dataset import VarroaDataset
+from moviad.models.components.ganomaly.loss import GeneratorLoss, DiscriminatorLoss
+from moviad.models.ganomaly.ganomaly import Ganomaly
+from moviad.utilities.configurations import Split
+from moviad.utilities.evaluation.report import (
+    compute_metrics, denormalize, evaluate_and_report, print_metrics, run_inference,
+)
 
 
 # ──────────────────────────────────────────────────────────────────────
 # Configurazione
 # ──────────────────────────────────────────────────────────────────────
-IMG_SIZE   = (128, 128)
-EPOCHS     = 100
-BATCH_SIZE = 32
-SEED       = 1
-LR         = 2e-4
-BETA1      = 0.5
-BETA2      = 0.999
+TRAIN_DIR     = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees"
 
-OUTPUT_DIR = "./heatmaps_ganomaly_debug"
+IMG_SIZE      = (128, 128)
+LATENT_VEC_SIZE = 100
+EPOCHS        = 100
+BATCH_SIZE    = 32
+LR            = 2e-4
+BETA1         = 0.5
+BETA2         = 0.999
+MAP_SIGMA     = 2            # smoothing gaussiano della mappa di ricostruzione
+EVAL_INTERVAL = 10           # valuta ogni N epoche (e sempre all'ultima)
+NUM_WORKERS   = 8
+SEED          = 1
+
+# Il decoder termina con Tanh: input e ricostruzione devono stare in [-1, 1]
+GANOMALY_MEAN = [0.5, 0.5, 0.5]
+GANOMALY_STD  = [0.5, 0.5, 0.5]
+
+NUM_HEATMAPS  = 20           # metà sane, metà con varroa
+OUTPUT_DIR    = "./heatmaps_ganomaly_debug"
+CHECKPOINT    = "./checkpoints/ganomaly_single_bee.pth"
 
 
-# ──────────────────────────────────────────────────────────────────────
-# Utilità
-# ──────────────────────────────────────────────────────────────────────
 def set_seed(seed: int):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
@@ -55,128 +82,14 @@ def set_seed(seed: int):
     np.random.seed(seed)
 
 
-def save_anomaly_heatmaps(model, dataloader, device, output_dir="./heatmaps_debug", num_samples=20):
-    """
-    Salva heatmap con normalizzazione basata su percentili e gamma correction.
-    Le anomalie appaiono più rosse grazie al gamma power.
-    """
-    os.makedirs(output_dir, exist_ok=True)
-    model.eval()
-
-    # ── Pass 1: raccogli tutti i valori per calcolare i percentili ──
-    print("\nCalculating global percentiles across the dataset...")
-    all_values = []
-
-    with torch.no_grad():
-        for batch in dataloader:
-            images = batch[0].to(device) if isinstance(batch, (list, tuple)) else batch["image"].to(device)
-            anomaly_maps, _ = model(images)
-            all_values.append(anomaly_maps.cpu().numpy().flatten())
-
-    all_values = np.concatenate(all_values)
-    # Percentili per escludere outlier e normalizzare correttamente
-    p_low = np.percentile(all_values, 2)
-    p_high = np.percentile(all_values, 99.5)
-
-    print(f"Global range: [{all_values.min():.6f}, {all_values.max():.6f}]")
-    print(f"Percentile normalization: P2={p_low:.6f}, P99.5={p_high:.6f}")
-    print(f"Generating heatmaps... saving to '{output_dir}'")
-
-    # ── Pass 2: genera e salva le heatmap ──
-    saved_normal = 0
-    saved_anomal = 0
-    target_each = num_samples // 2
-
-    with torch.no_grad():
-        for batch in dataloader:
-            if saved_normal >= target_each and saved_anomal >= target_each:
-                break
-
-            if isinstance(batch, (list, tuple)):
-                images = batch[0].to(device)
-                labels = batch[1].cpu().numpy() if len(batch) > 1 else np.zeros(images.size(0))
-            else:
-                images = batch["image"].to(device)
-                labels = batch["label"].cpu().numpy()
-
-            anomaly_maps, anomaly_scores = model(images)
-            anomaly_maps = anomaly_maps.cpu().numpy()
-            anomaly_scores = anomaly_scores.cpu().numpy()
-
-            for i in range(images.size(0)):
-                is_anomal = labels[i] == 1
-
-                if is_anomal and saved_anomal >= target_each:
-                    continue
-                if not is_anomal and saved_normal >= target_each:
-                    continue
-
-                # Denormalizza l'immagine per la visualizzazione
-                img_tensor = images[i].cpu()
-                mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
-                std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
-                img_denorm = ((img_tensor * std + mean).clamp(0, 1).permute(1, 2, 0).numpy() * 255).astype(np.uint8)
-
-                amap = np.squeeze(anomaly_maps[i])
-
-                # Crop alla dimensione dell'immagine originale
-                # (GANomaly fa padding a potenza di 2)
-                h_img, w_img = img_denorm.shape[:2]
-                amap = amap[:h_img, :w_img]
-
-                # Normalizzazione con percentili + gamma correction moderato
-                # Il gamma > 1 amplifica le differenze tra zone normali e anomale
-                # senza schiacciare tutto a 0 come farebbe un gamma troppo alto
-                amap_norm = np.clip((amap - p_low) / (p_high - p_low + 1e-8), 0, 1)
-                gamma = 1.5
-                amap_norm = amap_norm ** gamma
-
-                heatmap = cv2.applyColorMap((amap_norm * 255).astype(np.uint8), cv2.COLORMAP_JET)
-                heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
-
-                # Resize heatmap se necessario
-                if heatmap.shape[:2] != img_denorm.shape[:2]:
-                    heatmap = cv2.resize(heatmap, (img_denorm.shape[1], img_denorm.shape[0]))
-
-                overlay = cv2.addWeighted(img_denorm, 0.4, heatmap, 0.6, 0)
-
-                status = "Varroa" if is_anomal else "Sana"
-                fig, axes = plt.subplots(1, 3, figsize=(12, 4))
-
-                axes[0].imshow(img_denorm)
-                axes[0].set_title(f"Originale ({status})")
-                axes[0].axis("off")
-
-                im = axes[1].imshow(amap_norm, cmap="jet", vmin=0, vmax=1)
-                axes[1].set_title(f"Heatmap (Score: {anomaly_scores[i]:.4f})")
-                axes[1].axis("off")
-                plt.colorbar(im, ax=axes[1], fraction=0.046, pad=0.04)
-
-                axes[2].imshow(overlay)
-                axes[2].set_title("Overlay")
-                axes[2].axis("off")
-
-                plt.tight_layout()
-                current_id = saved_anomal if is_anomal else saved_normal
-                plt.savefig(
-                    os.path.join(output_dir, f"sample_{status}_{current_id}_score_{anomaly_scores[i]:.4f}.png"),
-                    dpi=150, bbox_inches="tight"
-                )
-                plt.close()
-
-                if is_anomal:
-                    saved_anomal += 1
-                else:
-                    saved_normal += 1
-
-    print(f"Saved {saved_normal} normal images and {saved_anomal} anomalous debug images.")
+def smooth_reconstruction_map(maps, sigma=MAP_SIGMA):
+    """Smoothing gaussiano dell'errore di ricostruzione (riduce il rumore per pixel)."""
+    kernel_size = 2 * int(4.0 * sigma + 0.5) + 1
+    return TF.gaussian_blur(maps, kernel_size=[kernel_size, kernel_size], sigma=[sigma, sigma])
 
 
 def train_ganomaly_single_bee():
-    """Training e valutazione di GANomaly su singole api."""
-
     set_seed(SEED)
-
     device = torch.device(
         "cuda:0" if torch.cuda.is_available()
         else "mps" if torch.backends.mps.is_available()
@@ -191,49 +104,44 @@ def train_ganomaly_single_bee():
         input_size=IMG_SIZE,
         num_input_channels=3,
         n_features=64,
-        latent_vec_size=100,
+        latent_vec_size=LATENT_VEC_SIZE,
         extra_layers=0,
         add_final_conv_layer=True,
-    )
-    model = model.to(device)
+    ).to(device)
+    print(f"Parametri GANomaly: {sum(p.numel() for p in model.parameters()) / 1e6:.1f}M")
 
     # --- Dataset ---
-    imagenet_normalize = transforms.Normalize(
-        mean=[0.485, 0.456, 0.406],
-        std=[0.229, 0.224, 0.225],
-    )
-
-    args = DatasetArguments(
-        dataset_path="/mnt/disk1/borsattifr/datasets/bees_datasets/DatasetApi_Ceschi/processed",
+    dataset_args = DatasetArguments(
+        dataset_path=TRAIN_DIR,
         img_size=IMG_SIZE,
         gt_mask_size=IMG_SIZE,
         image_transform_list=[
             transforms.ToTensor(),
             transforms.Resize(IMG_SIZE, antialias=True),
-            imagenet_normalize,
+            transforms.Normalize(mean=GANOMALY_MEAN, std=GANOMALY_STD),
         ],
     )
+    train_dataset = VarroaDataset(dataset_args, "varroa", Split.TRAIN)
+    test_dataset = VarroaDataset(dataset_args, "varroa", Split.TEST)
 
-    continual_dataset = ContinualDataset(
-        args,
-        VarroaDataset,
-        categories=["varroa"],
+    train_loader = DataLoader(
+        train_dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=True,
+        num_workers=NUM_WORKERS, pin_memory=True, persistent_workers=NUM_WORKERS > 0,
+    )
+    test_loader = DataLoader(
+        test_dataset, batch_size=BATCH_SIZE, shuffle=False,
+        num_workers=NUM_WORKERS, pin_memory=True,
     )
 
-    # --- Preparazione training ---
-    # GANomaly ha un training loop custom con 2 optimizer (gen + disc)
-    train_dataset, val_dataset, test_dataset = continual_dataset.get_task_data(0)
-    train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
-
+    # --- Optimizer e loss (training GAN custom) ---
     g_opt = Adam(model.generator.parameters(), lr=LR, betas=(BETA1, BETA2))
     d_opt = Adam(model.discriminator.parameters(), lr=LR, betas=(BETA1, BETA2))
-
     g_loss_fn = GeneratorLoss(wadv=1, wcon=50, wenc=1)
     d_loss_fn = DiscriminatorLoss()
 
     # --- Training ---
     print(f"\n{'='*60}")
-    print(f"Training GANomaly single-bee | {EPOCHS} epoche | {len(train_dataloader)} batch/epoca")
+    print(f"Training GANomaly single-bee | {EPOCHS} epoche | {len(train_loader)} batch/epoca")
     print(f"{'='*60}\n")
 
     for epoch in range(EPOCHS):
@@ -241,14 +149,14 @@ def train_ganomaly_single_bee():
         avg_g_loss = 0.0
         avg_d_loss = 0.0
 
-        for batch in tqdm(train_dataloader, desc=f"Epoch {epoch+1}/{EPOCHS}"):
-            images = batch.to(device) if isinstance(batch, torch.Tensor) else batch[0].to(device)
+        for images in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{EPOCHS}"):
+            images = images.to(device)
 
             # Forward pass
             padded, fake, latent_i, latent_o = model(images)
             pred_real_score, feat_real = model.discriminator(padded)
 
-            # Generator update
+            # Generator update (feature matching sul discriminatore)
             pred_fake_score, feat_fake = model.discriminator(fake)
             g_loss = g_loss_fn(latent_i, latent_o, padded, fake, feat_real, feat_fake)
 
@@ -266,29 +174,30 @@ def train_ganomaly_single_bee():
             d_opt.step()
             avg_d_loss += d_loss.item()
 
-        avg_g_loss /= len(train_dataloader)
-        avg_d_loss /= len(train_dataloader)
-        print(f"Epoca {epoch+1}/{EPOCHS} — G_loss: {avg_g_loss:.6f} | D_loss: {avg_d_loss:.6f}")
+            # Se il discriminatore collassa lo si reinizializza (come nel paper)
+            if d_loss.item() < 1e-5:
+                model.discriminator.apply(Ganomaly.weights_init)
 
-    # --- Salvataggio modello ---
-    os.makedirs("./checkpoints", exist_ok=True)
-    torch.save(model.state_dict(), "./checkpoints/ganomaly_single_bee.pth")
-    print("Modello GANomaly salvato in ./checkpoints/ganomaly_single_bee.pth")
+        avg_g_loss /= len(train_loader)
+        avg_d_loss /= len(train_loader)
+        print(f"Epoca {epoch + 1}/{EPOCHS} — G_loss: {avg_g_loss:.6f} | D_loss: {avg_d_loss:.6f}")
 
-    # --- Valutazione ed estrazione heatmaps ---
-    print("\nGenerazione heatmaps di debug...")
-    with torch.inference_mode():
-        for task_idx in range(len(continual_dataset)):
-            test_dataset = continual_dataset.get_task_data_evaluation(task_index=task_idx)
-            test_dataloader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
-            task_name = continual_dataset.get_task_category(task_idx)
-            save_anomaly_heatmaps(
-                model=model,
-                dataloader=test_dataloader,
-                device=device,
-                output_dir=f"{OUTPUT_DIR}/task_{task_idx}_{task_name}",
-                num_samples=20,
-            )
+        if (epoch + 1) % EVAL_INTERVAL == 0 and epoch != EPOCHS - 1:
+            maps, scores, labels, masks = run_inference(model, test_loader, device, smooth_reconstruction_map)
+            print_metrics(compute_metrics(maps, scores, labels, masks, with_pro=False))
+
+    os.makedirs(os.path.dirname(CHECKPOINT), exist_ok=True)
+    torch.save(model.state_dict(), CHECKPOINT)
+    print(f"\nModello GANomaly salvato in {CHECKPOINT}")
+
+    # --- Valutazione finale + heatmap normalizzate ---
+    evaluate_and_report(
+        model, test_dataset, test_loader, device, OUTPUT_DIR,
+        title="GANomaly single-bee", num_heatmaps=NUM_HEATMAPS, seed=SEED,
+        denormalize_fn=partial(denormalize, mean=GANOMALY_MEAN, std=GANOMALY_STD),
+        map_postprocess=smooth_reconstruction_map,
+        raw_label="Errore di ricostruzione",
+    )
 
 
 if __name__ == "__main__":

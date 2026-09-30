@@ -152,13 +152,10 @@ class StructCore(VADModel):
     @staticmethod
     def get_structural_descriptor(anomaly_map: torch.Tensor) -> torch.Tensor:
         # expect a 2d tensor map (H, W)
-        
-        # Apply the same 35% margin mask used by PatchCore on Varroa
-        H, W = anomaly_map.shape
-        margin_h = int(H * 0.35)
-        margin_w = int(W * 0.35)
-        
-        active_region = anomaly_map[margin_h:-margin_h, margin_w:-margin_w]
+        # il descrittore usa tutta la mappa (come nel paper): una varroa sul bordo
+        # del crop deve poter alzare lo score quanto una al centro
+        # fp32: in calibrazione la mappa arriva in bf16 (autocast) e std/TV perderebbero precisione
+        active_region = anomaly_map.float()
         flat_map = active_region.flatten()
         
         # 1. global dispersion

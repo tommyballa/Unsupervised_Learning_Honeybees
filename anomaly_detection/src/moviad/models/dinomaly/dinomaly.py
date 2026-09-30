@@ -5,6 +5,7 @@ import torch.nn as nn
 from torch.nn.init import trunc_normal_
 #from torch.optim import StableAdamW, WarmCosineScheduler
 from torch.nn import functional as F
+import torchvision.transforms.functional as TF
 
 from moviad.models.training_args import TrainingArgs
 from moviad.models.vad_model import VADModel
@@ -59,8 +60,18 @@ class Dinomaly(VADModel):
         fuse_layer_decoder=[[0, 1, 2, 3, 4, 5, 6, 7]],
         mask_neighbor_size=0,
         remove_class_token=False,
-        img_size=(224, 224)
+        img_size=(224, 224),
+        max_ratio: float = 0.01,
+        gaussian_sigma: float = 4,
+        gaussian_kernel_size: int = 5,
     ) -> None:
+        """
+        Args:
+            max_ratio: lo score immagine è la media della frazione max_ratio dei
+                pixel più alti della mappa (0 -> massimo della mappa).
+            gaussian_sigma, gaussian_kernel_size: smoothing gaussiano della mappa.
+                I default (0.01, sigma 4, kernel 5) sono quelli del repo ufficiale.
+        """
         super(Dinomaly, self).__init__()
 
         self.encoder_name = encoder_name
@@ -120,6 +131,10 @@ class Dinomaly(VADModel):
 
         self.mask_neighbor_size = mask_neighbor_size
         self._cached_attn_mask = None
+
+        self.max_ratio = max_ratio
+        self.gaussian_sigma = gaussian_sigma
+        self.gaussian_kernel_size = gaussian_kernel_size
 
     def to(self, device: torch.device):
         super().to(device)
@@ -188,15 +203,32 @@ class Dinomaly(VADModel):
         else:
             out_size = (H, W)
 
-            a_map_list = []
-            for i in range(len(en)):
-                a_map = 1 - F.cosine_similarity(en[i], de[i])
-                a_map = torch.unsqueeze(a_map, dim=1)
-                a_map = F.interpolate(a_map, size=out_size, mode='bilinear', align_corners=True)
-                a_map_list.append(a_map)
+            # la mappa è calcolata sempre in fp32, anche se il forward gira in autocast
+            with torch.autocast(device_type=x.device.type, enabled=False):
+                a_map_list = []
+                for i in range(len(en)):
+                    a_map = 1 - F.cosine_similarity(en[i].float(), de[i].float())
+                    a_map = torch.unsqueeze(a_map, dim=1)
+                    a_map = F.interpolate(a_map, size=out_size, mode='bilinear', align_corners=True)
+                    a_map_list.append(a_map)
 
-            anomaly_maps = torch.cat(a_map_list, dim=1).mean(dim=1)
-            return anomaly_maps, anomaly_maps.amax(dim=(1,2))
+                anomaly_maps = torch.cat(a_map_list, dim=1).mean(dim=1, keepdim=True)
+                if self.gaussian_sigma > 0:
+                    anomaly_maps = TF.gaussian_blur(
+                        anomaly_maps,
+                        kernel_size=[self.gaussian_kernel_size, self.gaussian_kernel_size],
+                        sigma=[self.gaussian_sigma, self.gaussian_sigma],
+                    )
+                anomaly_maps = anomaly_maps[:, 0]
+
+                flat = anomaly_maps.flatten(1)
+                if self.max_ratio == 0:
+                    anomaly_scores = flat.amax(dim=1)
+                else:
+                    k = max(1, int(flat.shape[1] * self.max_ratio))
+                    anomaly_scores = flat.topk(k, dim=1).values.mean(dim=1)
+
+            return anomaly_maps, anomaly_scores
 
     def train_step(self, batch: torch.Tensor, training_args: DinomalyTrainArgs):
         batch = batch.to(self.device, non_blocking=True)

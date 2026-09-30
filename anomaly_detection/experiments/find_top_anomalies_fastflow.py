@@ -154,7 +154,7 @@ def find_top_anomalies(model_checkpoint, data_dir, output_dir, top_n=10):
 
 if __name__ == "__main__":
     # Esempio di utilizzo
-    model_checkpoint = "./checkpoints/task_0.pth"
+    model_checkpoint = "./checkpoints/fastflow_single_bee.pth"
     
     # Sostituisci con la cartella di cui vuoi trovare le anomalie
     data_dir = "/mnt/disk1/borsattifr/datasets/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee/normal" 

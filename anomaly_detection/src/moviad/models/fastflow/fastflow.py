@@ -32,8 +32,9 @@ class FastFlowTrainArgs(TrainingArgs):
             self.loss_function = fastflow_loss
 
 
-def create_fastflow(img_shape, backbone_name, device):
-    fast_flow_model = CompleteFastFlowModel(backbone_name, input_size=img_shape, normalize=False, device=device)
+def create_fastflow(img_shape, backbone_name, device, normalize=True):
+    # normalize=True: LayerNorm addestrabili per scala sulle feature ResNet, come nel paper/anomalib
+    fast_flow_model = CompleteFastFlowModel(backbone_name, input_size=img_shape, normalize=normalize, device=device)
     fast_flow_module = FastflowModel(
         input_size=img_shape, flow_steps=8, conv3x3_only=False,
         hidden_ratio=1.0, channels=fast_flow_model.channels, scales=fast_flow_model.scales

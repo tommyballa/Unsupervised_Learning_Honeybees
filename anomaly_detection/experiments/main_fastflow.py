@@ -1,156 +1,143 @@
-from moviad.models.fastflow.fastflow import create_fastflow, FastFlowTrainArgs
-from moviad.scenarios.continual.continual_trainer import ContinualTrainer
-from moviad.scenarios.continual.continual_dataset import ContinualDataset
-from moviad.scenarios.continual.strategies.single_model import SingleModel
-from moviad.datasets.varroa.varroa_dataset import VarroaDataset
-from moviad.datasets.dataset_arguments import DatasetArguments
-from moviad.utilities.evaluation.metrics import MetricLvl, RocAuc, AvgPrec, F1
-from torchvision import transforms
-import torch
-import random
-import numpy as np
+"""
+FastFlow - Anomaly detection su singole api (single bee crops).
+
+Addestramento: feature wide_resnet50_2 ImageNet congelate (layer1-3),
+               LayerNorm addestrabili per scala e un normalizing flow 2D per
+               scala, massimizzando la likelihood delle api sane (VarroaDataset,
+               TRAIN). Adam lr 1e-3, wd 1e-5, cosine annealing.
+Valutazione:   mappa = media sulle scale di mean(z^2) smussata (gaussiano
+               sigma 4), score immagine = massimo della mappa; metriche a
+               livello immagine e pixel (AUROC, AvgPrec, F1, AUPRO).
+Visualizzazione: heatmap normalizzate GLOBALMENTE e ancorate alla soglia pixel
+                 F1-ottimale (moviad.utilities.evaluation.report).
+
+Correzioni rispetto alla versione precedente:
+  - LayerNorm per scala riattivate (create_fastflow(normalize=True)), come
+    nel paper e in anomalib;
+  - valutazione in fp32 con metriche anche a livello pixel (prima solo
+    immagine, in bf16) e heatmap con normalizzazione globale;
+  - loop di training diretto invece di ContinualTrainer + SingleModel.
+Il checkpoint va passato a diagnose_fastflow_varroa.py con --checkpoint; i
+checkpoint addestrati senza LayerNorm non sono compatibili con il modello.
+"""
+
 import os
-import cv2
+import random
+
+import numpy as np
+import torch
+from torch.utils.data import DataLoader
+from torchvision import transforms
+
+from moviad.datasets.dataset_arguments import DatasetArguments
+from moviad.datasets.varroa.varroa_dataset import VarroaDataset
+from moviad.models.fastflow.fastflow import create_fastflow, FastFlowTrainArgs
+from moviad.utilities.configurations import Split
+from moviad.utilities.evaluation.report import (
+    IMAGENET_MEAN, IMAGENET_STD, compute_metrics, evaluate_and_report, print_metrics, run_inference,
+)
 
 
-def set_seed(seed):
+# ──────────────────────────────────────────────────────────────────────
+# Configurazione
+# ──────────────────────────────────────────────────────────────────────
+TRAIN_DIR     = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees"
+
+# cait_m48_448, deit_base_distilled_patch16_384, resnet18, wide_resnet50_2
+BACKBONE      = "wide_resnet50_2"
+IMG_SIZE      = (256, 256)
+EPOCHS        = 300
+BATCH_SIZE    = 16
+LR            = 1e-3
+WEIGHT_DECAY  = 1e-5
+EVAL_INTERVAL = 10           # valuta ogni N epoche (e sempre all'ultima)
+NUM_WORKERS   = 8
+SEED          = 1
+
+NUM_HEATMAPS  = 20           # metà sane, metà con varroa
+OUTPUT_DIR    = "./heatmaps_fastflow_debug"
+CHECKPOINT    = "./checkpoints/fastflow_single_bee.pth"
+
+
+def set_seed(seed: int):
     torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+    # benchmark=True è sicuro con input size fisso e velocizza le convoluzioni
     torch.backends.cudnn.deterministic = False
     torch.backends.cudnn.benchmark = True
     random.seed(seed)
     np.random.seed(seed)
 
 
-def train_fastflow():
-    SEEDS = [1]
-    
-    for seed in SEEDS:
-        set_seed(seed)
-        
-        device = "cuda:0" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
-        
-        imagenet_normalize = transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225],
-        )
+def train_fastflow_single_bee():
+    set_seed(SEED)
+    device = torch.device(
+        "cuda:0" if torch.cuda.is_available()
+        else "mps" if torch.backends.mps.is_available()
+        else "cpu"
+    )
+    print(f"\nDevice: {device}")
+    if torch.cuda.is_available():
+        print(f"GPU: {torch.cuda.get_device_name(0)}")
 
-        args = {
-            "dataset_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees",
-            "img_size": (256, 256),
-            "gt_mask_size": (256, 256),
-            "image_transform_list": [
-                transforms.ToTensor(),
-                transforms.Resize((256, 256), antialias=True),
-                imagenet_normalize,
-            ],
-        }
+    # --- Modello (LayerNorm per scala + normalizing flow) ---
+    model = create_fastflow(img_shape=IMG_SIZE, backbone_name=BACKBONE, device=device, normalize=True)
 
-        # cait_m48_448, deit_base_distilled_patch16_384, resnet18, wide_resnet50_2
-        model = create_fastflow(
-            img_shape=(256, 256),
-            backbone_name="wide_resnet50_2", 
-            device=device
-        )
-        
-        continual_dataset = ContinualDataset(
-            DatasetArguments(**args),
-            VarroaDataset,
-            categories=["varroa"],
-        )
+    # --- Dataset ---
+    dataset_args = DatasetArguments(
+        dataset_path=TRAIN_DIR,
+        img_size=IMG_SIZE,
+        gt_mask_size=IMG_SIZE,
+        image_transform_list=[
+            transforms.ToTensor(),
+            transforms.Resize(IMG_SIZE, antialias=True),
+            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+        ],
+    )
+    train_dataset = VarroaDataset(dataset_args, "varroa", Split.TRAIN)
+    test_dataset = VarroaDataset(dataset_args, "varroa", Split.TEST)
 
-        os.makedirs("./checkpoints", exist_ok=True)
-        
-        continual_model = SingleModel(model, save_directory_path="./checkpoints")
-        
-        optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=300, eta_min=1e-5)
+    train_loader = DataLoader(
+        train_dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=True,
+        num_workers=NUM_WORKERS, pin_memory=True, persistent_workers=NUM_WORKERS > 0,
+    )
+    test_loader = DataLoader(
+        test_dataset, batch_size=BATCH_SIZE, shuffle=False,
+        num_workers=NUM_WORKERS, pin_memory=True,
+    )
 
-        training_args = FastFlowTrainArgs(
-            epochs=300,
-            batch_size=16,
-            evaluation_epoch_interval=10,
-            optimizer=optimizer,
-            scheduler=scheduler,
-        )
-        
-        trainer = ContinualTrainer(
-            continual_dataset,
-            continual_model,
-            device,
-            metrics=[
-                RocAuc(MetricLvl.IMAGE),
-                AvgPrec(MetricLvl.IMAGE),
-                F1(MetricLvl.IMAGE),
-            ],
-            training_args=training_args,
-        )
+    # --- Optimizer (flow + LayerNorm), scheduler per epoca e loss ---
+    optimizer = torch.optim.Adam(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=1e-5)
+    training_args = FastFlowTrainArgs(epochs=EPOCHS, batch_size=BATCH_SIZE,
+                                      optimizer=optimizer, scheduler=scheduler)
+    training_args.init_train(model)
 
-        trainer.train()
+    # --- Training ---
+    print(f"\n{'='*60}")
+    print(f"Training FastFlow single-bee | {EPOCHS} epoche | {len(train_loader)} batch/epoca")
+    print(f"{'='*60}\n")
 
-        # ==========================================
-        # SAVE TOP N ANOMALOUS IMAGES HEATMAPS
-        # ==========================================
-        TOP_N = 10
-        print(f"Evaluating and saving heatmaps for top {TOP_N} most anomalous images (seed {seed})...")
-        output_dir = f"./heatmaps_fastflow_seed_{seed}"
-        os.makedirs(output_dir, exist_ok=True)
-        
-        test_dataset = continual_dataset.get_task_data_evaluation(0)
-        eval_dataloader = torch.utils.data.DataLoader(
-            test_dataset,
-            batch_size=1,
-            shuffle=False,
-            num_workers=0
-        )
-        
-        continual_model.eval()
-        all_maps = []
-        all_scores = []
-        all_paths = []
-        
-        for image, label, mask, path in eval_dataloader:
-            with torch.no_grad():
-                anom_maps, anom_scores = continual_model(image.to(device))
-            
-            all_maps.append(anom_maps.cpu().numpy())
-            all_scores.append(anom_scores.cpu().numpy())
-            all_paths.extend(path)
-            
-        all_maps = np.concatenate(all_maps)
-        all_scores = np.concatenate(all_scores)
-        
-        # Min-max normalization for maps
-        min_val = all_maps.min()
-        max_val = all_maps.max()
-        norm_maps = (all_maps - min_val) / (max_val - min_val + 1e-8)
-        
-        # Get top N anomalous images
-        top_n_indices = np.argsort(all_scores)[-TOP_N:][::-1]
-        
-        for rank, idx in enumerate(top_n_indices):
-            score = all_scores[idx]
-            img_path = all_paths[idx]
-            anom_map = norm_maps[idx].squeeze()
-            
-            original_img = cv2.imread(img_path)
-            if original_img is None:
-                continue
-                
-            original_img = cv2.cvtColor(original_img, cv2.COLOR_BGR2RGB)
-            anom_map_resized = cv2.resize(anom_map, (original_img.shape[1], original_img.shape[0]))
-            
-            heatmap = cv2.applyColorMap(np.uint8(255 * anom_map_resized), cv2.COLORMAP_JET)
-            heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
-            
-            overlay = cv2.addWeighted(original_img, 0.5, heatmap, 0.5, 0)
-            overlay_bgr = cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR)
-            
-            filename = f"top_{rank+1}_score_{score:.4f}_{os.path.basename(img_path)}"
-            cv2.imwrite(os.path.join(output_dir, filename), overlay_bgr)
-            
-        print(f"Top {TOP_N} heatmaps saved to {output_dir}")
+    for epoch in range(EPOCHS):
+        model.train()
+        loss = model.train_epoch(epoch, train_loader, training_args)
+        scheduler.step()
+        print(f"Epoca {epoch + 1}/{EPOCHS} — loss: {loss:.6f}, lr: {scheduler.get_last_lr()[0]:.2e}")
+
+        if (epoch + 1) % EVAL_INTERVAL == 0 and epoch != EPOCHS - 1:
+            maps, scores, labels, masks = run_inference(model, test_loader, device)
+            print_metrics(compute_metrics(maps, scores, labels, masks, with_pro=False))
+
+    os.makedirs(os.path.dirname(CHECKPOINT), exist_ok=True)
+    torch.save(model.state_dict(), CHECKPOINT)
+    print(f"\nModello FastFlow salvato in {CHECKPOINT}")
+
+    # --- Valutazione finale + heatmap normalizzate ---
+    evaluate_and_report(
+        model, test_dataset, test_loader, device, OUTPUT_DIR,
+        title="FastFlow single-bee", num_heatmaps=NUM_HEATMAPS, seed=SEED,
+    )
+
 
 if __name__ == "__main__":
-    train_fastflow()
+    train_fastflow_single_bee()

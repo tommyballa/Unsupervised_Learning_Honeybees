@@ -38,12 +38,15 @@ class Evaluator:
         gt_mask, gt_label, pred_anom_map, pred_anom_score = [], [], [], []
 
         for image, label, mask, path in tqdm(dataloader, desc="Eval"):
-            with torch.no_grad(), torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            # fp32: in bf16 le distanze (Mahalanobis di PaDiM, |f|^2+|c|^2-2fc di CFA)
+            # perdono precisione (quelle di CFA diventano anche negative, NaN dopo la sqrt);
+            # .float() perché numpy non supporta il bf16
+            with torch.no_grad():
                 anom_maps, anom_scores = model(image.to(device))
             gt_mask.append((mask.cpu().numpy() > 0).astype(np.int8))
             gt_label.append((label.cpu().numpy() > 0).astype(np.int8))
-            pred_anom_map.append(anom_maps.cpu().numpy())
-            pred_anom_score.append(anom_scores.cpu().numpy())
+            pred_anom_map.append(anom_maps.float().cpu().numpy())
+            pred_anom_score.append(anom_scores.float().cpu().numpy())
 
         gt_mask = np.concatenate(gt_mask)
         gt_label = np.concatenate(gt_label)

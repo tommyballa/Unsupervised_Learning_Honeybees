@@ -134,7 +134,7 @@ class CFA(VADModel):
         centers  = torch.sum(torch.pow(self.memory_bank, 2), 0, keepdim=True)
         f_c      = 2 * torch.matmul(phi_p, (self.memory_bank))
         dist     = features + centers - f_c
-        dist     = torch.sqrt(dist)
+        dist     = torch.sqrt(dist.clamp_min(0))  # evita NaN da cancellazione numerica
 
         n_neighbors = self.K
         dist     = dist.topk(n_neighbors, largest=False).values
@@ -152,21 +152,9 @@ class CFA(VADModel):
             heatmaps = CFA.upsample(heatmaps, size=x.size(2), mode="bilinear")
             heatmaps = CFA.gaussian_smooth_torch(heatmaps, sigma=4)
             
-            # --- IGNORA I BORDI PER L'IMAGE SCORE (Come in PatchCore) ---
-            batch_size, _, h, w = scores.shape
-            margin = int(h * 0.35)  # 35% di margine ignorato (come in patchcore)
-            
-            mask = torch.zeros_like(scores)
-            mask[:, :, margin:-margin, margin:-margin] = 1.0
-            scores_masked = scores * mask
-            
-            # Calcoliamo il Top-9 mean sulla zona centrale invece del max (stessa logica usata in patchcore)
-            k = 9
-            scores_flat = scores_masked.reshape(batch_size, -1)
-            k = min(k, scores_flat.shape[1])
-            topk_scores, _ = torch.topk(scores_flat, k=k, dim=1)
-            img_scores = topk_scores.mean(dim=1)
-            # ------------------------------------------------------------
+            # score immagine = massimo della heatmap smussata, come nel paper CFA
+            # (su tutta l'immagine, senza margine)
+            img_scores = heatmaps.reshape(x.size(0), -1).amax(dim=1)
 
             if len(heatmaps.shape) == 2:
                 return heatmaps.view(1,1,heatmaps.shape[0], heatmaps.shape[1]), img_scores
@@ -347,7 +335,10 @@ class CFA(VADModel):
         if x.ndim == 2:
             x = x.unsqueeze(0) # if processing (working on) one image
 
-        blur = GaussianBlur(3, sigma)
+        # kernel 2*int(4*sigma+0.5)+1 (33 per sigma=4), come gaussian_filter di scipy:
+        # con kernel 3 il filtro era di fatto un box 3x3
+        kernel_size = 2 * int(4.0 * sigma + 0.5) + 1
+        blur = GaussianBlur(kernel_size, sigma)
         return blur(x)
 
     @staticmethod
