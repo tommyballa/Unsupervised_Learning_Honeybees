@@ -337,5 +337,11 @@ class CustomFeatureExtractor:
             self.model(batch.to(self.device))
             return self.features
 
+    def get_channels_dim(self) -> int:
+        """Total number of channels of the extracted feature maps."""
+        with torch.no_grad():
+            features = self(torch.rand(1, 3, 224, 224).to(self.device))
+        return sum(feature.shape[1] for feature in features)
+
     def get_size(self):
         return params_to_mb(count_params(self.model))
