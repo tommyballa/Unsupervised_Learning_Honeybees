@@ -4,6 +4,13 @@ CFA - Anomaly detection su immagini full-frame con molte api.
 Addestramento: crop casuali dalle immagini ad alta risoluzione di training.
 Inferenza: sliding window sull'immagine intera, con blending delle sovrapposizioni.
 Valutazione: metriche a livello di immagine e pixel (AUROC, AvgPrec, F1).
+
+Best: ogni EVAL_INTERVAL epoche (e all'ultima) metriche sulle prime
+EVAL_IMAGES_PER_CLASS immagini pulite e con varroa del test set; la
+configurazione migliore (img_roc_auc, a parità pxl_avg_prec) viene salvata in
+checkpoints/full_image/cfa/ (best.pth + config.json).
+Heatmap e metriche su tutto il test set dalla best:
+    python experiments/plot_heatmaps.py full_image cfa
 """
 
 import os
@@ -20,6 +27,9 @@ from torch.utils.data import Dataset, DataLoader
 from moviad.models.cfa.cfa import CFA, CFATrainArgs
 from moviad.utilities.custom_feature_extractor_trimmed import CustomFeatureExtractor
 from moviad.utilities.evaluation.metrics import MetricLvl, RocAuc, AvgPrec, F1
+from moviad.utilities.evaluation.checkpoints import BestTracker, clean_state_dict, script_config
+from moviad.utilities.evaluation.full_image import eval_items, evaluate_full_images
+from moviad.utilities.evaluation.report import print_metrics
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -35,8 +45,13 @@ EPOCHS     = 30
 BATCH_SIZE = 8
 SEED       = 1
 
+EVAL_INTERVAL = 5           # valuta ogni N epoche (e sempre all'ultima) per la best
+EVAL_IMAGES_PER_CLASS = 5    # prime N immagini pulite + N con varroa del test usate per la best
+
+MODEL_NAME = "cfa"
 REPO_ROOT = Path(__file__).resolve().parents[2]
-OUTPUT_DIR = REPO_ROOT / "heatmaps" / "full_image" / "cfa"
+OUTPUT_DIR = REPO_ROOT / "heatmaps" / "full_image" / MODEL_NAME
+CHECKPOINT_DIR = REPO_ROOT / "checkpoints" / "full_image" / MODEL_NAME
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -299,16 +314,9 @@ def _save_overlay(img_rgb, amap, output_dir, img_name):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Main
+# Modello, best e heatmap (usati anche da experiments/plot_heatmaps.py)
 # ──────────────────────────────────────────────────────────────────────
-def main():
-    set_seed(SEED)
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    print(f"\nDevice: {device}")
-    if torch.cuda.is_available():
-        print(f"GPU: {torch.cuda.get_device_name(0)}")
-
-    # --- Modello ---
+def build_model(device):
     feature_extractor = CustomFeatureExtractor(
         "wide_resnet50_2", ["layer1", "layer2"], device, frozen=True
     )
@@ -320,6 +328,58 @@ def main():
         feature_maps_channels=768,
     )
     model.to(device)
+    return model
+
+
+def model_state(model):
+    # patch descriptor, raggio r e memory bank (il backbone congelato non è nello state dict)
+    return clean_state_dict(model.state_dict())
+
+
+def load_model_state(model, state):
+    # in un modello nuovo la memory bank non esiste ancora (viene creata all'epoca 0)
+    model.memory_bank = torch.nn.Parameter(state["memory_bank"].clone().to(model.device),
+                                           requires_grad=False)
+    model.load_state_dict(state)
+
+
+def infer_image(model, device, img_path):
+    """Anomaly map dell'immagine intera, come in evaluate_and_visualize."""
+    _, amap = sliding_window_inference(model, img_path, device, window_size=TILE_SIZE,
+                                       stride=TILE_SIZE // 2, batch_size=8)
+    return amap
+
+
+def image_score(amap):
+    return float(amap.max())
+
+
+def evaluate_subset(model, device):
+    """Metriche (senza plot) sulle prime EVAL_IMAGES_PER_CLASS immagini pulite e con varroa."""
+    model.eval()
+    items = eval_items(TEST_CLEAN_DIR, TEST_VARROA_DIR, EVAL_IMAGES_PER_CLASS)
+    with torch.no_grad():
+        return evaluate_full_images(lambda p: infer_image(model, device, p), image_score,
+                                    items, TEST_MASKS_DIR)
+
+
+def plot_heatmaps(model, device):
+    """Metriche e heatmap su tutto il test set."""
+    print(f"\nTest con sliding window (tile {TILE_SIZE}x{TILE_SIZE})...")
+    evaluate_and_visualize(model, device, output_dir=OUTPUT_DIR, window_size=TILE_SIZE)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Main
+# ──────────────────────────────────────────────────────────────────────
+def main():
+    set_seed(SEED)
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print(f"\nDevice: {device}")
+    if torch.cuda.is_available():
+        print(f"GPU: {torch.cuda.get_device_name(0)}")
+
+    model = build_model(device)
 
     # --- Dataset di training con crop casuali ---
     imagenet_normalize = transforms.Normalize(
@@ -344,24 +404,28 @@ def main():
     # --- Training args ---
     training_args = CFATrainArgs(epochs=EPOCHS, batch_size=BATCH_SIZE)
     training_args.init_train(model)
+    tracker = BestTracker(
+        CHECKPOINT_DIR, script_config(globals()),
+        selection_data=(f"test set: prime {EVAL_IMAGES_PER_CLASS} immagini pulite "
+                        f"+ {EVAL_IMAGES_PER_CLASS} con varroa"),
+    )
 
-    # --- Training ---
+    # --- Training (all'epoca 0 train_epoch inizializza la memory bank) ---
     print(f"\n{'='*60}")
     print(f"Training CFA full-image | {EPOCHS} epoche | {len(train_dataloader)} batch/epoca")
     print(f"{'='*60}\n")
 
-    model.train()
     for epoch in range(EPOCHS):
         loss = model.train_epoch(epoch, train_dataloader, training_args)
         print(f"Epoca {epoch + 1}/{EPOCHS} — loss: {loss:.6f}")
 
-    # --- Test con sliding window + metriche ---
-    print(f"\nTest con sliding window (tile {TILE_SIZE}x{TILE_SIZE})...")
-    evaluate_and_visualize(
-        model, device,
-        output_dir=OUTPUT_DIR,
-        window_size=TILE_SIZE,
-    )
+        if (epoch + 1) % EVAL_INTERVAL == 0 or epoch == EPOCHS - 1:
+            results = evaluate_subset(model, device)
+            print_metrics(results)
+            tracker.update(epoch + 1, results, lambda: model_state(model))
+
+    print(f"\nBest {MODEL_NAME} full-image — {tracker.summary()}")
+    print(f"Heatmap e metriche su tutto il test: python experiments/plot_heatmaps.py full_image {MODEL_NAME}")
 
 
 if __name__ == "__main__":

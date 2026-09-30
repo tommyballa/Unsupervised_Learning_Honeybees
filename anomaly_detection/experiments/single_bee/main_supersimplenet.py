@@ -4,19 +4,14 @@ SuperSimpleNet - Anomaly detection su singole api (single bee crops).
 Addestramento: immagini normali di singole api (VarroaDataset, split TRAIN).
                Le anomalie vengono simulate nello spazio delle feature
                (rumore gaussiano mascherato con Perlin noise), come nel paper.
-Valutazione:   metriche a livello immagine e pixel (AUROC, AvgPrec, F1, AUPRO)
-               sul test set sintetico (api sane + api con varroa + maschere).
-Visualizzazione: heatmap normalizzate GLOBALMENTE (stessa scala per tutte le
-                 immagini di test) e ancorate alla soglia di decisione:
-                   v_min  -> 0.0 (blu)   livello di fondo delle api sane
-                   soglia -> 0.5         soglia pixel che massimizza l'F1
-                   v_max  -> 1.0 (rosso) anomalie più forti del test set
-                 Così un'ape sana resta blu e solo ciò che supera la soglia
-                 diventa giallo/rosso (con la normalizzazione min/max per
-                 immagine, invece, ogni ape avrebbe sempre un punto rosso).
+Best:          ogni EVAL_INTERVAL epoche (e all'ultima) metriche sul test set;
+               la configurazione migliore (img_roc_auc, a parità pxl_avg_prec)
+               viene salvata in checkpoints/single_bee/supersimplenet/
+               (best.pth + config.json).
+Heatmap e metriche finali (AUROC, AvgPrec, F1, AUPRO) dalla best:
+    python experiments/plot_heatmaps.py single_bee supersimplenet
 """
 
-import os
 import random
 from pathlib import Path
 
@@ -34,14 +29,16 @@ from moviad.models.components.simplenet.loss import SSNLoss
 from moviad.models.supersimplenet.supersimplenet import SuperSimpleNet
 from moviad.utilities.configurations import Split
 from moviad.utilities.custom_feature_extractor_trimmed import CustomFeatureExtractor
+from moviad.utilities.evaluation.checkpoints import BestTracker, clean_state_dict, script_config
 from moviad.utilities.evaluation.report import (
-    IMAGENET_MEAN, IMAGENET_STD, compute_metrics, evaluate_and_report, print_metrics, run_inference,
+    IMAGENET_MEAN, IMAGENET_STD, compute_metrics, print_metrics, run_inference,
 )
 
 
 # ──────────────────────────────────────────────────────────────────────
 # Configurazione
 # ──────────────────────────────────────────────────────────────────────
+MODEL_NAME      = "supersimplenet"
 REPO_ROOT       = Path(__file__).resolve().parents[2]
 TRAIN_DIR       = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees"
 # i crop delle api sono 512x512: maschere GT, metriche pixel e heatmap a questa
@@ -66,8 +63,9 @@ LR_MILESTONES   = [int(EPOCHS * 0.8), int(EPOCHS * 0.9)]   # in epoche
 PERLIN_THRESHOLD = SuperSimpleNet.DEFAULT_PARAMETERS["perlin_threshold"]
 
 NUM_HEATMAPS    = 20           # metà sane, metà con varroa
-OUTPUT_DIR      = REPO_ROOT / "heatmaps" / "single_bee" / "supersimplenet"
-CHECKPOINT      = REPO_ROOT / "checkpoints" / "single_bee" / "supersimplenet.pth"
+RAW_LABEL       = "Mappa grezza (logit)"
+OUTPUT_DIR      = REPO_ROOT / "heatmaps" / "single_bee" / MODEL_NAME
+CHECKPOINT_DIR  = REPO_ROOT / "checkpoints" / "single_bee" / MODEL_NAME
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -100,6 +98,40 @@ class AugmentedTrainDataset(Dataset):
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Modello e dati (usati anche da experiments/plot_heatmaps.py)
+# ──────────────────────────────────────────────────────────────────────
+def dataset_args():
+    return DatasetArguments(
+        dataset_path=TRAIN_DIR,
+        img_size=IMG_SIZE,
+        gt_mask_size=GT_SIZE,
+        image_transform_list=[
+            transforms.ToTensor(),
+            transforms.Resize(IMG_SIZE, antialias=True),
+            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+        ],
+    )
+
+
+def build_model(device):
+    feature_extractor = CustomFeatureExtractor(BACKBONE, LAYERS, device, frozen=True)
+    return SuperSimpleNet(
+        feature_extractor=feature_extractor,
+        perlin_threshold=PERLIN_THRESHOLD,
+        stop_grad=SuperSimpleNet.DEFAULT_PARAMETERS["stop_grad"],
+    ).to(device)
+
+
+def model_state(model):
+    # il backbone congelato non fa parte dello state dict: adaptor + segdec
+    return clean_state_dict(model.state_dict())
+
+
+def load_model_state(model, state):
+    model.load_state_dict(state)
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Training
 # ──────────────────────────────────────────────────────────────────────
 def train_epoch(model, dataloader, optimizer, loss_fn, device):
@@ -124,9 +156,6 @@ def train_epoch(model, dataloader, optimizer, loss_fn, device):
     return avg_loss / len(dataloader)
 
 
-# ──────────────────────────────────────────────────────────────────────
-# Main
-# ──────────────────────────────────────────────────────────────────────
 def train_supersimplenet_single_bee():
     set_seed(SEED)
     device = torch.device(
@@ -138,27 +167,10 @@ def train_supersimplenet_single_bee():
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
-    # --- Modello ---
-    feature_extractor = CustomFeatureExtractor(BACKBONE, LAYERS, device, frozen=True)
-    model = SuperSimpleNet(
-        feature_extractor=feature_extractor,
-        perlin_threshold=PERLIN_THRESHOLD,
-        stop_grad=SuperSimpleNet.DEFAULT_PARAMETERS["stop_grad"],
-    ).to(device)
+    model = build_model(device)
 
-    # --- Dataset ---
-    dataset_args = DatasetArguments(
-        dataset_path=TRAIN_DIR,
-        img_size=IMG_SIZE,
-        gt_mask_size=GT_SIZE,
-        image_transform_list=[
-            transforms.ToTensor(),
-            transforms.Resize(IMG_SIZE, antialias=True),
-            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
-        ],
-    )
-    train_dataset = AugmentedTrainDataset(VarroaDataset(dataset_args, "varroa", Split.TRAIN))
-    test_dataset = VarroaDataset(dataset_args, "varroa", Split.TEST)
+    train_dataset = AugmentedTrainDataset(VarroaDataset(dataset_args(), "varroa", Split.TRAIN))
+    test_dataset = VarroaDataset(dataset_args(), "varroa", Split.TEST)
 
     train_loader = DataLoader(
         train_dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=True,
@@ -176,8 +188,8 @@ def train_supersimplenet_single_bee():
     ])
     scheduler = MultiStepLR(optimizer, milestones=LR_MILESTONES, gamma=LR_GAMMA)
     loss_fn = SSNLoss()
+    tracker = BestTracker(CHECKPOINT_DIR, script_config(globals()))
 
-    # --- Training ---
     print(f"\n{'='*60}")
     print(f"Training SuperSimpleNet single-bee | {EPOCHS} epoche | {len(train_loader)} batch/epoca")
     print(f"{'='*60}\n")
@@ -187,20 +199,14 @@ def train_supersimplenet_single_bee():
         scheduler.step()
         print(f"Epoca {epoch + 1}/{EPOCHS} — loss: {loss:.6f}, lr: {scheduler.get_last_lr()}")
 
-        if (epoch + 1) % EVAL_INTERVAL == 0 and epoch != EPOCHS - 1:
+        if (epoch + 1) % EVAL_INTERVAL == 0 or epoch == EPOCHS - 1:
             maps, scores, labels, masks = run_inference(model, test_loader, device)
-            print_metrics(compute_metrics(maps, scores, labels, masks, with_pro=False))
+            results = compute_metrics(maps, scores, labels, masks, with_pro=False)
+            print_metrics(results)
+            tracker.update(epoch + 1, results, lambda: model_state(model))
 
-    os.makedirs(os.path.dirname(CHECKPOINT), exist_ok=True)
-    torch.save(model.state_dict(), CHECKPOINT)
-    print(f"\nModello SuperSimpleNet salvato in {CHECKPOINT}")
-
-    # --- Valutazione finale + heatmap normalizzate ---
-    evaluate_and_report(
-        model, test_dataset, test_loader, device, OUTPUT_DIR,
-        title="SuperSimpleNet single-bee", num_heatmaps=NUM_HEATMAPS, seed=SEED,
-        raw_label="Mappa grezza (logit)",
-    )
+    print(f"\nBest SuperSimpleNet — {tracker.summary()}")
+    print(f"Heatmap e metriche finali: python experiments/plot_heatmaps.py single_bee {MODEL_NAME}")
 
 
 if __name__ == "__main__":

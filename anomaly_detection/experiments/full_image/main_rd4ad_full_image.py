@@ -13,6 +13,13 @@ Visualizzazione: heatmap normalizzate GLOBALMENTE (stessa scala per tutte le
                  La normalizzazione richiede le statistiche di tutto il test
                  set, quindi le mappe vengono prima calcolate e salvate su
                  disco (.npy float16) e poi visualizzate in un secondo passaggio.
+
+Best: ogni EVAL_INTERVAL epoche (e all'ultima) metriche sulle prime
+EVAL_IMAGES_PER_CLASS immagini pulite e con varroa del test set; la
+configurazione migliore (img_roc_auc, a parità pxl_avg_prec) viene salvata in
+checkpoints/full_image/rd4ad/ (best.pth + config.json).
+Heatmap e metriche su tutto il test set dalla best:
+    python experiments/plot_heatmaps.py full_image rd4ad
 """
 
 import json
@@ -33,6 +40,9 @@ from torch.utils.data import Dataset, DataLoader
 
 from moviad.models.rd4ad.rd4ad import RD4AD, RD4ADTrainArgs
 from moviad.utilities.evaluation.metrics import MetricLvl, RocAuc, AvgPrec, F1
+from moviad.utilities.evaluation.checkpoints import BestTracker, clean_state_dict, script_config
+from moviad.utilities.evaluation.full_image import eval_items, evaluate_full_images
+from moviad.utilities.evaluation.report import print_metrics
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -52,9 +62,13 @@ SEED         = 1
 TOP_K        = 100          # image score = media dei top-k pixel della mappa
 PIXEL_STRIDE = 4            # sottocampionamento dei pixel per metriche e normalizzazione
 
-REPO_ROOT    = Path(__file__).resolve().parents[2]
-OUTPUT_DIR   = REPO_ROOT / "heatmaps" / "full_image" / "rd4ad"
-CHECKPOINT   = REPO_ROOT / "checkpoints" / "full_image" / "rd4ad.pth"
+EVAL_INTERVAL = 10           # valuta ogni N epoche (e sempre all'ultima) per la best
+EVAL_IMAGES_PER_CLASS = 5    # prime N immagini pulite + N con varroa del test usate per la best
+
+MODEL_NAME = "rd4ad"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+OUTPUT_DIR = REPO_ROOT / "heatmaps" / "full_image" / MODEL_NAME
+CHECKPOINT_DIR = REPO_ROOT / "checkpoints" / "full_image" / MODEL_NAME
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -511,6 +525,54 @@ def evaluate_and_visualize(model, device, output_dir, window_size=512):
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Modello, best e heatmap (usati anche da experiments/plot_heatmaps.py)
+# ──────────────────────────────────────────────────────────────────────
+def build_model(device):
+    model = RD4AD(backbone_name=BACKBONE, input_size=(TILE_SIZE, TILE_SIZE)).to(device)
+    # l'encoder (teacher) è congelato: l'optimizer aggiorna solo bottleneck e decoder
+    for p in model.encoder.parameters():
+        p.requires_grad_(False)
+    return model
+
+
+def model_state(model):
+    # l'encoder è il wide_resnet50_2 ImageNet congelato: bastano bottleneck e decoder
+    return {"bn": clean_state_dict(model.bn.state_dict()),
+            "decoder": clean_state_dict(model.decoder.state_dict())}
+
+
+def load_model_state(model, state):
+    model.bn.load_state_dict(state["bn"])
+    model.decoder.load_state_dict(state["decoder"])
+
+
+def infer_image(model, device, img_path):
+    """Anomaly map dell'immagine intera, come in evaluate_and_visualize."""
+    _, amap = sliding_window_inference(model, img_path, device, window_size=TILE_SIZE,
+                                       stride=TILE_SIZE // 2, batch_size=BATCH_SIZE)
+    return amap
+
+
+def image_score(amap):
+    return top_k_score(amap)
+
+
+def evaluate_subset(model, device):
+    """Metriche (senza plot) sulle prime EVAL_IMAGES_PER_CLASS immagini pulite e con varroa."""
+    model.eval()
+    items = eval_items(TEST_CLEAN_DIR, TEST_VARROA_DIR, EVAL_IMAGES_PER_CLASS)
+    with torch.no_grad():
+        return evaluate_full_images(lambda p: infer_image(model, device, p), image_score,
+                                    items, TEST_MASKS_DIR)
+
+
+def plot_heatmaps(model, device):
+    """Metriche e heatmap su tutto il test set."""
+    print(f"\nTest con sliding window (tile {TILE_SIZE}x{TILE_SIZE})...")
+    evaluate_and_visualize(model, device, output_dir=OUTPUT_DIR, window_size=TILE_SIZE)
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Main
 # ──────────────────────────────────────────────────────────────────────
 def main():
@@ -524,11 +586,7 @@ def main():
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
-    # --- Modello ---
-    model = RD4AD(backbone_name=BACKBONE, input_size=(TILE_SIZE, TILE_SIZE)).to(device)
-    # l'encoder (teacher) è congelato: l'optimizer aggiorna solo bottleneck e decoder
-    for p in model.encoder.parameters():
-        p.requires_grad_(False)
+    model = build_model(device)
 
     # --- Dataset di training con crop casuali ---
     train_transform = transforms.Compose([
@@ -553,6 +611,11 @@ def main():
     # --- Training args ---
     training_args = RD4ADTrainArgs(epochs=EPOCHS, batch_size=BATCH_SIZE)
     training_args.init_train(model)
+    tracker = BestTracker(
+        CHECKPOINT_DIR, script_config(globals()),
+        selection_data=(f"test set: prime {EVAL_IMAGES_PER_CLASS} immagini pulite "
+                        f"+ {EVAL_IMAGES_PER_CLASS} con varroa"),
+    )
 
     # --- Training ---
     print(f"\n{'='*60}")
@@ -564,17 +627,13 @@ def main():
         loss = model.train_epoch(epoch, train_dataloader, training_args)
         print(f"Epoca {epoch + 1}/{EPOCHS} — loss: {loss:.6f}")
 
-    os.makedirs(os.path.dirname(CHECKPOINT), exist_ok=True)
-    torch.save(model.state_dict(), CHECKPOINT)
-    print(f"Modello RD4AD salvato in {CHECKPOINT}")
+        if (epoch + 1) % EVAL_INTERVAL == 0 or epoch == EPOCHS - 1:
+            results = evaluate_subset(model, device)
+            print_metrics(results)
+            tracker.update(epoch + 1, results, lambda: model_state(model))
 
-    # --- Test con sliding window + metriche + heatmap ---
-    print(f"\nTest con sliding window (tile {TILE_SIZE}x{TILE_SIZE})...")
-    evaluate_and_visualize(
-        model, device,
-        output_dir=OUTPUT_DIR,
-        window_size=TILE_SIZE,
-    )
+    print(f"\nBest {MODEL_NAME} full-image — {tracker.summary()}")
+    print(f"Heatmap e metriche su tutto il test: python experiments/plot_heatmaps.py full_image {MODEL_NAME}")
 
 
 if __name__ == "__main__":

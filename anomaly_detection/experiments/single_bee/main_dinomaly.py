@@ -12,7 +12,7 @@ Ottimizzazioni velocità:
 
 Ottimizzazioni qualità varroa:
   - Data augmentation geometrica (flips, rotazione) sul dataset cachato
-  - Fix gt_mask_size a 518x518 (prima usava 256x256 di default)
+  - Maschere GT, metriche e heatmap a 512x512 (risoluzione dei crop)
 
 Allineamento all'implementazione ufficiale di Dinomaly:
   - loss coseno GLOBALE con hard mining (components.global_cosine_hm_percent)
@@ -20,19 +20,21 @@ Allineamento all'implementazione ufficiale di Dinomaly:
     del top-1% dei pixel (Dinomaly(max_ratio=0.01))
   - valutazione in fp32 (il training resta in bf16)
 
-Visualizzazione: heatmap normalizzate GLOBALMENTE e ancorate alla soglia pixel
-F1-ottimale (moviad.utilities.evaluation.report). La vecchia normalizzazione
-(min/max globale + gamma 3 + azzeramento sotto la mediana degli score) rendeva
-blu quasi tutte le heatmap: il massimo globale è il singolo pixel più estremo
-del test set e con gamma 3 un valore a metà scala diventa 0.125.
+Best: ogni EVAL_INTERVAL epoche (e all'ultima) metriche sul test set; la
+configurazione migliore (img_roc_auc, a parità pxl_avg_prec) viene salvata in
+checkpoints/single_bee/dinomaly/ (best.pth = bottleneck + decoder, l'encoder
+DINOv2 è congelato; config.json).
+Heatmap e metriche finali (AUROC, AvgPrec, F1, AUPRO) dalla best:
+    python experiments/plot_heatmaps.py single_bee dinomaly
 """
 
 from moviad.models.dinomaly.dinomaly import Dinomaly, DinomalyTrainArgs
 from moviad.datasets.varroa.varroa_dataset import VarroaDataset
 from moviad.datasets.dataset_arguments import DatasetArguments
 from moviad.utilities.configurations import Split
+from moviad.utilities.evaluation.checkpoints import BestTracker, clean_state_dict, script_config
 from moviad.utilities.evaluation.report import (
-    IMAGENET_MEAN, IMAGENET_STD, compute_metrics, evaluate_and_report, print_metrics, run_inference,
+    IMAGENET_MEAN, IMAGENET_STD, compute_metrics, print_metrics, run_inference,
 )
 from torchvision import transforms
 from torch.utils.data import DataLoader, Dataset
@@ -41,15 +43,19 @@ import torch
 import random
 from pathlib import Path
 import numpy as np
-import os
 
 # ──────────────────────────────────────────────────────────────────────
 # Configurazione
 # ──────────────────────────────────────────────────────────────────────
+MODEL_NAME     = "dinomaly"
+ENCODER_NAME   = "vit_base_patch14_reg4_dinov2"
+TARGET_LAYERS  = [2, 3, 4, 5]
+FUSE_LAYER_ENCODER = [[0, 1, 2, 3]]
+MAX_RATIO      = 0.01   # score immagine = media del top-1% dei pixel (come nel repo ufficiale)
 IMG_SIZE       = (518, 518)
 EPOCHS         = 20
 BATCH_SIZE     = 32
-EVAL_INTERVAL  = 5      # valuta ogni N epoche
+EVAL_INTERVAL  = 5      # valuta ogni N epoche (e sempre all'ultima)
 SEED           = 1
 NUM_WORKERS    = 8
 
@@ -60,8 +66,8 @@ TRAIN_DIR      = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/process
 GT_SIZE        = (512, 512)
 
 NUM_HEATMAPS   = 20      # metà sane, metà con varroa
-OUTPUT_DIR     = REPO_ROOT / "heatmaps" / "single_bee" / "dinomaly"
-CHECKPOINT     = REPO_ROOT / "checkpoints" / "single_bee" / "dinomaly.pth"
+OUTPUT_DIR     = REPO_ROOT / "heatmaps" / "single_bee" / MODEL_NAME
+CHECKPOINT_DIR = REPO_ROOT / "checkpoints" / "single_bee" / MODEL_NAME
 
 
 def set_seed(seed):
@@ -82,7 +88,7 @@ class AugmentedTrainDataset(Dataset):
     """
     Wrappa il VarroaDataset (che cacha i tensori trasformati) e applica
     augmentation geometrica random ad ogni accesso.
-    
+
     L'augmentation opera su tensori già normalizzati: le trasformazioni
     geometriche (flip, rotazione) non alterano la distribuzione dei valori.
     Questo è fondamentale per il rilevamento varroa perché le api possono
@@ -97,13 +103,53 @@ class AugmentedTrainDataset(Dataset):
                 transforms.RandomRotation(degrees=15, fill=0),
             ], p=0.3),
         ])
-    
+
     def __len__(self):
         return len(self.base)
-    
+
     def __getitem__(self, idx):
         image = self.base[idx]  # tensore cachato (C, H, W)
         return self.aug(image)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Modello e dati (usati anche da experiments/plot_heatmaps.py)
+# ──────────────────────────────────────────────────────────────────────
+def dataset_args():
+    return DatasetArguments(
+        dataset_path=TRAIN_DIR,
+        img_size=IMG_SIZE,
+        gt_mask_size=GT_SIZE,
+        image_transform_list=[
+            transforms.ToTensor(),
+            transforms.Resize(IMG_SIZE, antialias=True),
+            transforms.GaussianBlur(kernel_size=3, sigma=0.5),
+            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+        ],
+    )
+
+
+def build_model(device):
+    model = Dinomaly(
+        encoder_name=ENCODER_NAME,
+        target_layers=TARGET_LAYERS,
+        fuse_layer_encoder=FUSE_LAYER_ENCODER,
+        # il decoder usa LinearAttention2, che ignora l'attention mask: il
+        # neighbor masking non avrebbe effetto (e non è usato nel repo ufficiale)
+        mask_neighbor_size=0,
+        img_size=IMG_SIZE,
+        max_ratio=MAX_RATIO,
+    )
+    return model.to(device)
+
+
+def model_state(model):
+    # encoder DINOv2 congelato: bastano bottleneck + decoder (senza i prefissi di torch.compile)
+    return clean_state_dict(model.trainable.state_dict())
+
+
+def load_model_state(model, state):
+    model.trainable.load_state_dict(state)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -124,17 +170,7 @@ def train_dinomaly():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
     # ── Modello ──────────────────────────────────────────────────────
-    model = Dinomaly(
-        encoder_name="vit_base_patch14_reg4_dinov2", 
-        target_layers=[2, 3, 4, 5],
-        fuse_layer_encoder=[[0, 1, 2, 3]],
-        # il decoder usa LinearAttention2, che ignora l'attention mask: il
-        # neighbor masking non avrebbe effetto (e non è usato nel repo ufficiale)
-        mask_neighbor_size=0,
-        img_size=IMG_SIZE,
-        max_ratio=0.01,
-    )
-    model = model.to(device)
+    model = build_model(device)
 
     # ── torch.compile sui blocchi computazionali ─────────────────────
     # L'encoder è congelato con input size fisso → compilazione perfetta
@@ -151,26 +187,11 @@ def train_dinomaly():
         model.bottleneck[i] = torch.compile(blk)
 
     # ── Dataset ──────────────────────────────────────────────────────
-    imagenet_normalize = transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)
-
-    dataset_args = DatasetArguments(
-        dataset_path=TRAIN_DIR,
-        img_size=IMG_SIZE,
-        gt_mask_size=GT_SIZE,
-        image_transform_list=[
-            transforms.ToTensor(),
-            transforms.Resize(IMG_SIZE, antialias=True),
-            transforms.GaussianBlur(kernel_size=3, sigma=0.5),
-            imagenet_normalize,
-        ],
-    )
-
     # Training dataset con augmentation geometrica
-    train_base = VarroaDataset(dataset_args, "varroa", Split.TRAIN)
-    train_dataset = AugmentedTrainDataset(train_base)
+    train_dataset = AugmentedTrainDataset(VarroaDataset(dataset_args(), "varroa", Split.TRAIN))
 
     # Test dataset (senza augmentation)
-    test_dataset = VarroaDataset(dataset_args, "varroa", [Split.TEST])
+    test_dataset = VarroaDataset(dataset_args(), "varroa", Split.TEST)
 
     train_loader = DataLoader(
         train_dataset,
@@ -197,6 +218,7 @@ def train_dinomaly():
         total_iters=total_iters,
     )
     training_args.init_train(model)
+    tracker = BestTracker(CHECKPOINT_DIR, script_config(globals()))
 
     # ── Training loop ────────────────────────────────────────────────
     print(f"\n{'='*60}")
@@ -216,21 +238,15 @@ def train_dinomaly():
         avg_loss /= len(train_loader)
         print(f"  Loss: {avg_loss:.6f}")
 
-        # Valutazione intermedia (ogni EVAL_INTERVAL epoche; l'ultima è quella finale)
-        if (epoch + 1) % EVAL_INTERVAL == 0 and epoch != EPOCHS - 1:
+        # Valutazione (ogni EVAL_INTERVAL epoche e all'ultima) + salvataggio della best
+        if (epoch + 1) % EVAL_INTERVAL == 0 or epoch == EPOCHS - 1:
             maps, scores, labels, masks = run_inference(model, eval_loader, device)
-            print_metrics(compute_metrics(maps, scores, labels, masks, with_pro=False))
+            results = compute_metrics(maps, scores, labels, masks, with_pro=False)
+            print_metrics(results)
+            tracker.update(epoch + 1, results, lambda: model_state(model))
 
-    # ── Salvataggio ──────────────────────────────────────────────────
-    os.makedirs(os.path.dirname(CHECKPOINT), exist_ok=True)
-    torch.save(model.state_dict(), CHECKPOINT)
-    print(f"\nModello Dinomaly salvato in {CHECKPOINT}")
-
-    # ── Valutazione finale + heatmap normalizzate ────────────────────
-    evaluate_and_report(
-        model, test_dataset, eval_loader, device, OUTPUT_DIR,
-        title="Dinomaly single-bee", num_heatmaps=NUM_HEATMAPS, seed=SEED,
-    )
+    print(f"\nBest Dinomaly — {tracker.summary()}")
+    print(f"Heatmap e metriche finali: python experiments/plot_heatmaps.py single_bee {MODEL_NAME}")
 
 
 if __name__ == "__main__":

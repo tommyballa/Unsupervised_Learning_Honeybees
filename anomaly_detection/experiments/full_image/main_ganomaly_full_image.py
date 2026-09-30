@@ -24,6 +24,13 @@ Correzioni rispetto alla versione precedente:
   - Reinizializzazione del discriminatore quando collassa (come nel paper).
   - Stesso test set (synthetic_varroa_output) degli altri script full-image.
   - Le immagini non vengono più tenute tutte in RAM per le heatmap.
+
+Best: ogni EVAL_INTERVAL epoche (e all'ultima) metriche sulle prime
+EVAL_IMAGES_PER_CLASS immagini pulite e con varroa del test set; la
+configurazione migliore (img_roc_auc, a parità pxl_avg_prec) viene salvata in
+checkpoints/full_image/ganomaly/ (best.pth + config.json).
+Heatmap e metriche su tutto il test set dalla best:
+    python experiments/plot_heatmaps.py full_image ganomaly
 """
 
 import os
@@ -42,6 +49,9 @@ from tqdm import tqdm
 from moviad.models.ganomaly.ganomaly import Ganomaly
 from moviad.models.components.ganomaly.loss import GeneratorLoss, DiscriminatorLoss
 from moviad.utilities.evaluation.metrics import MetricLvl, RocAuc, AvgPrec, F1
+from moviad.utilities.evaluation.checkpoints import BestTracker, clean_state_dict, script_config
+from moviad.utilities.evaluation.full_image import eval_items, evaluate_full_images
+from moviad.utilities.evaluation.report import print_metrics
 import matplotlib.pyplot as plt
 
 
@@ -72,9 +82,13 @@ TOP_K            = 100
 GANOMALY_MEAN = [0.5, 0.5, 0.5]
 GANOMALY_STD  = [0.5, 0.5, 0.5]
 
+EVAL_INTERVAL = 10           # valuta ogni N epoche (e sempre all'ultima) per la best
+EVAL_IMAGES_PER_CLASS = 5    # prime N immagini pulite + N con varroa del test usate per la best
+
+MODEL_NAME = "ganomaly"
 REPO_ROOT = Path(__file__).resolve().parents[2]
-OUTPUT_DIR = REPO_ROOT / "heatmaps" / "full_image" / "ganomaly"
-CHECKPOINT = REPO_ROOT / "checkpoints" / "full_image" / "ganomaly.pth"
+OUTPUT_DIR = REPO_ROOT / "heatmaps" / "full_image" / MODEL_NAME
+CHECKPOINT_DIR = REPO_ROOT / "checkpoints" / "full_image" / MODEL_NAME
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -384,6 +398,55 @@ def _save_overlay(img_rgb, amap, output_dir, img_name, p_low, p_high):
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Modello, best e heatmap (usati anche da experiments/plot_heatmaps.py)
+# ──────────────────────────────────────────────────────────────────────
+def build_model(device):
+    model = Ganomaly(
+        input_size=(TILE_SIZE, TILE_SIZE),
+        num_input_channels=3,
+        n_features=64,
+        latent_vec_size=LATENT_VEC_SIZE,
+        extra_layers=0,
+        add_final_conv_layer=True,
+    )
+    return model.to(device)
+
+
+def model_state(model):
+    return clean_state_dict(model.state_dict())
+
+
+def load_model_state(model, state):
+    model.load_state_dict(state)
+
+
+def infer_image(model, device, img_path):
+    """Anomaly map dell'immagine intera, come in evaluate_and_visualize."""
+    _, amap, _ = sliding_window_inference(model, img_path, device)
+    return amap
+
+
+def image_score(amap):
+    # top-k della mappa di ricostruzione (primo score riportato da evaluate_and_visualize)
+    return top_k_mean(amap)
+
+
+def evaluate_subset(model, device):
+    """Metriche (senza plot) sulle prime EVAL_IMAGES_PER_CLASS immagini pulite e con varroa."""
+    model.eval()
+    items = eval_items(TEST_CLEAN_DIR, TEST_VARROA_DIR, EVAL_IMAGES_PER_CLASS)
+    with torch.no_grad():
+        return evaluate_full_images(lambda p: infer_image(model, device, p), image_score,
+                                    items, TEST_MASKS_DIR)
+
+
+def plot_heatmaps(model, device):
+    """Metriche e heatmap su tutto il test set."""
+    print(f"\nTest con sliding window (tile {TILE_SIZE}x{TILE_SIZE}, stride {INFER_STRIDE})...")
+    evaluate_and_visualize(model, device, output_dir=OUTPUT_DIR)
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Main
 # ──────────────────────────────────────────────────────────────────────
 def main():
@@ -398,15 +461,7 @@ def main():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
     # --- Modello ---
-    model = Ganomaly(
-        input_size=(TILE_SIZE, TILE_SIZE),
-        num_input_channels=3,
-        n_features=64,
-        latent_vec_size=LATENT_VEC_SIZE,
-        extra_layers=0,
-        add_final_conv_layer=True,
-    )
-    model = model.to(device)
+    model = build_model(device)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"Parametri GANomaly: {n_params / 1e6:.1f}M")
 
@@ -436,6 +491,11 @@ def main():
 
     g_loss_fn = GeneratorLoss(wadv=1, wcon=50, wenc=1)
     d_loss_fn = DiscriminatorLoss()
+    tracker = BestTracker(
+        CHECKPOINT_DIR, script_config(globals()),
+        selection_data=(f"test set: prime {EVAL_IMAGES_PER_CLASS} immagini pulite "
+                        f"+ {EVAL_IMAGES_PER_CLASS} con varroa"),
+    )
 
     # --- Training ---
     print(f"\n{'='*60}")
@@ -482,14 +542,13 @@ def main():
         avg_d_loss /= len(train_dataloader)
         print(f"Epoca {epoch+1}/{EPOCHS} — G_loss: {avg_g_loss:.6f} | D_loss: {avg_d_loss:.6f}")
 
-    # --- Salvataggio modello ---
-    os.makedirs(os.path.dirname(CHECKPOINT), exist_ok=True)
-    torch.save(model.state_dict(), CHECKPOINT)
-    print(f"Modello GANomaly salvato in {CHECKPOINT}")
+        if (epoch + 1) % EVAL_INTERVAL == 0 or epoch == EPOCHS - 1:
+            results = evaluate_subset(model, device)
+            print_metrics(results)
+            tracker.update(epoch + 1, results, lambda: model_state(model))
 
-    # --- Test con sliding window + metriche ---
-    print(f"\nTest con sliding window (tile {TILE_SIZE}x{TILE_SIZE}, stride {INFER_STRIDE})...")
-    evaluate_and_visualize(model, device, output_dir=OUTPUT_DIR)
+    print(f"\nBest {MODEL_NAME} full-image — {tracker.summary()}")
+    print(f"Heatmap e metriche su tutto il test: python experiments/plot_heatmaps.py full_image {MODEL_NAME}")
 
 
 if __name__ == "__main__":

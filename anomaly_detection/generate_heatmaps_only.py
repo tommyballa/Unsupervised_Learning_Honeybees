@@ -1,11 +1,28 @@
+"""
+Heatmap full-image di Dinomaly con i pesi addestrati sulle singole api.
+
+Carica la best di experiments/single_bee/main_dinomaly.py (bottleneck +
+decoder: l'encoder DINOv2 congelato è lo stesso e il decoder non dipende dalla
+dimensione del tile) nel modello full-image e genera metriche e heatmap sulle
+immagini intere in heatmaps/full_image/dinomaly_from_single_bee/.
+
+Per il Dinomaly addestrato direttamente sulle immagini intere:
+    python experiments/plot_heatmaps.py full_image dinomaly
+"""
+
 from pathlib import Path
 
 import torch
-from moviad.models.dinomaly.dinomaly import Dinomaly
-from experiments.full_image.main_dinomaly_full_image import evaluate_and_visualize, TILE_SIZE, OUTPUT_DIR, SEED, set_seed
 
-# checkpoint salvato da experiments/single_bee/main_dinomaly.py
-CHECKPOINT = Path(__file__).resolve().parent / "checkpoints" / "single_bee" / "dinomaly.pth"
+from experiments.full_image.main_dinomaly_full_image import (
+    SEED, TILE_SIZE, build_model, evaluate_and_visualize, load_model_state, set_seed,
+)
+from moviad.utilities.evaluation.checkpoints import load_checkpoint
+
+REPO_ROOT = Path(__file__).resolve().parent
+CHECKPOINT_DIR = REPO_ROOT / "checkpoints" / "single_bee" / "dinomaly"
+OUTPUT_DIR = REPO_ROOT / "heatmaps" / "full_image" / "dinomaly_from_single_bee"
+
 
 def main():
     set_seed(SEED)
@@ -16,34 +33,16 @@ def main():
     )
 
     print("Inizializzazione modello...")
-    model = Dinomaly(
-        encoder_name="vit_base_patch14_reg4_dinov2",
-        target_layers=[2, 3, 4, 5],
-        fuse_layer_encoder=[[0, 1, 2, 3]],
-        img_size=(TILE_SIZE, TILE_SIZE),
-    )
-    model = model.to(device)
+    model = build_model(device)
 
-    print(f"Caricamento pesi da {CHECKPOINT}...")
-    state_dict = torch.load(CHECKPOINT, map_location=device)
-    
-    # Gestisce sia il salvataggio dello state_dict diretto che quello dentro un dizionario (es. con epoche ecc.)
-    if isinstance(state_dict, dict) and "model_state_dict" in state_dict:
-        model.load_state_dict(state_dict["model_state_dict"])
-    elif isinstance(state_dict, dict) and "state_dict" in state_dict:
-        model.load_state_dict(state_dict["state_dict"])
-    else:
-        try:
-            model.load_state_dict(state_dict)
-        except Exception as e:
-            # Nel caso in cui l'intero modello sia stato salvato invece dei soli pesi
-            print(f"Errore nel caricare lo state_dict, provo a caricare come intero modello: {e}")
-            model = torch.load(CHECKPOINT, map_location=device)
-            model = model.to(device)
+    state, info = load_checkpoint(CHECKPOINT_DIR)
+    load_model_state(model, state)
+    print(f"Pesi single-bee caricati da {CHECKPOINT_DIR} (best: epoca {info.get('best_epoch')})")
 
     print("Generazione heatmaps...")
     evaluate_and_visualize(model, device, output_dir=OUTPUT_DIR, window_size=TILE_SIZE)
     print("Fatto! Puoi controllare le immagini generate in", OUTPUT_DIR)
+
 
 if __name__ == "__main__":
     main()

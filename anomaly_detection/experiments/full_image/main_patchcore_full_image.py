@@ -4,6 +4,10 @@ PatchCore - Anomaly detection su immagini full-frame con molte api.
 Addestramento: crop casuali dalle immagini ad alta risoluzione di training.
 Inferenza: sliding window sull'immagine intera, con blending delle sovrapposizioni.
 Valutazione: metriche a livello di immagine e pixel (AUROC, AvgPrec, F1).
+
+La memory bank viene salvata in checkpoints/full_image/patchcore/
+(best.pth + config.json). Heatmap e metriche su tutto il test set:
+    python experiments/plot_heatmaps.py full_image patchcore
 """
 
 import os
@@ -22,6 +26,7 @@ from moviad.models import PatchCore
 from moviad.models.training_args import TrainingArgs
 from moviad.utilities.custom_feature_extractor_trimmed import CustomFeatureExtractor
 from moviad.utilities.evaluation.metrics import MetricLvl, RocAuc, AvgPrec, F1
+from moviad.utilities.evaluation.checkpoints import save_checkpoint, script_config
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -35,8 +40,10 @@ TEST_MASKS_DIR  = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/proces
 TILE_SIZE  = 512
 SEED       = 1
 
+MODEL_NAME = "patchcore"
 REPO_ROOT = Path(__file__).resolve().parents[2]
-OUTPUT_DIR = REPO_ROOT / "heatmaps" / "full_image" / "patchcore"
+OUTPUT_DIR = REPO_ROOT / "heatmaps" / "full_image" / MODEL_NAME
+CHECKPOINT_DIR = REPO_ROOT / "checkpoints" / "full_image" / MODEL_NAME
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -295,6 +302,38 @@ def _save_overlay(img_rgb, amap, output_dir, img_name):
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Modello, best e heatmap (usati anche da experiments/plot_heatmaps.py)
+# ──────────────────────────────────────────────────────────────────────
+def build_model(device):
+    # Use shallower layers (layer1, layer2) to capture fine textural details like varroa
+    feature_extractor = CustomFeatureExtractor(
+        "wide_resnet50_2",
+        ["layer1", "layer2"],
+        device,
+        frozen=True
+    )
+    model = PatchCore(feature_extractor=feature_extractor, memory_bank_size=100000)
+    model.to(device)
+    return model
+
+
+def model_state(model):
+    return {"memory_bank": model.memory_bank.detach().cpu()}
+
+
+def load_model_state(model, state):
+    # fp32 sul device del modello: compute_anomaly_score_old confronta le feature (fp32)
+    # con le righe della memory bank indicizzate da tensori sul device
+    model.memory_bank = state["memory_bank"].float().to(model.device)
+
+
+def plot_heatmaps(model, device):
+    """Metriche e heatmap su tutto il test set."""
+    print(f"\nTest con sliding window (tile {TILE_SIZE}x{TILE_SIZE})...")
+    evaluate_and_visualize(model, device, output_dir=OUTPUT_DIR, window_size=TILE_SIZE)
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Main
 # ──────────────────────────────────────────────────────────────────────
 def main():
@@ -308,12 +347,12 @@ def main():
         mean=[0.485, 0.456, 0.406],
         std=[0.229, 0.224, 0.225],
     )
-    
+
     # RandomCrop ensures PatchCore learns from the same scale it will be tested on
     # ToPILImage is required because cv2 reads as numpy arrays, and RandomCrop expects PIL/Tensors
     train_transform = transforms.Compose([
         transforms.ToPILImage(),
-        transforms.RandomCrop(TILE_SIZE, pad_if_needed=True), 
+        transforms.RandomCrop(TILE_SIZE, pad_if_needed=True),
         transforms.ToTensor(),
         imagenet_normalize,
     ])
@@ -321,30 +360,18 @@ def main():
     train_dataset = SimpleImageDataset(TRAIN_DIR, transform=train_transform, label=0)
     train_dataloader = DataLoader(train_dataset, batch_size=8, shuffle=True)
 
-    # Use shallower layers (layer1, layer2) to capture fine textural details like varroa
-    feature_extractor = CustomFeatureExtractor(
-        "wide_resnet50_2", 
-        ["layer1", "layer2"],
-        device,
-        frozen=True
-    )
-    
-    # Initialize PatchCore. 250k patches takes advantage of high VRAM.
-    model = PatchCore(feature_extractor=feature_extractor, memory_bank_size=100000)
-    model.to(device)
+    model = build_model(device)
 
     print("\nTraining PatchCore...")
     model.train()
-    # Training args might need to be adapted based on your specific moviad setup
     model.train_epoch(0, train_dataloader, TrainingArgs(batch_size=8, epochs=1))
+    # train_epoch estrae le feature in autocast: memory bank in mezza precisione e su CPU
+    load_model_state(model, model_state(model))
 
-    # --- Test con sliding window + metriche ---
-    print(f"\nTest con sliding window (tile {TILE_SIZE}x{TILE_SIZE})...")
-    evaluate_and_visualize(
-        model, device,
-        output_dir=OUTPUT_DIR,
-        window_size=TILE_SIZE,
-    )
+    save_checkpoint(CHECKPOINT_DIR, model_state(model), script_config(globals()),
+                    best_epoch=None, note="memory bank costruita in un solo passaggio")
+    print(f"\nMemory bank PatchCore salvata in {CHECKPOINT_DIR}")
+    print(f"Heatmap e metriche su tutto il test: python experiments/plot_heatmaps.py full_image {MODEL_NAME}")
 
 
 if __name__ == "__main__":

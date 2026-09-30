@@ -270,10 +270,12 @@ def save_anomaly_heatmaps(test_dataset, maps, scores, labels, masks, output_dir,
 
 def evaluate_and_report(model, test_dataset, test_loader, device, output_dir, title,
                         num_heatmaps=20, seed=1,
-                        map_postprocess: Callable | None = None, raw_label="Mappa grezza"):
+                        map_postprocess: Callable | None = None, raw_label="Mappa grezza",
+                        extra_info: dict | None = None):
     """
     Valutazione finale: inferenza, metriche (con AU-PRO), heatmap normalizzate
-    globalmente, distribuzione degli score e results.json in output_dir.
+    globalmente, distribuzione degli score e results.json in output_dir
+    (extra_info, es. epoca della best, viene salvato in results.json).
     """
     os.makedirs(output_dir, exist_ok=True)
     maps, scores, labels, masks = run_inference(model, test_loader, device, map_postprocess)
@@ -290,8 +292,10 @@ def evaluate_and_report(model, test_dataset, test_loader, device, output_dir, ti
         test_dataset, maps, scores, labels, masks, output_dir,
         num_samples=num_heatmaps, seed=seed, raw_label=raw_label,
     )
+    summary = {"metrics": results, "heatmap_normalization": norm, "image_threshold": image_threshold}
+    if extra_info:
+        summary["checkpoint"] = extra_info
     with open(os.path.join(output_dir, "results.json"), "w") as f:
-        json.dump({"metrics": results, "heatmap_normalization": norm,
-                   "image_threshold": image_threshold}, f, indent=2)
+        json.dump(summary, f, indent=2)
     print(f"Heatmap e risultati salvati in {output_dir}")
     return results

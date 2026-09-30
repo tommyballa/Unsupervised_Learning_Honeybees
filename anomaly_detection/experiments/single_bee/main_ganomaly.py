@@ -5,27 +5,21 @@ Addestramento: encoder-decoder-encoder avversariale sulle api sane
                (VarroaDataset, TRAIN): loss del generatore = avversariale
                (feature matching) + 50 * ricostruzione L1 + encoding; il
                discriminatore viene reinizializzato quando collassa (come nel
-               paper). Adam lr 2e-4, betas (0.5, 0.999).
-Valutazione:   score immagine = ||z - z'||^2 fra i due latenti (score nativo
-               del paper); mappa = errore di ricostruzione per pixel smussato
-               con un gaussiano (sigma 2); metriche a livello immagine e pixel
-               (AUROC, AvgPrec, F1, AUPRO).
-Visualizzazione: heatmap normalizzate GLOBALMENTE e ancorate alla soglia pixel
-                 F1-ottimale (moviad.utilities.evaluation.report).
+               paper). Adam lr 2e-4, betas (0.5, 0.999). Input in [-1, 1]
+               (mean = std = 0.5) perché il decoder termina con una Tanh.
+               Score immagine = ||z - z'||^2 fra i due latenti (paper); mappa =
+               errore di ricostruzione per pixel smussato (gaussiano sigma 2).
+Best:          ogni EVAL_INTERVAL epoche (e all'ultima) metriche sul test set;
+               la configurazione migliore (img_roc_auc, a parità pxl_avg_prec)
+               viene salvata in checkpoints/single_bee/ganomaly/ (best.pth +
+               config.json).
+Heatmap e metriche finali (AUROC, AvgPrec, F1, AUPRO) dalla best:
+    python experiments/plot_heatmaps.py single_bee ganomaly
 
-Correzioni rispetto alla versione precedente:
-  - input normalizzato in [-1, 1] (mean = std = 0.5): il decoder termina con
-    una Tanh e non può ricostruire valori fuori da [-1, 1]; con la
-    normalizzazione ImageNet (range ~[-2.1, 2.6]) i pixel chiari e scuri
-    avevano un errore di ricostruzione irriducibile;
-  - path di training corretto (prima /mnt/disk1/borsattifr/...);
-  - metriche effettivamente calcolate (prima solo heatmap);
-  - reinizializzazione del discriminatore quando la sua loss collassa.
 IMG_SIZE deve essere una potenza di 2: GANomaly fa padding alla potenza di 2
 successiva e la mappa di ricostruzione deve coprire solo l'immagine.
 """
 
-import os
 import random
 from pathlib import Path
 
@@ -42,14 +36,14 @@ from moviad.datasets.varroa.varroa_dataset import VarroaDataset
 from moviad.models.components.ganomaly.loss import GeneratorLoss, DiscriminatorLoss
 from moviad.models.ganomaly.ganomaly import Ganomaly
 from moviad.utilities.configurations import Split
-from moviad.utilities.evaluation.report import (
-    compute_metrics, evaluate_and_report, print_metrics, run_inference,
-)
+from moviad.utilities.evaluation.checkpoints import BestTracker, clean_state_dict, script_config
+from moviad.utilities.evaluation.report import compute_metrics, print_metrics, run_inference
 
 
 # ──────────────────────────────────────────────────────────────────────
 # Configurazione
 # ──────────────────────────────────────────────────────────────────────
+MODEL_NAME    = "ganomaly"
 REPO_ROOT     = Path(__file__).resolve().parents[2]
 TRAIN_DIR     = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees"
 # i crop delle api sono 512x512: maschere GT, metriche pixel e heatmap a questa
@@ -73,8 +67,9 @@ GANOMALY_MEAN = [0.5, 0.5, 0.5]
 GANOMALY_STD  = [0.5, 0.5, 0.5]
 
 NUM_HEATMAPS  = 20           # metà sane, metà con varroa
-OUTPUT_DIR    = REPO_ROOT / "heatmaps" / "single_bee" / "ganomaly"
-CHECKPOINT    = REPO_ROOT / "checkpoints" / "single_bee" / "ganomaly.pth"
+RAW_LABEL     = "Errore di ricostruzione"
+OUTPUT_DIR    = REPO_ROOT / "heatmaps" / "single_bee" / MODEL_NAME
+CHECKPOINT_DIR = REPO_ROOT / "checkpoints" / "single_bee" / MODEL_NAME
 
 
 def set_seed(seed: int):
@@ -86,12 +81,50 @@ def set_seed(seed: int):
     np.random.seed(seed)
 
 
-def smooth_reconstruction_map(maps, sigma=MAP_SIGMA):
+# ──────────────────────────────────────────────────────────────────────
+# Modello e dati (usati anche da experiments/plot_heatmaps.py)
+# ──────────────────────────────────────────────────────────────────────
+def dataset_args():
+    return DatasetArguments(
+        dataset_path=TRAIN_DIR,
+        img_size=IMG_SIZE,
+        gt_mask_size=GT_SIZE,
+        image_transform_list=[
+            transforms.ToTensor(),
+            transforms.Resize(IMG_SIZE, antialias=True),
+            transforms.Normalize(mean=GANOMALY_MEAN, std=GANOMALY_STD),
+        ],
+    )
+
+
+def build_model(device):
+    return Ganomaly(
+        input_size=IMG_SIZE,
+        num_input_channels=3,
+        n_features=64,
+        latent_vec_size=LATENT_VEC_SIZE,
+        extra_layers=0,
+        add_final_conv_layer=True,
+    ).to(device)
+
+
+def model_state(model):
+    return clean_state_dict(model.state_dict())
+
+
+def load_model_state(model, state):
+    model.load_state_dict(state)
+
+
+def map_postprocess(maps, sigma=MAP_SIGMA):
     """Smoothing gaussiano dell'errore di ricostruzione (riduce il rumore per pixel)."""
     kernel_size = 2 * int(4.0 * sigma + 0.5) + 1
     return TF.gaussian_blur(maps, kernel_size=[kernel_size, kernel_size], sigma=[sigma, sigma])
 
 
+# ──────────────────────────────────────────────────────────────────────
+# Training
+# ──────────────────────────────────────────────────────────────────────
 def train_ganomaly_single_bee():
     set_seed(SEED)
     device = torch.device(
@@ -103,30 +136,11 @@ def train_ganomaly_single_bee():
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
-    # --- Modello ---
-    model = Ganomaly(
-        input_size=IMG_SIZE,
-        num_input_channels=3,
-        n_features=64,
-        latent_vec_size=LATENT_VEC_SIZE,
-        extra_layers=0,
-        add_final_conv_layer=True,
-    ).to(device)
+    model = build_model(device)
     print(f"Parametri GANomaly: {sum(p.numel() for p in model.parameters()) / 1e6:.1f}M")
 
-    # --- Dataset ---
-    dataset_args = DatasetArguments(
-        dataset_path=TRAIN_DIR,
-        img_size=IMG_SIZE,
-        gt_mask_size=GT_SIZE,
-        image_transform_list=[
-            transforms.ToTensor(),
-            transforms.Resize(IMG_SIZE, antialias=True),
-            transforms.Normalize(mean=GANOMALY_MEAN, std=GANOMALY_STD),
-        ],
-    )
-    train_dataset = VarroaDataset(dataset_args, "varroa", Split.TRAIN)
-    test_dataset = VarroaDataset(dataset_args, "varroa", Split.TEST)
+    train_dataset = VarroaDataset(dataset_args(), "varroa", Split.TRAIN)
+    test_dataset = VarroaDataset(dataset_args(), "varroa", Split.TEST)
 
     train_loader = DataLoader(
         train_dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=True,
@@ -142,8 +156,8 @@ def train_ganomaly_single_bee():
     d_opt = Adam(model.discriminator.parameters(), lr=LR, betas=(BETA1, BETA2))
     g_loss_fn = GeneratorLoss(wadv=1, wcon=50, wenc=1)
     d_loss_fn = DiscriminatorLoss()
+    tracker = BestTracker(CHECKPOINT_DIR, script_config(globals()))
 
-    # --- Training ---
     print(f"\n{'='*60}")
     print(f"Training GANomaly single-bee | {EPOCHS} epoche | {len(train_loader)} batch/epoca")
     print(f"{'='*60}\n")
@@ -186,21 +200,14 @@ def train_ganomaly_single_bee():
         avg_d_loss /= len(train_loader)
         print(f"Epoca {epoch + 1}/{EPOCHS} — G_loss: {avg_g_loss:.6f} | D_loss: {avg_d_loss:.6f}")
 
-        if (epoch + 1) % EVAL_INTERVAL == 0 and epoch != EPOCHS - 1:
-            maps, scores, labels, masks = run_inference(model, test_loader, device, smooth_reconstruction_map)
-            print_metrics(compute_metrics(maps, scores, labels, masks, with_pro=False))
+        if (epoch + 1) % EVAL_INTERVAL == 0 or epoch == EPOCHS - 1:
+            maps, scores, labels, masks = run_inference(model, test_loader, device, map_postprocess)
+            results = compute_metrics(maps, scores, labels, masks, with_pro=False)
+            print_metrics(results)
+            tracker.update(epoch + 1, results, lambda: model_state(model))
 
-    os.makedirs(os.path.dirname(CHECKPOINT), exist_ok=True)
-    torch.save(model.state_dict(), CHECKPOINT)
-    print(f"\nModello GANomaly salvato in {CHECKPOINT}")
-
-    # --- Valutazione finale + heatmap normalizzate ---
-    evaluate_and_report(
-        model, test_dataset, test_loader, device, OUTPUT_DIR,
-        title="GANomaly single-bee", num_heatmaps=NUM_HEATMAPS, seed=SEED,
-        map_postprocess=smooth_reconstruction_map,
-        raw_label="Errore di ricostruzione",
-    )
+    print(f"\nBest GANomaly — {tracker.summary()}")
+    print(f"Heatmap e metriche finali: python experiments/plot_heatmaps.py single_bee {MODEL_NAME}")
 
 
 if __name__ == "__main__":

@@ -14,6 +14,12 @@ Ottimizzazione per varroa:
     senza perdere capacità discriminativa.
   - Gaussian smoothing post-inference per migliorare la localizzazione
     delle anomalie nelle aree con molte api ravvicinate.
+
+Le gaussiane stimate non vengono salvate (a 512 px con wide_resnet50_2 la
+covarianza occupa ~20 GB): questo script e
+    python experiments/plot_heatmaps.py full_image padim
+rifanno il fitting (un solo passaggio sui crop di training) e generano metriche
+e heatmap su tutto il test set.
 """
 
 import os
@@ -43,8 +49,10 @@ TILE_SIZE  = 512
 BATCH_SIZE = 8
 SEED       = 1
 
+MODEL_NAME = "padim"
 REPO_ROOT = Path(__file__).resolve().parents[2]
-OUTPUT_DIR = REPO_ROOT / "heatmaps" / "full_image" / "padim"
+OUTPUT_DIR = REPO_ROOT / "heatmaps" / "full_image" / MODEL_NAME
+CHECKPOINT_DIR = REPO_ROOT / "checkpoints" / "full_image" / MODEL_NAME
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -321,16 +329,9 @@ def _save_overlay(img_rgb, amap, output_dir, img_name):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Main
+# Modello, best e heatmap (usati anche da experiments/plot_heatmaps.py)
 # ──────────────────────────────────────────────────────────────────────
-def main():
-    set_seed(SEED)
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    print(f"\nDevice: {device}")
-    if torch.cuda.is_available():
-        print(f"GPU: {torch.cuda.get_device_name(0)}")
-
-    # --- Modello PaDiM ---
+def build_model(device):
     # wide_resnet50_2 con layer (layer1, layer2, layer3):
     #   embedding totale = 1792 canali → ridotto a 550 per random projection.
     # Questi layer catturano sia pattern a bassa frequenza (forma dell'ape)
@@ -343,6 +344,12 @@ def main():
         class_name="bees_varroa",
     )
     model.to(device)
+    return model
+
+
+def fit_model(device):
+    """Costruisce PaDiM e stima le gaussiane sui crop di training (nessuna epoca)."""
+    model = build_model(device)
 
     # --- Dataset di training con crop casuali ---
     imagenet_normalize = transforms.Normalize(
@@ -375,14 +382,32 @@ def main():
     model.train()
     model.train_epoch(0, train_dataloader, training_args)
     print("Fitting Gaussiana multivariata completato.")
+    return model
 
-    # --- Test con sliding window + metriche ---
+
+def load_best(device):
+    """Per experiments/plot_heatmaps.py: le gaussiane non sono salvate, si ripete il fitting."""
+    return fit_model(device), {"note": "fitting ripetuto: le gaussiane a 512 px (~20 GB) non vengono salvate"}
+
+
+def plot_heatmaps(model, device):
+    """Metriche e heatmap su tutto il test set."""
     print(f"\nTest con sliding window (tile {TILE_SIZE}x{TILE_SIZE})...")
-    evaluate_and_visualize(
-        model, device,
-        output_dir=OUTPUT_DIR,
-        window_size=TILE_SIZE,
-    )
+    evaluate_and_visualize(model, device, output_dir=OUTPUT_DIR, window_size=TILE_SIZE)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Main
+# ──────────────────────────────────────────────────────────────────────
+def main():
+    set_seed(SEED)
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print(f"\nDevice: {device}")
+    if torch.cuda.is_available():
+        print(f"GPU: {torch.cuda.get_device_name(0)}")
+
+    model = fit_model(device)
+    plot_heatmaps(model, device)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,13 @@ STFPM - Anomaly detection su immagini full-frame con molte api.
 Addestramento: crop casuali dalle immagini ad alta risoluzione di training.
 Inferenza: sliding window sull'immagine intera, con blending delle sovrapposizioni.
 Valutazione: metriche a livello di immagine e pixel (AUROC, AvgPrec, F1).
+
+Best: ogni EVAL_INTERVAL epoche (e all'ultima) metriche sulle prime
+EVAL_IMAGES_PER_CLASS immagini pulite e con varroa del test set; la
+configurazione migliore (img_roc_auc, a parità pxl_avg_prec) viene salvata in
+checkpoints/full_image/stfpm/ (best.pth + config.json).
+Heatmap e metriche su tutto il test set dalla best:
+    python experiments/plot_heatmaps.py full_image stfpm
 """
 
 import os
@@ -21,6 +28,9 @@ from torch.utils.data import Dataset, DataLoader
 from moviad.models.stfpm.stfpm import STFPM, STFPMTrainArgs
 from moviad.utilities.custom_feature_extractor_trimmed import CustomFeatureExtractor
 from moviad.utilities.evaluation.metrics import MetricLvl, RocAuc, AvgPrec, F1
+from moviad.utilities.evaluation.checkpoints import BestTracker, clean_state_dict, script_config
+from moviad.utilities.evaluation.full_image import eval_items, evaluate_full_images
+from moviad.utilities.evaluation.report import print_metrics
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -36,8 +46,13 @@ EPOCHS     = 100
 BATCH_SIZE = 4
 SEED       = 1
 
+EVAL_INTERVAL = 10           # valuta ogni N epoche (e sempre all'ultima) per la best
+EVAL_IMAGES_PER_CLASS = 5    # prime N immagini pulite + N con varroa del test usate per la best
+
+MODEL_NAME = "stfpm"
 REPO_ROOT = Path(__file__).resolve().parents[2]
-OUTPUT_DIR = REPO_ROOT / "heatmaps" / "full_image" / "stfpm"
+OUTPUT_DIR = REPO_ROOT / "heatmaps" / "full_image" / MODEL_NAME
+CHECKPOINT_DIR = REPO_ROOT / "checkpoints" / "full_image" / MODEL_NAME
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -328,6 +343,58 @@ def _save_overlay(img_rgb, amap, output_dir, img_name):
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Modello, best e heatmap (usati anche da experiments/plot_heatmaps.py)
+# ──────────────────────────────────────────────────────────────────────
+def build_model(device):
+    teacher = CustomFeatureExtractor(
+        "wide_resnet50_2", ["layer1", "layer2", "layer3"], device, frozen=True
+    )
+    student = CustomFeatureExtractor(
+        "wide_resnet50_2", ["layer1", "layer2", "layer3"], device, frozen=False
+    )
+    return STFPM(teacher, student).to(device)
+
+
+def model_state(model):
+    # il teacher è il wide_resnet50_2 ImageNet: basta lo student
+    return clean_state_dict(model.student.model.state_dict())
+
+
+def load_model_state(model, state):
+    model.student.model.load_state_dict(state)
+
+
+def infer_image(model, device, img_path):
+    """Anomaly map dell'immagine intera, come in evaluate_and_visualize."""
+    _, amap = sliding_window_inference(model, img_path, device, window_size=TILE_SIZE,
+                                       stride=TILE_SIZE // 4, batch_size=4)
+    return cv2.GaussianBlur(amap, (21, 21), 0)
+
+
+def image_score(amap, top_k=100):
+    # media dei top-100 pixel, robusta a singoli spike di rumore
+    flat = amap.ravel()
+    if flat.size <= top_k:
+        return float(flat.max())
+    return float(np.mean(np.partition(flat, -top_k)[-top_k:]))
+
+
+def evaluate_subset(model, device):
+    """Metriche (senza plot) sulle prime EVAL_IMAGES_PER_CLASS immagini pulite e con varroa."""
+    model.eval()
+    items = eval_items(TEST_CLEAN_DIR, TEST_VARROA_DIR, EVAL_IMAGES_PER_CLASS)
+    with torch.no_grad():
+        return evaluate_full_images(lambda p: infer_image(model, device, p), image_score,
+                                    items, TEST_MASKS_DIR)
+
+
+def plot_heatmaps(model, device):
+    """Metriche e heatmap su tutto il test set."""
+    print(f"\nTest con sliding window (tile {TILE_SIZE}x{TILE_SIZE})...")
+    evaluate_and_visualize(model, device, output_dir=OUTPUT_DIR, window_size=TILE_SIZE)
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Main
 # ──────────────────────────────────────────────────────────────────────
 def main():
@@ -337,14 +404,7 @@ def main():
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
-    # --- Modello ---
-    teacher = CustomFeatureExtractor(
-        "wide_resnet50_2", ["layer1", "layer2", "layer3"], device, frozen=True
-    )
-    student = CustomFeatureExtractor(
-        "wide_resnet50_2", ["layer1", "layer2", "layer3"], device, frozen=False
-    )
-    model = STFPM(teacher, student).to(device)
+    model = build_model(device)
 
     # --- Dataset di training con crop casuali ---
     imagenet_normalize = transforms.Normalize(
@@ -371,27 +431,31 @@ def main():
     # --- Training args ---
     training_args = STFPMTrainArgs(epochs=EPOCHS, batch_size=BATCH_SIZE)
     training_args.init_train(model)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(training_args.optimizer, T_max=EPOCHS)
+    tracker = BestTracker(
+        CHECKPOINT_DIR, script_config(globals()),
+        selection_data=(f"test set: prime {EVAL_IMAGES_PER_CLASS} immagini pulite "
+                        f"+ {EVAL_IMAGES_PER_CLASS} con varroa"),
+    )
 
     # --- Training ---
     print(f"\n{'='*60}")
     print(f"Training STFPM full-image | {EPOCHS} epoche | {len(train_dataloader)} batch/epoca")
     print(f"{'='*60}\n")
 
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(training_args.optimizer, T_max=EPOCHS)
-
-    model.train()
     for epoch in range(EPOCHS):
+        model.train()
         loss = model.train_epoch(epoch, train_dataloader, training_args)
         scheduler.step()
         print(f"Epoca {epoch + 1}/{EPOCHS} — loss: {loss:.6f}, lr: {scheduler.get_last_lr()[0]:.6f}")
 
-    # --- Test con sliding window + metriche ---
-    print(f"\nTest con sliding window (tile {TILE_SIZE}x{TILE_SIZE})...")
-    evaluate_and_visualize(
-        model, device,
-        output_dir=OUTPUT_DIR,
-        window_size=TILE_SIZE,
-    )
+        if (epoch + 1) % EVAL_INTERVAL == 0 or epoch == EPOCHS - 1:
+            results = evaluate_subset(model, device)
+            print_metrics(results)
+            tracker.update(epoch + 1, results, lambda: model_state(model))
+
+    print(f"\nBest {MODEL_NAME} full-image — {tracker.summary()}")
+    print(f"Heatmap e metriche su tutto il test: python experiments/plot_heatmaps.py full_image {MODEL_NAME}")
 
 
 if __name__ == "__main__":
