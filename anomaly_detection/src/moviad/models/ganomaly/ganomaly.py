@@ -463,8 +463,10 @@ class Ganomaly(nn.Module):
             n_features=n_features,
             extra_layers=extra_layers,
         )
-        self.weights_init(self.generator)
-        self.weights_init(self.discriminator)
+        # apply() visits every submodule; calling weights_init on the container
+        # itself matched neither "Conv" nor "BatchNorm" and initialized nothing.
+        self.generator.apply(self.weights_init)
+        self.discriminator.apply(self.weights_init)
 
     @staticmethod
     def weights_init(module: nn.Module) -> None:
