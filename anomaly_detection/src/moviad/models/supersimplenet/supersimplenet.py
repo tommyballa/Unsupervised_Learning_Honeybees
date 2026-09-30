@@ -80,7 +80,7 @@ class SuperSimpleNet(nn.Module):
         self.anomaly_generator = AnomalyGenerator(
             noise_mean=self.DEFAULT_PARAMETERS["gaussian_noise_mean"], 
             noise_std=self.DEFAULT_PARAMETERS["gaussian_noise_std"], 
-            threshold=self.DEFAULT_PARAMETERS["perlin_threshold"]
+            threshold=perlin_threshold,
         )
 
         self.anomaly_map_generator = AnomalyMapGenerator(sigma=4)
