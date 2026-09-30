@@ -1,9 +1,34 @@
 """
-CFA - Anomaly detection su immagini full-frame con molte api.
+PaSTe - Anomaly detection su immagini full-frame con molte api.
 
 Addestramento: crop casuali dalle immagini ad alta risoluzione di training.
 Inferenza: sliding window sull'immagine intera, con blending delle sovrapposizioni.
 Valutazione: metriche a livello di immagine e pixel (AUROC, AvgPrec, F1).
+
+Ottimizzazione per varroa:
+  - wide_resnet50_2 backbone con layer poco profondi (layer1, layer2, layer3)
+    per catturare dettagli tessiturali fini come il corpo della varroa.
+  - PaSTe bootstrap dal layer 0 (conv1 del teacher): lo student condivide
+    solo la prima convoluzione, così layer1 resta un layer di anomaly
+    detection e non si perde risoluzione spaziale.
+  - output_size uguale a TILE_SIZE per preservare la risoluzione
+    della anomaly map a livello di pixel.
+
+Correzioni rispetto alla versione precedente:
+  - ad_layers=[1, 2, 3] invece di [0, 1, 2]. In PasteBackbone l'indice 0 è
+    la sola conv1 (7x7, senza BN/ReLU): è una mappa lineare, identica tra
+    teacher e student come architettura, che si comporta allo stesso modo su
+    immagini normali e anomale, quindi la sua mappa di errore non contiene
+    informazione sulle anomalie. Poiché le mappe dei layer vengono
+    moltiplicate tra loro, quel rumore modulava tutta la anomaly map;
+    inoltre il layer più profondo era layer2, con poco contesto.
+  - Teacher IMAGENET1K_V1, come in main_stfpm_full_image.py.
+  - 100 epoche con cosine annealing e lr 0.04, come STFPM. La loss di PaSTe
+    usa MSE con reduction="sum", quindi a parità di lr il passo per campione
+    non dipende dal batch size: con lr 0.01 costante e 50 epoche lo student
+    riceveva circa 4 volte meno aggiornamento di quello di STFPM.
+  - Heatmap normalizzate globalmente (non min/max per immagine), così le
+    immagini pulite non mostrano più "anomalie" rosse fittizie.
 """
 
 import os
@@ -17,8 +42,7 @@ import torch
 from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
 
-from moviad.models.cfa.cfa import CFA, CFATrainArgs
-from moviad.utilities.custom_feature_extractor_trimmed import CustomFeatureExtractor
+from moviad.models.paste.paste import PaSTe, PasteTrainArgs
 from moviad.utilities.evaluation.metrics import MetricLvl, RocAuc, AvgPrec, F1
 
 
@@ -30,12 +54,25 @@ TEST_CLEAN_DIR  = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/proces
 TEST_VARROA_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test/synthetic_varroa_output/images"
 TEST_MASKS_DIR  = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test/synthetic_varroa_output/masks"
 
-TILE_SIZE  = 384
-EPOCHS     = 30
-BATCH_SIZE = 8
+TILE_SIZE  = 512
+EPOCHS     = 100
+BATCH_SIZE = 16
+LR         = 0.04
 SEED       = 1
 
-OUTPUT_DIR = "./heatmaps_cfa_full_image"
+# Indici dei layer di PasteBackbone per wide_resnet50_2:
+#   0 = conv1 (conv 7x7 grezza, senza BN/ReLU)
+#   1 = bn1 + relu + maxpool + layer1
+#   2 = layer2    3 = layer3    4 = layer4
+# Il layer 0 non va usato per l'anomaly detection (vedi docstring).
+AD_LAYERS       = [1, 2, 3]
+BOOTSTRAP_LAYER = 0
+TEACHER_WEIGHTS = "IMAGENET1K_V1"
+
+TOP_K = 100
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+OUTPUT_DIR = REPO_ROOT / "heatmaps" / "full_image" / "paste"
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -71,30 +108,39 @@ def find_mask_for_image(img_path, masks_dir):
     return None
 
 
+def read_rgb(path):
+    img = cv2.imread(path)
+    if img is None:
+        raise ValueError(f"Impossibile leggere: {path}")
+    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+
+def top_k_mean(amap, k=TOP_K):
+    """Media dei k pixel più alti: score robusto a singoli spike di rumore."""
+    flat = amap.ravel()
+    if flat.size <= k:
+        return float(flat.max())
+    return float(np.mean(np.partition(flat, -k)[-k:]))
+
+
 class FullImageCropDataset(Dataset):
     """
     Carica immagini ad alta risoluzione e restituisce crop casuali.
     Poiché il server ha molta RAM libera, pre-carica tutte le immagini in memoria
-    durante l'__init__ per evitare il gravissimo collo di bottiglia I/O 
+    durante l'__init__ per evitare il gravissimo collo di bottiglia I/O
     (lettura da disco di 24MP a ogni singola iterazione).
     """
 
-    def __init__(self, root_dir, crop_size=384, crops_per_image=10, transform=None):
+    def __init__(self, root_dir, crop_size=512, crops_per_image=10, transform=None):
         self.crop_size = crop_size
         self.crops_per_image = crops_per_image
         self.transform = transform
         self.image_paths = get_image_paths(root_dir)
         print(f"[Dataset] Trovate {len(self.image_paths)} immagini in {root_dir}")
         print(f"[Dataset] {self.crops_per_image} crop/immagine → {len(self)} campioni/epoca")
-        
+
         print("[Dataset] Pre-caricamento in RAM delle immagini originali (4000x6016)...")
-        self.images = []
-        for path in self.image_paths:
-            img = cv2.imread(path)
-            if img is None:
-                raise ValueError(f"Impossibile leggere: {path}")
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            self.images.append(img)
+        self.images = [read_rgb(path) for path in self.image_paths]
         print("[Dataset] Pre-caricamento completato!")
 
     def __len__(self):
@@ -118,15 +164,17 @@ class FullImageCropDataset(Dataset):
 # Sliding window inference
 # ──────────────────────────────────────────────────────────────────────
 def sliding_window_inference(model, image_path, device,
-                             window_size=384, stride=192, batch_size=8):
+                             window_size=512, stride=256, batch_size=8):
     """
-    Taglia l'immagine in tile, esegue CFA su ciascuna,
+    Taglia l'immagine in tile, esegue PaSTe su ciascuna,
     e ricostruisce la heatmap globale mediando le sovrapposizioni.
+
+    PaSTe in eval mode restituisce:
+      score_maps  [B, 1, output_size_h, output_size_w]
+      anomaly_scores  [B]
+    dove output_size è configurato nel costruttore (= TILE_SIZE nel nostro caso).
     """
-    img = cv2.imread(image_path)
-    if img is None:
-        raise ValueError(f"Impossibile leggere: {image_path}")
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    img = read_rgb(image_path)
     H, W, _ = img.shape
 
     normalize = transforms.Compose([
@@ -138,6 +186,7 @@ def sliding_window_inference(model, image_path, device,
     full_anomaly_map = np.zeros((H, W), dtype=np.float32)
     weight_map = np.zeros((H, W), dtype=np.float32)
 
+    # Coordinate dei tile, assicurando copertura completa dei bordi
     y_coords = list(range(0, H - window_size + 1, stride))
     if not y_coords or y_coords[-1] + window_size < H:
         y_coords.append(max(0, H - window_size))
@@ -146,6 +195,9 @@ def sliding_window_inference(model, image_path, device,
     if not x_coords or x_coords[-1] + window_size < W:
         x_coords.append(max(0, W - window_size))
 
+    hanning_1d = np.hanning(window_size + 2)[1:-1]
+    hanning_2d = np.outer(hanning_1d, hanning_1d).astype(np.float32)
+
     batch_tiles = []
     batch_coords = []
     model.eval()
@@ -153,14 +205,14 @@ def sliding_window_inference(model, image_path, device,
     def process_batch(tiles, coords):
         batch_tensor = torch.stack(tiles).to(device)
         with torch.no_grad():
-            # CFA restituisce (heatmaps [B, 1, H, W] su CPU, img_scores [B] su CPU)
+            # PaSTe restituisce (score_maps [B, 1, H, W], anomaly_scores [B])
             batch_amaps, _ = model(batch_tensor)
-            batch_amaps = batch_amaps.numpy()  # già su CPU
+            batch_amaps = batch_amaps.cpu().numpy()
 
         for i, (y, x) in enumerate(coords):
             amap = np.squeeze(batch_amaps[i])  # (window_size, window_size)
-            full_anomaly_map[y:y + window_size, x:x + window_size] += amap
-            weight_map[y:y + window_size, x:x + window_size] += 1.0
+            full_anomaly_map[y:y + window_size, x:x + window_size] += amap * hanning_2d
+            weight_map[y:y + window_size, x:x + window_size] += hanning_2d
 
     for y in y_coords:
         for x in x_coords:
@@ -182,7 +234,18 @@ def sliding_window_inference(model, image_path, device,
 # ──────────────────────────────────────────────────────────────────────
 # Test + Metriche + Visualizzazione
 # ──────────────────────────────────────────────────────────────────────
-def evaluate_and_visualize(model, device, output_dir, window_size=384):
+def load_gt_mask(img_path, shape):
+    mask_path = find_mask_for_image(img_path, TEST_MASKS_DIR)
+    if mask_path is None:
+        print(f"    ⚠ Maschera non trovata per {os.path.basename(img_path)}, uso maschera vuota")
+        return np.zeros(shape, dtype=np.uint8)
+    gt_mask = (cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE) > 127).astype(np.uint8)
+    if gt_mask.shape != shape:
+        gt_mask = cv2.resize(gt_mask, (shape[1], shape[0]), interpolation=cv2.INTER_NEAREST)
+    return gt_mask
+
+
+def evaluate_and_visualize(model, device, output_dir, window_size=512):
     """
     Esegue il test su immagini pulite e con varroa sintetica,
     calcola le metriche a livello immagine e pixel, e salva le heatmap overlay.
@@ -204,81 +267,65 @@ def evaluate_and_visualize(model, device, output_dir, window_size=384):
     print(f"\nImmagini pulite (label=0): {len(clean_paths)}")
     print(f"Immagini varroa (label=1): {len(varroa_paths)}")
 
-    all_image_labels = []
-    all_image_scores = []
-    all_pixel_gt = []
-    all_pixel_pred = []
+    image_labels = []
+    image_scores = []
+    amaps = []
+    gt_masks = []
 
-    # --- Inferenza su immagini PULITE (label=0) ---
-    print("\n--- Inferenza immagini pulite ---")
-    for img_path in clean_paths:
-        img_name = os.path.basename(img_path)
-        print(f"  {img_name}...")
+    for split_name, paths, label in [
+        ("pulite", clean_paths, 0),
+        ("varroa sintetica", varroa_paths, 1),
+    ]:
+        print(f"\n--- Inferenza immagini {split_name} ---")
+        for img_path in paths:
+            print(f"  {os.path.basename(img_path)}...")
+            _, amap = sliding_window_inference(
+                model, img_path, device,
+                window_size=window_size,
+                stride=window_size // 2,
+                batch_size=8,
+            )
+            amap = cv2.GaussianBlur(amap, (21, 21), 0)
 
-        img_rgb, amap = sliding_window_inference(
-            model, img_path, device,
-            window_size=window_size,
-            stride=window_size // 2,
-            batch_size=8,
-        )
+            image_labels.append(label)
+            image_scores.append(top_k_mean(amap))
+            amaps.append(amap)
+            if label == 1:
+                gt_masks.append(load_gt_mask(img_path, amap.shape))
+            else:
+                gt_masks.append(np.zeros(amap.shape, dtype=np.uint8))
 
-        all_image_labels.append(0)
-        all_image_scores.append(float(amap.max()))
+    # --- Normalizzazione globale e salvataggio overlay ---
+    # Stessa scala per tutte le immagini: con il min/max per immagine anche
+    # quelle pulite mostravano sempre un picco rosso.
+    # Sottocampioniamo per non copiare in RAM decine di immagini da 24MP.
+    sample = np.concatenate([a.ravel()[::97] for a in amaps])
+    vmin = np.percentile(sample, 1)
+    vmax = np.percentile(sample, 99.9)
+    print(f"\nNormalizzazione heatmap globale: P1={vmin:.6f}, P99.9={vmax:.6f}")
 
-        gt_mask = np.zeros_like(amap, dtype=np.float32)
-        all_pixel_gt.append(gt_mask.flatten())
-        all_pixel_pred.append(amap.flatten())
-
-        _save_overlay(img_rgb, amap, output_dir, img_name)
-
-    # --- Inferenza su immagini VARROA (label=1) ---
-    print("\n--- Inferenza immagini varroa sintetica ---")
-    for img_path in varroa_paths:
-        img_name = os.path.basename(img_path)
-        print(f"  {img_name}...")
-
-        img_rgb, amap = sliding_window_inference(
-            model, img_path, device,
-            window_size=window_size,
-            stride=window_size // 2,
-            batch_size=8,
-        )
-
-        all_image_labels.append(1)
-        all_image_scores.append(float(amap.max()))
-
-        mask_path = find_mask_for_image(img_path, TEST_MASKS_DIR)
-        if mask_path:
-            gt_mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE).astype(np.float32)
-            gt_mask = (gt_mask > 127).astype(np.float32)
-            if gt_mask.shape != amap.shape:
-                gt_mask = cv2.resize(gt_mask, (amap.shape[1], amap.shape[0]),
-                                     interpolation=cv2.INTER_NEAREST)
-        else:
-            print(f"    ⚠ Maschera non trovata per {img_name}, uso maschera vuota")
-            gt_mask = np.zeros_like(amap, dtype=np.float32)
-
-        all_pixel_gt.append(gt_mask.flatten())
-        all_pixel_pred.append(amap.flatten())
-
-        _save_overlay(img_rgb, amap, output_dir, img_name)
+    for img_path, amap in zip(clean_paths + varroa_paths, amaps):
+        _save_overlay(read_rgb(img_path), amap, output_dir,
+                      os.path.basename(img_path), vmin, vmax)
 
     # --- Calcolo metriche ---
-    all_image_labels = np.array(all_image_labels)
-    all_image_scores = np.array(all_image_scores)
-    all_pixel_gt = np.concatenate(all_pixel_gt)
-    all_pixel_pred = np.concatenate(all_pixel_pred)
+    image_labels = np.array(image_labels)
+    image_scores = np.array(image_scores)
+    pixel_gt = np.concatenate([m.ravel() for m in gt_masks])
+    del gt_masks
+    pixel_pred = np.concatenate([a.ravel() for a in amaps])
+    del amaps
 
     print(f"\n{'='*60}")
-    print("RISULTATI METRICHE — CFA Full Image")
+    print("RISULTATI METRICHE — PaSTe Full Image")
     print(f"{'='*60}")
 
     for metric in metrics:
         try:
             if metric.level == MetricLvl.IMAGE:
-                value = metric.compute(all_image_labels, all_image_scores)
+                value = metric.compute(image_labels, image_scores)
             else:
-                value = metric.compute(all_pixel_gt, all_pixel_pred)
+                value = metric.compute(pixel_gt, pixel_pred)
             print(f"  {metric.name:>20s}: {value:.4f}")
         except Exception as e:
             print(f"  {metric.name:>20s}: ERRORE — {e}")
@@ -287,9 +334,9 @@ def evaluate_and_visualize(model, device, output_dir, window_size=384):
     print(f"Heatmap salvate in {output_dir}")
 
 
-def _save_overlay(img_rgb, amap, output_dir, img_name):
+def _save_overlay(img_rgb, amap, output_dir, img_name, vmin, vmax):
     """Salva l'overlay heatmap sull'immagine originale."""
-    amap_norm = (amap - amap.min()) / (amap.max() - amap.min() + 1e-8)
+    amap_norm = np.clip((amap - vmin) / (vmax - vmin + 1e-8), 0, 1)
     heatmap = cv2.applyColorMap((amap_norm * 255).astype(np.uint8), cv2.COLORMAP_JET)
     heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
     overlay = cv2.addWeighted(img_rgb, 0.6, heatmap, 0.4, 0)
@@ -307,16 +354,19 @@ def main():
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
-    # --- Modello ---
-    feature_extractor = CustomFeatureExtractor(
-        "wide_resnet50_2", ["layer1", "layer2"], device, frozen=True
-    )
-    model = CFA(
-        feature_extractor=feature_extractor,
-        backbone="wide_resnet50_2",
-        gamma_c=4,
-        gamma_d=2,
-        feature_maps_channels=768,
+    # --- Modello PaSTe ---
+    # Teacher e student condividono conv1 (bootstrap 0); lo student parte
+    # dall'output di conv1 del teacher e ricalcola layer1, layer2, layer3,
+    # che sono i layer di anomaly detection (varroa ~2-3mm → servono i
+    # layer poco profondi). output_size = (TILE_SIZE, TILE_SIZE) per mantenere
+    # la risoluzione pixel-level delle anomaly maps uguale a quella del tile.
+    model = PaSTe(
+        backbone_model_name="wide_resnet50_2",
+        input_size=(TILE_SIZE, TILE_SIZE),
+        output_size=(TILE_SIZE, TILE_SIZE),
+        ad_layers=AD_LAYERS,
+        weights=TEACHER_WEIGHTS,
+        student_bootstrap_layer=BOOTSTRAP_LAYER,
     )
     model.to(device)
 
@@ -327,6 +377,8 @@ def main():
     )
     train_transform = transforms.Compose([
         transforms.ToTensor(),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomVerticalFlip(),
         imagenet_normalize,
     ])
 
@@ -341,18 +393,21 @@ def main():
     )
 
     # --- Training args ---
-    training_args = CFATrainArgs(epochs=EPOCHS, batch_size=BATCH_SIZE)
+    training_args = PasteTrainArgs(epochs=EPOCHS, batch_size=BATCH_SIZE, lr=LR)
     training_args.init_train(model)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(training_args.optimizer, T_max=EPOCHS)
 
     # --- Training ---
     print(f"\n{'='*60}")
-    print(f"Training CFA full-image | {EPOCHS} epoche | {len(train_dataloader)} batch/epoca")
+    print(f"Training PaSTe full-image | {EPOCHS} epoche | {len(train_dataloader)} batch/epoca")
+    print(f"AD layers: {AD_LAYERS} | bootstrap: {BOOTSTRAP_LAYER} | teacher: {TEACHER_WEIGHTS}")
     print(f"{'='*60}\n")
 
     model.train()
     for epoch in range(EPOCHS):
         loss = model.train_epoch(epoch, train_dataloader, training_args)
-        print(f"Epoca {epoch + 1}/{EPOCHS} — loss: {loss:.6f}")
+        scheduler.step()
+        print(f"Epoca {epoch + 1}/{EPOCHS} — loss: {loss:.6f}, lr: {scheduler.get_last_lr()[0]:.6f}")
 
     # --- Test con sliding window + metriche ---
     print(f"\nTest con sliding window (tile {TILE_SIZE}x{TILE_SIZE})...")

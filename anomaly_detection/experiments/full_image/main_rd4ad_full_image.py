@@ -52,8 +52,9 @@ SEED         = 1
 TOP_K        = 100          # image score = media dei top-k pixel della mappa
 PIXEL_STRIDE = 4            # sottocampionamento dei pixel per metriche e normalizzazione
 
-OUTPUT_DIR   = "./heatmaps_rd4ad_full_image"
-CHECKPOINT   = "./checkpoints/rd4ad_full_image.pth"
+REPO_ROOT    = Path(__file__).resolve().parents[2]
+OUTPUT_DIR   = REPO_ROOT / "heatmaps" / "full_image" / "rd4ad"
+CHECKPOINT   = REPO_ROOT / "checkpoints" / "full_image" / "rd4ad.pth"
 
 
 # ──────────────────────────────────────────────────────────────────────

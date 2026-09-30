@@ -1,31 +1,30 @@
 """
-CFA (Coupled-hypersphere-based Feature Adaptation) - Anomaly detection su
-singole api (single bee crops).
+PaSTe (Partially Shared Teacher-student) - Anomaly detection su singole api
+(single bee crops).
 
-Addestramento: backbone wide_resnet50_2 ImageNet congelato (layer1 + layer2),
-               memory bank inizializzata con le feature adattate delle api
-               sane e ridotta con KMeans (gamma_c), patch descriptor
-               addestrato con la soft-boundary loss (AdamW lr 1e-3,
-               wd 5e-4, amsgrad, 30 epoche come nel paper).
-Valutazione:   distanza dai centroidi più vicini, upsampling + gaussiano
-               (sigma 4), score immagine = massimo della heatmap (paper);
-               metriche a livello immagine e pixel (AUROC, AvgPrec, F1, AUPRO).
+Addestramento: teacher wide_resnet50_2 ImageNet congelato; lo student (pesi
+               casuali) parte dall'output di conv1 del teacher (bootstrap
+               layer 0) e impara a riprodurre le feature di layer1-3 sulle api
+               sane (VarroaDataset, TRAIN). SGD lr 0.04 con cosine annealing.
+Valutazione:   mappa = prodotto delle distanze (feature normalizzate) sui
+               layer AD, score immagine = massimo della mappa; metriche a
+               livello immagine e pixel (AUROC, AvgPrec, F1, AUPRO).
 Visualizzazione: heatmap normalizzate GLOBALMENTE e ancorate alla soglia pixel
                  F1-ottimale (moviad.utilities.evaluation.report).
 
 Correzioni rispetto alla versione precedente:
-  - rimosso CropBeeTransform: ritagliava l'immagine ma non la maschera GT,
-    quindi mappa e maschera erano disallineate e le metriche pixel sbagliate;
-  - dataset completo (VarroaDataset) invece della sola partizione
-    "varroa_clean" di VarroaDomainShiftDataset (1/3 di train e test);
+  - normalizzazione ImageNet dell'input (prima image_transform_list=None);
   - path di training corretto (prima "./data");
-  - loop di training diretto (la strategia Replay valutava a ogni epoca);
-  - in cfa.py: score immagine senza il margine del 35% (contava solo il 30%
-    centrale del crop) e kernel gaussiano coerente con sigma 4.
+  - ad_layers [1, 2, 3] invece di [2, 3, 4]: layer4 a 224 px è una griglia
+    7x7, troppo grossolana per la varroa; bootstrap da conv1 così layer1
+    resta un layer AD (come in main_paste_full_image.py);
+  - lr 0.04 con cosine annealing (la loss usa MSE con reduction="sum");
+  - un solo seed, come gli altri script sulla singola ape.
 """
 
 import os
 import random
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -34,9 +33,8 @@ from torchvision import transforms
 
 from moviad.datasets.dataset_arguments import DatasetArguments
 from moviad.datasets.varroa.varroa_dataset import VarroaDataset
-from moviad.models.cfa.cfa import CFA, CFATrainArgs
+from moviad.models.paste.paste import PaSTe, PasteTrainArgs
 from moviad.utilities.configurations import Split
-from moviad.utilities.custom_feature_extractor_trimmed import CustomFeatureExtractor
 from moviad.utilities.evaluation.report import (
     IMAGENET_MEAN, IMAGENET_STD, compute_metrics, evaluate_and_report, print_metrics, run_inference,
 )
@@ -45,25 +43,27 @@ from moviad.utilities.evaluation.report import (
 # ──────────────────────────────────────────────────────────────────────
 # Configurazione
 # ──────────────────────────────────────────────────────────────────────
-TRAIN_DIR     = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees"
+REPO_ROOT       = Path(__file__).resolve().parents[2]
+TRAIN_DIR       = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees"
+# i crop delle api sono 512x512: maschere GT, metriche pixel e heatmap a questa
+# risoluzione per tutti i modelli (la mappa viene riportata a GT_SIZE)
+GT_SIZE         = (512, 512)
 
-BACKBONE      = "wide_resnet50_2"
-LAYERS        = ["layer1", "layer2"]
-FEATURE_CHANNELS = 768      # layer1 (256) + layer2 (512)
-# gamma_c=4: memory bank ridotta di un fattore 4 con KMeans
-# gamma_d=2: canali del patch descriptor dimezzati (768 -> 384)
-GAMMA_C       = 4
-GAMMA_D       = 2
-IMG_SIZE      = (384, 384)
-EPOCHS        = 30
-BATCH_SIZE    = 16
-EVAL_INTERVAL = 5            # valuta ogni N epoche (e sempre all'ultima)
-NUM_WORKERS   = 8
-SEED          = 1
+BACKBONE        = "wide_resnet50_2"
+AD_LAYERS       = [1, 2, 3]
+BOOTSTRAP_LAYER = 0
+TEACHER_WEIGHTS = "IMAGENET1K_V1"
+IMG_SIZE        = (256, 256)
+EPOCHS          = 20
+BATCH_SIZE      = 32
+LR              = 0.04
+EVAL_INTERVAL   = 5          # valuta ogni N epoche (e sempre all'ultima)
+NUM_WORKERS     = 8
+SEED            = 1
 
-NUM_HEATMAPS  = 20           # metà sane, metà con varroa
-OUTPUT_DIR    = "./heatmaps_cfa_debug"
-CHECKPOINT    = "./checkpoints/cfa_single_bee.pth"
+NUM_HEATMAPS    = 20         # metà sane, metà con varroa
+OUTPUT_DIR      = REPO_ROOT / "heatmaps" / "single_bee" / "paste"
+CHECKPOINT      = REPO_ROOT / "checkpoints" / "single_bee" / "paste.pth"
 
 
 def set_seed(seed: int):
@@ -75,7 +75,7 @@ def set_seed(seed: int):
     np.random.seed(seed)
 
 
-def train_cfa_single_bee():
+def train_paste_single_bee():
     set_seed(SEED)
     device = torch.device(
         "cuda:0" if torch.cuda.is_available()
@@ -87,21 +87,20 @@ def train_cfa_single_bee():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
     # --- Modello ---
-    feature_extractor = CustomFeatureExtractor(BACKBONE, LAYERS, device, frozen=True)
-    model = CFA(
-        feature_extractor=feature_extractor,
-        backbone=BACKBONE,
-        gamma_c=GAMMA_C,
-        gamma_d=GAMMA_D,
-        feature_maps_channels=FEATURE_CHANNELS,
-    )
-    model.to(device)
+    model = PaSTe(
+        backbone_model_name=BACKBONE,
+        input_size=IMG_SIZE,
+        output_size=IMG_SIZE,
+        ad_layers=AD_LAYERS,
+        weights=TEACHER_WEIGHTS,
+        student_bootstrap_layer=BOOTSTRAP_LAYER,
+    ).to(device)
 
     # --- Dataset ---
     dataset_args = DatasetArguments(
         dataset_path=TRAIN_DIR,
         img_size=IMG_SIZE,
-        gt_mask_size=IMG_SIZE,
+        gt_mask_size=GT_SIZE,
         image_transform_list=[
             transforms.ToTensor(),
             transforms.Resize(IMG_SIZE, antialias=True),
@@ -112,7 +111,7 @@ def train_cfa_single_bee():
     test_dataset = VarroaDataset(dataset_args, "varroa", Split.TEST)
 
     train_loader = DataLoader(
-        train_dataset, batch_size=BATCH_SIZE, shuffle=True,
+        train_dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=True,
         num_workers=NUM_WORKERS, pin_memory=True, persistent_workers=NUM_WORKERS > 0,
     )
     test_loader = DataLoader(
@@ -120,18 +119,20 @@ def train_cfa_single_bee():
         num_workers=NUM_WORKERS, pin_memory=True,
     )
 
-    # AdamW(lr 1e-3, wd 5e-4, amsgrad) su patch descriptor e raggio + soft-boundary loss
-    training_args = CFATrainArgs(epochs=EPOCHS, batch_size=BATCH_SIZE)
+    # SGD (momentum 0.9, weight decay 1e-4) sui soli parametri dello student
+    training_args = PasteTrainArgs(epochs=EPOCHS, batch_size=BATCH_SIZE, lr=LR)
     training_args.init_train(model)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(training_args.optimizer, T_max=EPOCHS)
 
-    # --- Training (all'epoca 0 train_epoch inizializza la memory bank) ---
+    # --- Training ---
     print(f"\n{'='*60}")
-    print(f"Training CFA single-bee | {EPOCHS} epoche | {len(train_loader)} batch/epoca")
+    print(f"Training PaSTe single-bee | {EPOCHS} epoche | {len(train_loader)} batch/epoca")
     print(f"{'='*60}\n")
 
     for epoch in range(EPOCHS):
         loss = model.train_epoch(epoch, train_loader, training_args)
-        print(f"Epoca {epoch + 1}/{EPOCHS} — loss: {loss:.6f}")
+        scheduler.step()
+        print(f"Epoca {epoch + 1}/{EPOCHS} — loss: {loss:.6f}, lr: {scheduler.get_last_lr()[0]:.6f}")
 
         if (epoch + 1) % EVAL_INTERVAL == 0 and epoch != EPOCHS - 1:
             maps, scores, labels, masks = run_inference(model, test_loader, device)
@@ -139,14 +140,14 @@ def train_cfa_single_bee():
 
     os.makedirs(os.path.dirname(CHECKPOINT), exist_ok=True)
     torch.save(model.state_dict(), CHECKPOINT)
-    print(f"\nModello CFA salvato in {CHECKPOINT}")
+    print(f"\nModello PaSTe salvato in {CHECKPOINT}")
 
     # --- Valutazione finale + heatmap normalizzate ---
     evaluate_and_report(
         model, test_dataset, test_loader, device, OUTPUT_DIR,
-        title="CFA single-bee", num_heatmaps=NUM_HEATMAPS, seed=SEED,
+        title="PaSTe single-bee", num_heatmaps=NUM_HEATMAPS, seed=SEED,
     )
 
 
 if __name__ == "__main__":
-    train_cfa_single_bee()
+    train_paste_single_bee()

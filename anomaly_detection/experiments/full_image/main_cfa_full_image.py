@@ -1,19 +1,9 @@
 """
-PaDiM - Anomaly detection su immagini full-frame con molte api.
+CFA - Anomaly detection su immagini full-frame con molte api.
 
 Addestramento: crop casuali dalle immagini ad alta risoluzione di training.
-  PaDiM non usa backprop: raccoglie le feature maps e fitta
-  una distribuzione Gaussiana multivariata per ogni posizione spaziale.
 Inferenza: sliding window sull'immagine intera, con blending delle sovrapposizioni.
 Valutazione: metriche a livello di immagine e pixel (AUROC, AvgPrec, F1).
-
-Ottimizzazione per varroa:
-  - wide_resnet50_2 backbone con layer (layer1, layer2, layer3)
-    per catturare dettagli tessiturali fini come il corpo della varroa.
-  - Random projection dimensionale (1792 → 550) per ridurre la memoria
-    senza perdere capacità discriminativa.
-  - Gaussian smoothing post-inference per migliorare la localizzazione
-    delle anomalie nelle aree con molte api ravvicinate.
 """
 
 import os
@@ -27,7 +17,8 @@ import torch
 from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
 
-from moviad.models.padim.padim import Padim, PadimTrainArgs
+from moviad.models.cfa.cfa import CFA, CFATrainArgs
+from moviad.utilities.custom_feature_extractor_trimmed import CustomFeatureExtractor
 from moviad.utilities.evaluation.metrics import MetricLvl, RocAuc, AvgPrec, F1
 
 
@@ -39,11 +30,13 @@ TEST_CLEAN_DIR  = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/proces
 TEST_VARROA_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test/synthetic_varroa_output/images"
 TEST_MASKS_DIR  = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test/synthetic_varroa_output/masks"
 
-TILE_SIZE  = 512
+TILE_SIZE  = 384
+EPOCHS     = 30
 BATCH_SIZE = 8
 SEED       = 1
 
-OUTPUT_DIR = "./heatmaps_padim_full_image"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+OUTPUT_DIR = REPO_ROOT / "heatmaps" / "full_image" / "cfa"
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -83,21 +76,18 @@ class FullImageCropDataset(Dataset):
     """
     Carica immagini ad alta risoluzione e restituisce crop casuali.
     Poiché il server ha molta RAM libera, pre-carica tutte le immagini in memoria
-    durante l'__init__ per evitare il gravissimo collo di bottiglia I/O
+    durante l'__init__ per evitare il gravissimo collo di bottiglia I/O 
     (lettura da disco di 24MP a ogni singola iterazione).
-
-    Per PaDiM: restituisce solo il tensor (senza label) perché
-    train_step() in padim.py gestisce direttamente il batch tensor.
     """
 
-    def __init__(self, root_dir, crop_size=512, crops_per_image=10, transform=None):
+    def __init__(self, root_dir, crop_size=384, crops_per_image=10, transform=None):
         self.crop_size = crop_size
         self.crops_per_image = crops_per_image
         self.transform = transform
         self.image_paths = get_image_paths(root_dir)
         print(f"[Dataset] Trovate {len(self.image_paths)} immagini in {root_dir}")
         print(f"[Dataset] {self.crops_per_image} crop/immagine → {len(self)} campioni/epoca")
-
+        
         print("[Dataset] Pre-caricamento in RAM delle immagini originali (4000x6016)...")
         self.images = []
         for path in self.image_paths:
@@ -129,15 +119,10 @@ class FullImageCropDataset(Dataset):
 # Sliding window inference
 # ──────────────────────────────────────────────────────────────────────
 def sliding_window_inference(model, image_path, device,
-                             window_size=512, stride=256, batch_size=8):
+                             window_size=384, stride=192, batch_size=8):
     """
-    Taglia l'immagine in tile, esegue PaDiM su ciascuna,
+    Taglia l'immagine in tile, esegue CFA su ciascuna,
     e ricostruisce la heatmap globale mediando le sovrapposizioni.
-
-    PaDiM in eval mode restituisce:
-      score_map     [B, 1, H, W]  (torch tensor, già su CPU)
-      img_scores    [B]           (torch tensor, già su CPU)
-    dove H, W sono uguali alla dimensione dell'input (upsampled internamente).
     """
     img = cv2.imread(image_path)
     if img is None:
@@ -154,7 +139,6 @@ def sliding_window_inference(model, image_path, device,
     full_anomaly_map = np.zeros((H, W), dtype=np.float32)
     weight_map = np.zeros((H, W), dtype=np.float32)
 
-    # Coordinate dei tile, assicurando copertura completa dei bordi
     y_coords = list(range(0, H - window_size + 1, stride))
     if not y_coords or y_coords[-1] + window_size < H:
         y_coords.append(max(0, H - window_size))
@@ -170,14 +154,9 @@ def sliding_window_inference(model, image_path, device,
     def process_batch(tiles, coords):
         batch_tensor = torch.stack(tiles).to(device)
         with torch.no_grad():
-            # PaDiM restituisce (score_map [B, 1, H, W], img_scores [B])
-            # Il compute_distances e gaussian_filter avvengono su CPU internamente
+            # CFA restituisce (heatmaps [B, 1, H, W] su CPU, img_scores [B] su CPU)
             batch_amaps, _ = model(batch_tensor)
-            # batch_amaps è un torch tensor da numpy, potrebbe essere su CPU
-            if isinstance(batch_amaps, torch.Tensor):
-                batch_amaps = batch_amaps.cpu().numpy()
-            else:
-                batch_amaps = np.array(batch_amaps)
+            batch_amaps = batch_amaps.numpy()  # già su CPU
 
         for i, (y, x) in enumerate(coords):
             amap = np.squeeze(batch_amaps[i])  # (window_size, window_size)
@@ -204,7 +183,7 @@ def sliding_window_inference(model, image_path, device,
 # ──────────────────────────────────────────────────────────────────────
 # Test + Metriche + Visualizzazione
 # ──────────────────────────────────────────────────────────────────────
-def evaluate_and_visualize(model, device, output_dir, window_size=512):
+def evaluate_and_visualize(model, device, output_dir, window_size=384):
     """
     Esegue il test su immagini pulite e con varroa sintetica,
     calcola le metriche a livello immagine e pixel, e salva le heatmap overlay.
@@ -292,7 +271,7 @@ def evaluate_and_visualize(model, device, output_dir, window_size=512):
     all_pixel_pred = np.concatenate(all_pixel_pred)
 
     print(f"\n{'='*60}")
-    print("RISULTATI METRICHE — PaDiM Full Image")
+    print("RISULTATI METRICHE — CFA Full Image")
     print(f"{'='*60}")
 
     for metric in metrics:
@@ -329,17 +308,16 @@ def main():
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
-    # --- Modello PaDiM ---
-    # wide_resnet50_2 con layer (layer1, layer2, layer3):
-    #   embedding totale = 1792 canali → ridotto a 550 per random projection.
-    # Questi layer catturano sia pattern a bassa frequenza (forma dell'ape)
-    # sia texture ad alta frequenza (varroa, zampe, ali) essenziali per
-    # distinguere le anomalie nelle immagini affollate.
-    model = Padim(
-        backbone_model_name="wide_resnet50_2",
-        layers_idxs=(1, 2, 3),
-        device=device,
-        class_name="bees_varroa",
+    # --- Modello ---
+    feature_extractor = CustomFeatureExtractor(
+        "wide_resnet50_2", ["layer1", "layer2"], device, frozen=True
+    )
+    model = CFA(
+        feature_extractor=feature_extractor,
+        backbone="wide_resnet50_2",
+        gamma_c=4,
+        gamma_d=2,
+        feature_maps_channels=768,
     )
     model.to(device)
 
@@ -363,17 +341,19 @@ def main():
         train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True,
     )
 
-    # --- Training (singola epoca: PaDiM raccoglie statistiche senza backprop) ---
-    training_args = PadimTrainArgs(epochs=1, batch_size=BATCH_SIZE)
+    # --- Training args ---
+    training_args = CFATrainArgs(epochs=EPOCHS, batch_size=BATCH_SIZE)
     training_args.init_train(model)
 
+    # --- Training ---
     print(f"\n{'='*60}")
-    print(f"Training PaDiM full-image | 1 epoca (fitting statistico) | {len(train_dataloader)} batch")
+    print(f"Training CFA full-image | {EPOCHS} epoche | {len(train_dataloader)} batch/epoca")
     print(f"{'='*60}\n")
 
     model.train()
-    model.train_epoch(0, train_dataloader, training_args)
-    print("Fitting Gaussiana multivariata completato.")
+    for epoch in range(EPOCHS):
+        loss = model.train_epoch(epoch, train_dataloader, training_args)
+        print(f"Epoca {epoch + 1}/{EPOCHS} — loss: {loss:.6f}")
 
     # --- Test con sliding window + metriche ---
     print(f"\nTest con sliding window (tile {TILE_SIZE}x{TILE_SIZE})...")

@@ -217,6 +217,7 @@ benchmark/stfpm.json
 # Added manually
 data/
 MIRAGE/
+heatmaps/
 heatmaps_debug/
 heatmaps_*/
 checkpoints/

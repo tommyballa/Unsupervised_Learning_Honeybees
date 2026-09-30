@@ -1,9 +1,9 @@
 """
-SuperSimpleNet - Anomaly detection su singole api (single bee crops).
+RD4AD (Reverse Distillation) - Anomaly detection su singole api (single bee crops).
 
-Addestramento: immagini normali di singole api (VarroaDataset, split TRAIN).
-               Le anomalie vengono simulate nello spazio delle feature
-               (rumore gaussiano mascherato con Perlin noise), come nel paper.
+Addestramento: immagini normali di singole api (VarroaDataset, split TRAIN),
+               con augmentation geometrica (flip) perché le api possono avere
+               qualsiasi orientamento.
 Valutazione:   metriche a livello immagine e pixel (AUROC, AvgPrec, F1, AUPRO)
                sul test set sintetico (api sane + api con varroa + maschere).
 Visualizzazione: heatmap normalizzate GLOBALMENTE (stessa scala per tutte le
@@ -18,21 +18,17 @@ Visualizzazione: heatmap normalizzate GLOBALMENTE (stessa scala per tutte le
 
 import os
 import random
+from pathlib import Path
 
 import numpy as np
 import torch
-from torch.optim import AdamW
-from torch.optim.lr_scheduler import MultiStepLR
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
-from tqdm import tqdm
 
 from moviad.datasets.dataset_arguments import DatasetArguments
 from moviad.datasets.varroa.varroa_dataset import VarroaDataset
-from moviad.models.components.simplenet.loss import SSNLoss
-from moviad.models.supersimplenet.supersimplenet import SuperSimpleNet
+from moviad.models.rd4ad.rd4ad import RD4AD, RD4ADTrainArgs
 from moviad.utilities.configurations import Split
-from moviad.utilities.custom_feature_extractor_trimmed import CustomFeatureExtractor
 from moviad.utilities.evaluation.report import (
     IMAGENET_MEAN, IMAGENET_STD, compute_metrics, evaluate_and_report, print_metrics, run_inference,
 )
@@ -41,28 +37,23 @@ from moviad.utilities.evaluation.report import (
 # ──────────────────────────────────────────────────────────────────────
 # Configurazione
 # ──────────────────────────────────────────────────────────────────────
-TRAIN_DIR       = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees"
+REPO_ROOT     = Path(__file__).resolve().parents[2]
+TRAIN_DIR     = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees"
+# i crop delle api sono 512x512: maschere GT, metriche pixel e heatmap a questa
+# risoluzione per tutti i modelli (la mappa viene riportata a GT_SIZE)
+GT_SIZE       = (512, 512)
 
-BACKBONE        = "wide_resnet50_2"
-LAYERS          = ["layer2", "layer3"]   # come nel paper SuperSimpleNet
-IMG_SIZE        = (256, 256)
-EPOCHS          = 30
-BATCH_SIZE      = 32
-EVAL_INTERVAL   = 5            # valuta ogni N epoche (e sempre all'ultima)
-NUM_WORKERS     = 8
-SEED            = 1
+BACKBONE      = "wide_resnet50_2"
+IMG_SIZE      = (256, 256)   # RD4AD richiede multipli di 32
+EPOCHS        = 20
+BATCH_SIZE    = 16
+EVAL_INTERVAL = 5            # valuta ogni N epoche (e sempre all'ultima)
+NUM_WORKERS   = 8
+SEED          = 1
 
-# Iperparametri del paper / anomalib
-ADAPTOR_LR      = 1e-4
-SEGDEC_LR       = 2e-4
-WEIGHT_DECAY    = 1e-5
-LR_GAMMA        = 0.4
-LR_MILESTONES   = [int(EPOCHS * 0.8), int(EPOCHS * 0.9)]   # in epoche
-PERLIN_THRESHOLD = SuperSimpleNet.DEFAULT_PARAMETERS["perlin_threshold"]
-
-NUM_HEATMAPS    = 20           # metà sane, metà con varroa
-OUTPUT_DIR      = "./heatmaps_supersimplenet_debug"
-CHECKPOINT      = "./checkpoints/supersimplenet_single_bee.pth"
+NUM_HEATMAPS  = 20           # metà sane, metà con varroa
+OUTPUT_DIR    = REPO_ROOT / "heatmaps" / "single_bee" / "rd4ad"
+CHECKPOINT    = REPO_ROOT / "checkpoints" / "single_bee" / "rd4ad.pth"
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -95,34 +86,9 @@ class AugmentedTrainDataset(Dataset):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Training
-# ──────────────────────────────────────────────────────────────────────
-def train_epoch(model, dataloader, optimizer, loss_fn, device):
-    model.train()
-    avg_loss = 0.0
-    for images in tqdm(dataloader):
-        images = images.to(device)
-        B, _, H, W = images.shape
-        # tutte le immagini di training sono normali: maschere e label a zero,
-        # le anomalie vengono generate dal modello nello spazio delle feature
-        masks = torch.zeros(B, 1, H, W, device=device)
-        labels = torch.zeros(B, device=device)
-
-        anomaly_map, anomaly_score, masks, labels = model(images=images, masks=masks, labels=labels)
-        loss = loss_fn(pred_map=anomaly_map, pred_score=anomaly_score,
-                       target_mask=masks, target_label=labels)
-
-        optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        optimizer.step()
-        avg_loss += loss.item()
-    return avg_loss / len(dataloader)
-
-
-# ──────────────────────────────────────────────────────────────────────
 # Main
 # ──────────────────────────────────────────────────────────────────────
-def train_supersimplenet_single_bee():
+def train_rd4ad_single_bee():
     set_seed(SEED)
     device = torch.device(
         "cuda:0" if torch.cuda.is_available()
@@ -134,18 +100,16 @@ def train_supersimplenet_single_bee():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
     # --- Modello ---
-    feature_extractor = CustomFeatureExtractor(BACKBONE, LAYERS, device, frozen=True)
-    model = SuperSimpleNet(
-        feature_extractor=feature_extractor,
-        perlin_threshold=PERLIN_THRESHOLD,
-        stop_grad=SuperSimpleNet.DEFAULT_PARAMETERS["stop_grad"],
-    ).to(device)
+    model = RD4AD(backbone_name=BACKBONE, input_size=IMG_SIZE).to(device)
+    # l'encoder (teacher) è congelato: l'optimizer aggiorna solo bottleneck e decoder
+    for p in model.encoder.parameters():
+        p.requires_grad_(False)
 
     # --- Dataset ---
     dataset_args = DatasetArguments(
         dataset_path=TRAIN_DIR,
         img_size=IMG_SIZE,
-        gt_mask_size=IMG_SIZE,
+        gt_mask_size=GT_SIZE,
         image_transform_list=[
             transforms.ToTensor(),
             transforms.Resize(IMG_SIZE, antialias=True),
@@ -164,23 +128,19 @@ def train_supersimplenet_single_bee():
         num_workers=NUM_WORKERS, pin_memory=True,
     )
 
-    # --- Optimizer, scheduler (per epoca) e loss ---
-    optimizer = AdamW([
-        {"params": model.adaptor.parameters(), "lr": ADAPTOR_LR},
-        {"params": model.segdec.parameters(), "lr": SEGDEC_LR, "weight_decay": WEIGHT_DECAY},
-    ])
-    scheduler = MultiStepLR(optimizer, milestones=LR_MILESTONES, gamma=LR_GAMMA)
-    loss_fn = SSNLoss()
+    training_args = RD4ADTrainArgs(epochs=EPOCHS, batch_size=BATCH_SIZE,
+                                   evaluation_epoch_interval=EVAL_INTERVAL)
+    training_args.init_train(model)
 
     # --- Training ---
     print(f"\n{'='*60}")
-    print(f"Training SuperSimpleNet single-bee | {EPOCHS} epoche | {len(train_loader)} batch/epoca")
+    print(f"Training RD4AD single-bee | {EPOCHS} epoche | {len(train_loader)} batch/epoca")
     print(f"{'='*60}\n")
 
     for epoch in range(EPOCHS):
-        loss = train_epoch(model, train_loader, optimizer, loss_fn, device)
-        scheduler.step()
-        print(f"Epoca {epoch + 1}/{EPOCHS} — loss: {loss:.6f}, lr: {scheduler.get_last_lr()}")
+        model.train()
+        loss = model.train_epoch(epoch, train_loader, training_args)
+        print(f"Epoca {epoch + 1}/{EPOCHS} — loss: {loss:.6f}")
 
         if (epoch + 1) % EVAL_INTERVAL == 0 and epoch != EPOCHS - 1:
             maps, scores, labels, masks = run_inference(model, test_loader, device)
@@ -188,15 +148,14 @@ def train_supersimplenet_single_bee():
 
     os.makedirs(os.path.dirname(CHECKPOINT), exist_ok=True)
     torch.save(model.state_dict(), CHECKPOINT)
-    print(f"\nModello SuperSimpleNet salvato in {CHECKPOINT}")
+    print(f"\nModello RD4AD salvato in {CHECKPOINT}")
 
     # --- Valutazione finale + heatmap normalizzate ---
     evaluate_and_report(
         model, test_dataset, test_loader, device, OUTPUT_DIR,
-        title="SuperSimpleNet single-bee", num_heatmaps=NUM_HEATMAPS, seed=SEED,
-        raw_label="Mappa grezza (logit)",
+        title="RD4AD single-bee", num_heatmaps=NUM_HEATMAPS, seed=SEED,
     )
 
 
 if __name__ == "__main__":
-    train_supersimplenet_single_bee()
+    train_rd4ad_single_bee()

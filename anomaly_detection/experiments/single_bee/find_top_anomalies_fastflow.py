@@ -154,10 +154,11 @@ def find_top_anomalies(model_checkpoint, data_dir, output_dir, top_n=10):
 
 if __name__ == "__main__":
     # Esempio di utilizzo
-    model_checkpoint = "./checkpoints/fastflow_single_bee.pth"
+    repo_root = Path(__file__).resolve().parents[2]
+    model_checkpoint = repo_root / "checkpoints" / "single_bee" / "fastflow.pth"
     
     # Sostituisci con la cartella di cui vuoi trovare le anomalie
     data_dir = "/mnt/disk1/borsattifr/datasets/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee/normal" 
-    output_dir = "./heatmaps_top_anomalies"
+    output_dir = repo_root / "heatmaps" / "single_bee" / "fastflow" / "top_anomalies"
     
     find_top_anomalies(model_checkpoint, data_dir, output_dir, top_n=10)

@@ -1,24 +1,32 @@
 """
-STFPM (Student-Teacher Feature Pyramid Matching) - Anomaly detection su
+CFA (Coupled-hypersphere-based Feature Adaptation) - Anomaly detection su
 singole api (single bee crops).
 
-Addestramento: teacher resnet18 ImageNet congelato, student resnet18 con pesi
-               casuali addestrato a riprodurre le feature di layer1-3 del
-               teacher sulle api sane (VarroaDataset, TRAIN). Ricetta del paper:
-               SGD lr 0.4, momentum 0.9, weight decay 1e-4, batch 32, 256 px.
-Valutazione:   mappa = prodotto delle distanze (feature normalizzate) sui 3
-               layer, score immagine = massimo della mappa; metriche a livello
-               immagine e pixel (AUROC, AvgPrec, F1, AUPRO).
+Addestramento: backbone wide_resnet50_2 ImageNet congelato (layer1 + layer2),
+               memory bank inizializzata con le feature adattate delle api
+               sane e ridotta con KMeans (gamma_c), patch descriptor
+               addestrato con la soft-boundary loss (AdamW lr 1e-3,
+               wd 5e-4, amsgrad, 30 epoche come nel paper).
+Valutazione:   distanza dai centroidi più vicini, upsampling + gaussiano
+               (sigma 4), score immagine = massimo della heatmap (paper);
+               metriche a livello immagine e pixel (AUROC, AvgPrec, F1, AUPRO).
 Visualizzazione: heatmap normalizzate GLOBALMENTE e ancorate alla soglia pixel
                  F1-ottimale (moviad.utilities.evaluation.report).
 
-La versione precedente era un esperimento continual (3 task di domain shift
-con Replay, path "./data"): per il continual resta main_stfpm_clad.py.
-Con ~10k api, 20 epoche sono ~6k iterazioni (il paper ne fa ~1k su MVTec).
+Correzioni rispetto alla versione precedente:
+  - rimosso CropBeeTransform: ritagliava l'immagine ma non la maschera GT,
+    quindi mappa e maschera erano disallineate e le metriche pixel sbagliate;
+  - dataset completo (VarroaDataset) invece della sola partizione
+    "varroa_clean" di VarroaDomainShiftDataset (1/3 di train e test);
+  - path di training corretto (prima "./data");
+  - loop di training diretto (la strategia Replay valutava a ogni epoca);
+  - in cfa.py: score immagine senza il margine del 35% (contava solo il 30%
+    centrale del crop) e kernel gaussiano coerente con sigma 4.
 """
 
 import os
 import random
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -27,7 +35,7 @@ from torchvision import transforms
 
 from moviad.datasets.dataset_arguments import DatasetArguments
 from moviad.datasets.varroa.varroa_dataset import VarroaDataset
-from moviad.models.stfpm.stfpm import STFPM, STFPMTrainArgs
+from moviad.models.cfa.cfa import CFA, CFATrainArgs
 from moviad.utilities.configurations import Split
 from moviad.utilities.custom_feature_extractor_trimmed import CustomFeatureExtractor
 from moviad.utilities.evaluation.report import (
@@ -38,21 +46,29 @@ from moviad.utilities.evaluation.report import (
 # ──────────────────────────────────────────────────────────────────────
 # Configurazione
 # ──────────────────────────────────────────────────────────────────────
+REPO_ROOT     = Path(__file__).resolve().parents[2]
 TRAIN_DIR     = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees"
+# i crop delle api sono 512x512: maschere GT, metriche pixel e heatmap a questa
+# risoluzione per tutti i modelli (la mappa viene riportata a GT_SIZE)
+GT_SIZE       = (512, 512)
 
-BACKBONE      = "resnet18"
-LAYERS        = ["layer1", "layer2", "layer3"]
-IMG_SIZE      = (256, 256)
-EPOCHS        = 20
-BATCH_SIZE    = 32
-LR            = 0.4          # come nel paper STFPM
+BACKBONE      = "wide_resnet50_2"
+LAYERS        = ["layer1", "layer2"]
+FEATURE_CHANNELS = 768      # layer1 (256) + layer2 (512)
+# gamma_c=4: memory bank ridotta di un fattore 4 con KMeans
+# gamma_d=2: canali del patch descriptor dimezzati (768 -> 384)
+GAMMA_C       = 4
+GAMMA_D       = 2
+IMG_SIZE      = (384, 384)
+EPOCHS        = 30
+BATCH_SIZE    = 16
 EVAL_INTERVAL = 5            # valuta ogni N epoche (e sempre all'ultima)
 NUM_WORKERS   = 8
 SEED          = 1
 
 NUM_HEATMAPS  = 20           # metà sane, metà con varroa
-OUTPUT_DIR    = "./heatmaps_stfpm_debug"
-CHECKPOINT    = "./checkpoints/stfpm_single_bee.pth"
+OUTPUT_DIR    = REPO_ROOT / "heatmaps" / "single_bee" / "cfa"
+CHECKPOINT    = REPO_ROOT / "checkpoints" / "single_bee" / "cfa.pth"
 
 
 def set_seed(seed: int):
@@ -64,7 +80,7 @@ def set_seed(seed: int):
     np.random.seed(seed)
 
 
-def train_stfpm_single_bee():
+def train_cfa_single_bee():
     set_seed(SEED)
     device = torch.device(
         "cuda:0" if torch.cuda.is_available()
@@ -75,16 +91,22 @@ def train_stfpm_single_bee():
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
-    # --- Modello: teacher pre-addestrato congelato, student con pesi casuali ---
-    teacher = CustomFeatureExtractor(BACKBONE, LAYERS, device, frozen=True)
-    student = CustomFeatureExtractor(BACKBONE, LAYERS, device, frozen=False)
-    model = STFPM(teacher, student).to(device)
+    # --- Modello ---
+    feature_extractor = CustomFeatureExtractor(BACKBONE, LAYERS, device, frozen=True)
+    model = CFA(
+        feature_extractor=feature_extractor,
+        backbone=BACKBONE,
+        gamma_c=GAMMA_C,
+        gamma_d=GAMMA_D,
+        feature_maps_channels=FEATURE_CHANNELS,
+    )
+    model.to(device)
 
     # --- Dataset ---
     dataset_args = DatasetArguments(
         dataset_path=TRAIN_DIR,
         img_size=IMG_SIZE,
-        gt_mask_size=IMG_SIZE,
+        gt_mask_size=GT_SIZE,
         image_transform_list=[
             transforms.ToTensor(),
             transforms.Resize(IMG_SIZE, antialias=True),
@@ -95,7 +117,7 @@ def train_stfpm_single_bee():
     test_dataset = VarroaDataset(dataset_args, "varroa", Split.TEST)
 
     train_loader = DataLoader(
-        train_dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=True,
+        train_dataset, batch_size=BATCH_SIZE, shuffle=True,
         num_workers=NUM_WORKERS, pin_memory=True, persistent_workers=NUM_WORKERS > 0,
     )
     test_loader = DataLoader(
@@ -103,17 +125,16 @@ def train_stfpm_single_bee():
         num_workers=NUM_WORKERS, pin_memory=True,
     )
 
-    # SGD(lr, momentum 0.9, weight decay 1e-4) sui soli parametri dello student
-    training_args = STFPMTrainArgs(epochs=EPOCHS, batch_size=BATCH_SIZE, lr=LR)
+    # AdamW(lr 1e-3, wd 5e-4, amsgrad) su patch descriptor e raggio + soft-boundary loss
+    training_args = CFATrainArgs(epochs=EPOCHS, batch_size=BATCH_SIZE)
     training_args.init_train(model)
 
-    # --- Training ---
+    # --- Training (all'epoca 0 train_epoch inizializza la memory bank) ---
     print(f"\n{'='*60}")
-    print(f"Training STFPM single-bee | {EPOCHS} epoche | {len(train_loader)} batch/epoca | lr {LR}")
+    print(f"Training CFA single-bee | {EPOCHS} epoche | {len(train_loader)} batch/epoca")
     print(f"{'='*60}\n")
 
     for epoch in range(EPOCHS):
-        model.train()
         loss = model.train_epoch(epoch, train_loader, training_args)
         print(f"Epoca {epoch + 1}/{EPOCHS} — loss: {loss:.6f}")
 
@@ -122,15 +143,15 @@ def train_stfpm_single_bee():
             print_metrics(compute_metrics(maps, scores, labels, masks, with_pro=False))
 
     os.makedirs(os.path.dirname(CHECKPOINT), exist_ok=True)
-    torch.save(model.student.model.state_dict(), CHECKPOINT)
-    print(f"\nStudent STFPM salvato in {CHECKPOINT}")
+    torch.save(model.state_dict(), CHECKPOINT)
+    print(f"\nModello CFA salvato in {CHECKPOINT}")
 
     # --- Valutazione finale + heatmap normalizzate ---
     evaluate_and_report(
         model, test_dataset, test_loader, device, OUTPUT_DIR,
-        title="STFPM single-bee", num_heatmaps=NUM_HEATMAPS, seed=SEED,
+        title="CFA single-bee", num_heatmaps=NUM_HEATMAPS, seed=SEED,
     )
 
 
 if __name__ == "__main__":
-    train_stfpm_single_bee()
+    train_cfa_single_bee()

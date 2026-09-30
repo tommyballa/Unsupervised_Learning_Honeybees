@@ -1,29 +1,29 @@
 """
-PaSTe (Partially Shared Teacher-student) - Anomaly detection su singole api
-(single bee crops).
+FastFlow - Anomaly detection su singole api (single bee crops).
 
-Addestramento: teacher wide_resnet50_2 ImageNet congelato; lo student (pesi
-               casuali) parte dall'output di conv1 del teacher (bootstrap
-               layer 0) e impara a riprodurre le feature di layer1-3 sulle api
-               sane (VarroaDataset, TRAIN). SGD lr 0.04 con cosine annealing.
-Valutazione:   mappa = prodotto delle distanze (feature normalizzate) sui
-               layer AD, score immagine = massimo della mappa; metriche a
+Addestramento: feature wide_resnet50_2 ImageNet congelate (layer1-3),
+               LayerNorm addestrabili per scala e un normalizing flow 2D per
+               scala, massimizzando la likelihood delle api sane (VarroaDataset,
+               TRAIN). Adam lr 1e-3, wd 1e-5, cosine annealing.
+Valutazione:   mappa = media sulle scale di mean(z^2) smussata (gaussiano
+               sigma 4), score immagine = massimo della mappa; metriche a
                livello immagine e pixel (AUROC, AvgPrec, F1, AUPRO).
 Visualizzazione: heatmap normalizzate GLOBALMENTE e ancorate alla soglia pixel
                  F1-ottimale (moviad.utilities.evaluation.report).
 
 Correzioni rispetto alla versione precedente:
-  - normalizzazione ImageNet dell'input (prima image_transform_list=None);
-  - path di training corretto (prima "./data");
-  - ad_layers [1, 2, 3] invece di [2, 3, 4]: layer4 a 224 px è una griglia
-    7x7, troppo grossolana per la varroa; bootstrap da conv1 così layer1
-    resta un layer AD (come in main_paste_full_image.py);
-  - lr 0.04 con cosine annealing (la loss usa MSE con reduction="sum");
-  - un solo seed, come gli altri script sulla singola ape.
+  - LayerNorm per scala riattivate (create_fastflow(normalize=True)), come
+    nel paper e in anomalib;
+  - valutazione in fp32 con metriche anche a livello pixel (prima solo
+    immagine, in bf16) e heatmap con normalizzazione globale;
+  - loop di training diretto invece di ContinualTrainer + SingleModel.
+Il checkpoint va passato a diagnose_fastflow_varroa.py con --checkpoint; i
+checkpoint addestrati senza LayerNorm non sono compatibili con il modello.
 """
 
 import os
 import random
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -32,7 +32,7 @@ from torchvision import transforms
 
 from moviad.datasets.dataset_arguments import DatasetArguments
 from moviad.datasets.varroa.varroa_dataset import VarroaDataset
-from moviad.models.paste.paste import PaSTe, PasteTrainArgs
+from moviad.models.fastflow.fastflow import create_fastflow, FastFlowTrainArgs
 from moviad.utilities.configurations import Split
 from moviad.utilities.evaluation.report import (
     IMAGENET_MEAN, IMAGENET_STD, compute_metrics, evaluate_and_report, print_metrics, run_inference,
@@ -42,35 +42,39 @@ from moviad.utilities.evaluation.report import (
 # ──────────────────────────────────────────────────────────────────────
 # Configurazione
 # ──────────────────────────────────────────────────────────────────────
-TRAIN_DIR       = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees"
+REPO_ROOT     = Path(__file__).resolve().parents[2]
+TRAIN_DIR     = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees"
+# i crop delle api sono 512x512: maschere GT, metriche pixel e heatmap a questa
+# risoluzione per tutti i modelli (la mappa viene riportata a GT_SIZE)
+GT_SIZE       = (512, 512)
 
-BACKBONE        = "wide_resnet50_2"
-AD_LAYERS       = [1, 2, 3]
-BOOTSTRAP_LAYER = 0
-TEACHER_WEIGHTS = "IMAGENET1K_V1"
-IMG_SIZE        = (256, 256)
-EPOCHS          = 20
-BATCH_SIZE      = 32
-LR              = 0.04
-EVAL_INTERVAL   = 5          # valuta ogni N epoche (e sempre all'ultima)
-NUM_WORKERS     = 8
-SEED            = 1
+# cait_m48_448, deit_base_distilled_patch16_384, resnet18, wide_resnet50_2
+BACKBONE      = "wide_resnet50_2"
+IMG_SIZE      = (256, 256)
+EPOCHS        = 300
+BATCH_SIZE    = 16
+LR            = 1e-3
+WEIGHT_DECAY  = 1e-5
+EVAL_INTERVAL = 10           # valuta ogni N epoche (e sempre all'ultima)
+NUM_WORKERS   = 8
+SEED          = 1
 
-NUM_HEATMAPS    = 20         # metà sane, metà con varroa
-OUTPUT_DIR      = "./heatmaps_paste_debug"
-CHECKPOINT      = "./checkpoints/paste_single_bee.pth"
+NUM_HEATMAPS  = 20           # metà sane, metà con varroa
+OUTPUT_DIR    = REPO_ROOT / "heatmaps" / "single_bee" / "fastflow"
+CHECKPOINT    = REPO_ROOT / "checkpoints" / "single_bee" / "fastflow.pth"
 
 
 def set_seed(seed: int):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    # benchmark=True è sicuro con input size fisso e velocizza le convoluzioni
+    torch.backends.cudnn.deterministic = False
+    torch.backends.cudnn.benchmark = True
     random.seed(seed)
     np.random.seed(seed)
 
 
-def train_paste_single_bee():
+def train_fastflow_single_bee():
     set_seed(SEED)
     device = torch.device(
         "cuda:0" if torch.cuda.is_available()
@@ -81,21 +85,14 @@ def train_paste_single_bee():
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
-    # --- Modello ---
-    model = PaSTe(
-        backbone_model_name=BACKBONE,
-        input_size=IMG_SIZE,
-        output_size=IMG_SIZE,
-        ad_layers=AD_LAYERS,
-        weights=TEACHER_WEIGHTS,
-        student_bootstrap_layer=BOOTSTRAP_LAYER,
-    ).to(device)
+    # --- Modello (LayerNorm per scala + normalizing flow) ---
+    model = create_fastflow(img_shape=IMG_SIZE, backbone_name=BACKBONE, device=device, normalize=True)
 
     # --- Dataset ---
     dataset_args = DatasetArguments(
         dataset_path=TRAIN_DIR,
         img_size=IMG_SIZE,
-        gt_mask_size=IMG_SIZE,
+        gt_mask_size=GT_SIZE,
         image_transform_list=[
             transforms.ToTensor(),
             transforms.Resize(IMG_SIZE, antialias=True),
@@ -114,20 +111,23 @@ def train_paste_single_bee():
         num_workers=NUM_WORKERS, pin_memory=True,
     )
 
-    # SGD (momentum 0.9, weight decay 1e-4) sui soli parametri dello student
-    training_args = PasteTrainArgs(epochs=EPOCHS, batch_size=BATCH_SIZE, lr=LR)
+    # --- Optimizer (flow + LayerNorm), scheduler per epoca e loss ---
+    optimizer = torch.optim.Adam(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=1e-5)
+    training_args = FastFlowTrainArgs(epochs=EPOCHS, batch_size=BATCH_SIZE,
+                                      optimizer=optimizer, scheduler=scheduler)
     training_args.init_train(model)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(training_args.optimizer, T_max=EPOCHS)
 
     # --- Training ---
     print(f"\n{'='*60}")
-    print(f"Training PaSTe single-bee | {EPOCHS} epoche | {len(train_loader)} batch/epoca")
+    print(f"Training FastFlow single-bee | {EPOCHS} epoche | {len(train_loader)} batch/epoca")
     print(f"{'='*60}\n")
 
     for epoch in range(EPOCHS):
+        model.train()
         loss = model.train_epoch(epoch, train_loader, training_args)
         scheduler.step()
-        print(f"Epoca {epoch + 1}/{EPOCHS} — loss: {loss:.6f}, lr: {scheduler.get_last_lr()[0]:.6f}")
+        print(f"Epoca {epoch + 1}/{EPOCHS} — loss: {loss:.6f}, lr: {scheduler.get_last_lr()[0]:.2e}")
 
         if (epoch + 1) % EVAL_INTERVAL == 0 and epoch != EPOCHS - 1:
             maps, scores, labels, masks = run_inference(model, test_loader, device)
@@ -135,14 +135,14 @@ def train_paste_single_bee():
 
     os.makedirs(os.path.dirname(CHECKPOINT), exist_ok=True)
     torch.save(model.state_dict(), CHECKPOINT)
-    print(f"\nModello PaSTe salvato in {CHECKPOINT}")
+    print(f"\nModello FastFlow salvato in {CHECKPOINT}")
 
     # --- Valutazione finale + heatmap normalizzate ---
     evaluate_and_report(
         model, test_dataset, test_loader, device, OUTPUT_DIR,
-        title="PaSTe single-bee", num_heatmaps=NUM_HEATMAPS, seed=SEED,
+        title="FastFlow single-bee", num_heatmaps=NUM_HEATMAPS, seed=SEED,
     )
 
 
 if __name__ == "__main__":
-    train_paste_single_bee()
+    train_fastflow_single_bee()

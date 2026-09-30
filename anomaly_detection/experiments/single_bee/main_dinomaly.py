@@ -39,6 +39,7 @@ from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 import torch
 import random
+from pathlib import Path
 import numpy as np
 import os
 
@@ -52,10 +53,15 @@ EVAL_INTERVAL  = 5      # valuta ogni N epoche
 SEED           = 1
 NUM_WORKERS    = 8
 
+REPO_ROOT      = Path(__file__).resolve().parents[2]
 TRAIN_DIR      = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees"
+# i crop delle api sono 512x512: maschere GT, metriche pixel e heatmap a questa
+# risoluzione per tutti i modelli (la mappa viene riportata a GT_SIZE)
+GT_SIZE        = (512, 512)
+
 NUM_HEATMAPS   = 20      # metà sane, metà con varroa
-OUTPUT_DIR     = "./heatmaps_dinomaly_debug"
-CHECKPOINT     = "./checkpoints/dinomaly_single_bee.pth"
+OUTPUT_DIR     = REPO_ROOT / "heatmaps" / "single_bee" / "dinomaly"
+CHECKPOINT     = REPO_ROOT / "checkpoints" / "single_bee" / "dinomaly.pth"
 
 
 def set_seed(seed):
@@ -150,7 +156,7 @@ def train_dinomaly():
     dataset_args = DatasetArguments(
         dataset_path=TRAIN_DIR,
         img_size=IMG_SIZE,
-        gt_mask_size=IMG_SIZE,
+        gt_mask_size=GT_SIZE,
         image_transform_list=[
             transforms.ToTensor(),
             transforms.Resize(IMG_SIZE, antialias=True),

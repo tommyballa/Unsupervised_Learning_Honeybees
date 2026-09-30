@@ -135,7 +135,7 @@ def train_and_find_outliers():
         print(f"Rank #{i+1} | Score: {res['score']:>6.2f} | Immagine: {Path(res['path']).name}")
 
     # 8. Salvataggio Heatmap
-    output_dir = "./heatmaps_patchcore_outliers"
+    output_dir = Path(__file__).resolve().parents[2] / "heatmaps" / "single_bee" / "patchcore" / "outliers_train"
     os.makedirs(output_dir, exist_ok=True)
     
     # Calcolo min/max sui top risultati per normalizzazione

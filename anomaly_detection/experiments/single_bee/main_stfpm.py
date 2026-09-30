@@ -1,28 +1,25 @@
 """
-FastFlow - Anomaly detection su singole api (single bee crops).
+STFPM (Student-Teacher Feature Pyramid Matching) - Anomaly detection su
+singole api (single bee crops).
 
-Addestramento: feature wide_resnet50_2 ImageNet congelate (layer1-3),
-               LayerNorm addestrabili per scala e un normalizing flow 2D per
-               scala, massimizzando la likelihood delle api sane (VarroaDataset,
-               TRAIN). Adam lr 1e-3, wd 1e-5, cosine annealing.
-Valutazione:   mappa = media sulle scale di mean(z^2) smussata (gaussiano
-               sigma 4), score immagine = massimo della mappa; metriche a
-               livello immagine e pixel (AUROC, AvgPrec, F1, AUPRO).
+Addestramento: teacher resnet18 ImageNet congelato, student resnet18 con pesi
+               casuali addestrato a riprodurre le feature di layer1-3 del
+               teacher sulle api sane (VarroaDataset, TRAIN). Ricetta del paper:
+               SGD lr 0.4, momentum 0.9, weight decay 1e-4, batch 32, 256 px.
+Valutazione:   mappa = prodotto delle distanze (feature normalizzate) sui 3
+               layer, score immagine = massimo della mappa; metriche a livello
+               immagine e pixel (AUROC, AvgPrec, F1, AUPRO).
 Visualizzazione: heatmap normalizzate GLOBALMENTE e ancorate alla soglia pixel
                  F1-ottimale (moviad.utilities.evaluation.report).
 
-Correzioni rispetto alla versione precedente:
-  - LayerNorm per scala riattivate (create_fastflow(normalize=True)), come
-    nel paper e in anomalib;
-  - valutazione in fp32 con metriche anche a livello pixel (prima solo
-    immagine, in bf16) e heatmap con normalizzazione globale;
-  - loop di training diretto invece di ContinualTrainer + SingleModel.
-Il checkpoint va passato a diagnose_fastflow_varroa.py con --checkpoint; i
-checkpoint addestrati senza LayerNorm non sono compatibili con il modello.
+La versione precedente era un esperimento continual (3 task di domain shift
+con Replay, path "./data"): per il continual resta main_stfpm_clad.py.
+Con ~10k api, 20 epoche sono ~6k iterazioni (il paper ne fa ~1k su MVTec).
 """
 
 import os
 import random
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -31,8 +28,9 @@ from torchvision import transforms
 
 from moviad.datasets.dataset_arguments import DatasetArguments
 from moviad.datasets.varroa.varroa_dataset import VarroaDataset
-from moviad.models.fastflow.fastflow import create_fastflow, FastFlowTrainArgs
+from moviad.models.stfpm.stfpm import STFPM, STFPMTrainArgs
 from moviad.utilities.configurations import Split
+from moviad.utilities.custom_feature_extractor_trimmed import CustomFeatureExtractor
 from moviad.utilities.evaluation.report import (
     IMAGENET_MEAN, IMAGENET_STD, compute_metrics, evaluate_and_report, print_metrics, run_inference,
 )
@@ -41,35 +39,37 @@ from moviad.utilities.evaluation.report import (
 # ──────────────────────────────────────────────────────────────────────
 # Configurazione
 # ──────────────────────────────────────────────────────────────────────
+REPO_ROOT     = Path(__file__).resolve().parents[2]
 TRAIN_DIR     = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees"
+# i crop delle api sono 512x512: maschere GT, metriche pixel e heatmap a questa
+# risoluzione per tutti i modelli (la mappa viene riportata a GT_SIZE)
+GT_SIZE       = (512, 512)
 
-# cait_m48_448, deit_base_distilled_patch16_384, resnet18, wide_resnet50_2
-BACKBONE      = "wide_resnet50_2"
+BACKBONE      = "resnet18"
+LAYERS        = ["layer1", "layer2", "layer3"]
 IMG_SIZE      = (256, 256)
-EPOCHS        = 300
-BATCH_SIZE    = 16
-LR            = 1e-3
-WEIGHT_DECAY  = 1e-5
-EVAL_INTERVAL = 10           # valuta ogni N epoche (e sempre all'ultima)
+EPOCHS        = 20
+BATCH_SIZE    = 32
+LR            = 0.4          # come nel paper STFPM
+EVAL_INTERVAL = 5            # valuta ogni N epoche (e sempre all'ultima)
 NUM_WORKERS   = 8
 SEED          = 1
 
 NUM_HEATMAPS  = 20           # metà sane, metà con varroa
-OUTPUT_DIR    = "./heatmaps_fastflow_debug"
-CHECKPOINT    = "./checkpoints/fastflow_single_bee.pth"
+OUTPUT_DIR    = REPO_ROOT / "heatmaps" / "single_bee" / "stfpm"
+CHECKPOINT    = REPO_ROOT / "checkpoints" / "single_bee" / "stfpm.pth"
 
 
 def set_seed(seed: int):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    # benchmark=True è sicuro con input size fisso e velocizza le convoluzioni
-    torch.backends.cudnn.deterministic = False
-    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
     random.seed(seed)
     np.random.seed(seed)
 
 
-def train_fastflow_single_bee():
+def train_stfpm_single_bee():
     set_seed(SEED)
     device = torch.device(
         "cuda:0" if torch.cuda.is_available()
@@ -80,14 +80,16 @@ def train_fastflow_single_bee():
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
-    # --- Modello (LayerNorm per scala + normalizing flow) ---
-    model = create_fastflow(img_shape=IMG_SIZE, backbone_name=BACKBONE, device=device, normalize=True)
+    # --- Modello: teacher pre-addestrato congelato, student con pesi casuali ---
+    teacher = CustomFeatureExtractor(BACKBONE, LAYERS, device, frozen=True)
+    student = CustomFeatureExtractor(BACKBONE, LAYERS, device, frozen=False)
+    model = STFPM(teacher, student).to(device)
 
     # --- Dataset ---
     dataset_args = DatasetArguments(
         dataset_path=TRAIN_DIR,
         img_size=IMG_SIZE,
-        gt_mask_size=IMG_SIZE,
+        gt_mask_size=GT_SIZE,
         image_transform_list=[
             transforms.ToTensor(),
             transforms.Resize(IMG_SIZE, antialias=True),
@@ -106,38 +108,34 @@ def train_fastflow_single_bee():
         num_workers=NUM_WORKERS, pin_memory=True,
     )
 
-    # --- Optimizer (flow + LayerNorm), scheduler per epoca e loss ---
-    optimizer = torch.optim.Adam(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=1e-5)
-    training_args = FastFlowTrainArgs(epochs=EPOCHS, batch_size=BATCH_SIZE,
-                                      optimizer=optimizer, scheduler=scheduler)
+    # SGD(lr, momentum 0.9, weight decay 1e-4) sui soli parametri dello student
+    training_args = STFPMTrainArgs(epochs=EPOCHS, batch_size=BATCH_SIZE, lr=LR)
     training_args.init_train(model)
 
     # --- Training ---
     print(f"\n{'='*60}")
-    print(f"Training FastFlow single-bee | {EPOCHS} epoche | {len(train_loader)} batch/epoca")
+    print(f"Training STFPM single-bee | {EPOCHS} epoche | {len(train_loader)} batch/epoca | lr {LR}")
     print(f"{'='*60}\n")
 
     for epoch in range(EPOCHS):
         model.train()
         loss = model.train_epoch(epoch, train_loader, training_args)
-        scheduler.step()
-        print(f"Epoca {epoch + 1}/{EPOCHS} — loss: {loss:.6f}, lr: {scheduler.get_last_lr()[0]:.2e}")
+        print(f"Epoca {epoch + 1}/{EPOCHS} — loss: {loss:.6f}")
 
         if (epoch + 1) % EVAL_INTERVAL == 0 and epoch != EPOCHS - 1:
             maps, scores, labels, masks = run_inference(model, test_loader, device)
             print_metrics(compute_metrics(maps, scores, labels, masks, with_pro=False))
 
     os.makedirs(os.path.dirname(CHECKPOINT), exist_ok=True)
-    torch.save(model.state_dict(), CHECKPOINT)
-    print(f"\nModello FastFlow salvato in {CHECKPOINT}")
+    torch.save(model.student.model.state_dict(), CHECKPOINT)
+    print(f"\nStudent STFPM salvato in {CHECKPOINT}")
 
     # --- Valutazione finale + heatmap normalizzate ---
     evaluate_and_report(
         model, test_dataset, test_loader, device, OUTPUT_DIR,
-        title="FastFlow single-bee", num_heatmaps=NUM_HEATMAPS, seed=SEED,
+        title="STFPM single-bee", num_heatmaps=NUM_HEATMAPS, seed=SEED,
     )
 
 
 if __name__ == "__main__":
-    train_fastflow_single_bee()
+    train_stfpm_single_bee()

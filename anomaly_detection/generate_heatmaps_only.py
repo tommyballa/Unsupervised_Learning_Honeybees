@@ -1,6 +1,11 @@
+from pathlib import Path
+
 import torch
 from moviad.models.dinomaly.dinomaly import Dinomaly
-from experiments.main_dinomaly_full_image import evaluate_and_visualize, TILE_SIZE, OUTPUT_DIR, SEED, set_seed
+from experiments.full_image.main_dinomaly_full_image import evaluate_and_visualize, TILE_SIZE, OUTPUT_DIR, SEED, set_seed
+
+# checkpoint salvato da experiments/single_bee/main_dinomaly.py
+CHECKPOINT = Path(__file__).resolve().parent / "checkpoints" / "single_bee" / "dinomaly.pth"
 
 def main():
     set_seed(SEED)
@@ -19,8 +24,8 @@ def main():
     )
     model = model.to(device)
 
-    print("Caricamento pesi da ./checkpoints/dinomaly_final.pth...")
-    state_dict = torch.load("./checkpoints/dinomaly_final.pth", map_location=device)
+    print(f"Caricamento pesi da {CHECKPOINT}...")
+    state_dict = torch.load(CHECKPOINT, map_location=device)
     
     # Gestisce sia il salvataggio dello state_dict diretto che quello dentro un dizionario (es. con epoche ecc.)
     if isinstance(state_dict, dict) and "model_state_dict" in state_dict:
@@ -33,7 +38,7 @@ def main():
         except Exception as e:
             # Nel caso in cui l'intero modello sia stato salvato invece dei soli pesi
             print(f"Errore nel caricare lo state_dict, provo a caricare come intero modello: {e}")
-            model = torch.load("./checkpoints/dinomaly_final.pth", map_location=device)
+            model = torch.load(CHECKPOINT, map_location=device)
             model = model.to(device)
 
     print("Generazione heatmaps...")

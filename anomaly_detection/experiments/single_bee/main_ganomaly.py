@@ -21,13 +21,13 @@ Correzioni rispetto alla versione precedente:
   - path di training corretto (prima /mnt/disk1/borsattifr/...);
   - metriche effettivamente calcolate (prima solo heatmap);
   - reinizializzazione del discriminatore quando la sua loss collassa.
-IMG_SIZE deve essere una potenza di 2 (GANomaly fa padding alla potenza di 2
-successiva e la mappa deve coincidere con la maschera GT).
+IMG_SIZE deve essere una potenza di 2: GANomaly fa padding alla potenza di 2
+successiva e la mappa di ricostruzione deve coprire solo l'immagine.
 """
 
 import os
 import random
-from functools import partial
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -43,14 +43,18 @@ from moviad.models.components.ganomaly.loss import GeneratorLoss, DiscriminatorL
 from moviad.models.ganomaly.ganomaly import Ganomaly
 from moviad.utilities.configurations import Split
 from moviad.utilities.evaluation.report import (
-    compute_metrics, denormalize, evaluate_and_report, print_metrics, run_inference,
+    compute_metrics, evaluate_and_report, print_metrics, run_inference,
 )
 
 
 # ──────────────────────────────────────────────────────────────────────
 # Configurazione
 # ──────────────────────────────────────────────────────────────────────
+REPO_ROOT     = Path(__file__).resolve().parents[2]
 TRAIN_DIR     = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees"
+# i crop delle api sono 512x512: maschere GT, metriche pixel e heatmap a questa
+# risoluzione per tutti i modelli (la mappa viene riportata a GT_SIZE)
+GT_SIZE       = (512, 512)
 
 IMG_SIZE      = (128, 128)
 LATENT_VEC_SIZE = 100
@@ -69,8 +73,8 @@ GANOMALY_MEAN = [0.5, 0.5, 0.5]
 GANOMALY_STD  = [0.5, 0.5, 0.5]
 
 NUM_HEATMAPS  = 20           # metà sane, metà con varroa
-OUTPUT_DIR    = "./heatmaps_ganomaly_debug"
-CHECKPOINT    = "./checkpoints/ganomaly_single_bee.pth"
+OUTPUT_DIR    = REPO_ROOT / "heatmaps" / "single_bee" / "ganomaly"
+CHECKPOINT    = REPO_ROOT / "checkpoints" / "single_bee" / "ganomaly.pth"
 
 
 def set_seed(seed: int):
@@ -114,7 +118,7 @@ def train_ganomaly_single_bee():
     dataset_args = DatasetArguments(
         dataset_path=TRAIN_DIR,
         img_size=IMG_SIZE,
-        gt_mask_size=IMG_SIZE,
+        gt_mask_size=GT_SIZE,
         image_transform_list=[
             transforms.ToTensor(),
             transforms.Resize(IMG_SIZE, antialias=True),
@@ -194,7 +198,6 @@ def train_ganomaly_single_bee():
     evaluate_and_report(
         model, test_dataset, test_loader, device, OUTPUT_DIR,
         title="GANomaly single-bee", num_heatmaps=NUM_HEATMAPS, seed=SEED,
-        denormalize_fn=partial(denormalize, mean=GANOMALY_MEAN, std=GANOMALY_STD),
         map_postprocess=smooth_reconstruction_map,
         raw_label="Errore di ricostruzione",
     )

@@ -10,6 +10,11 @@ di test) e ancorate alla soglia di decisione:
 Così un'immagine sana resta blu e solo ciò che supera la soglia diventa
 giallo/rosso (con la normalizzazione min/max per immagine, invece, ogni
 immagine avrebbe sempre un punto rosso).
+
+Mappe, metriche pixel e heatmap sono calcolate alla risoluzione delle maschere
+GT del dataset (gt_mask_size): ogni modello può lavorare alla sua risoluzione
+di input, la mappa viene riportata a quella delle maschere con interpolazione
+bilineare, così le metriche dei diversi modelli sono confrontabili.
 """
 
 import json
@@ -22,6 +27,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import torch.nn.functional as F
 from sklearn.metrics import precision_recall_curve
 from tqdm import tqdm
 
@@ -32,12 +38,12 @@ IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD  = [0.229, 0.224, 0.225]
 
 
-def denormalize(img_tensor, mean=IMAGENET_MEAN, std=IMAGENET_STD):
-    """Tensore normalizzato (C, H, W) -> immagine RGB uint8 (H, W, C)."""
-    mean = torch.tensor(mean).view(3, 1, 1)
-    std = torch.tensor(std).view(3, 1, 1)
-    img = (img_tensor.cpu() * std + mean).clamp(0, 1)
-    return (img.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
+def load_rgb(img_path, size_hw):
+    """Immagine originale da disco, RGB uint8, alla risoluzione (H, W) delle maschere."""
+    img = cv2.cvtColor(cv2.imread(str(img_path)), cv2.COLOR_BGR2RGB)
+    if img.shape[:2] != tuple(size_hw):
+        img = cv2.resize(img, (size_hw[1], size_hw[0]), interpolation=cv2.INTER_AREA)
+    return img
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -50,10 +56,11 @@ def run_inference(model, dataloader, device, map_postprocess: Callable | None = 
 
     Args:
         map_postprocess: funzione opzionale applicata alle anomaly maps (B,1,H,W)
-            del batch prima di salvarle (es. smoothing gaussiano).
+            del batch, alla risoluzione del modello (es. smoothing gaussiano).
 
     Returns:
-        anomaly maps (N,1,H,W), scores (N,), labels (N,), masks GT (N,1,H,W)
+        anomaly maps (N,1,H,W), scores (N,), labels (N,), masks GT (N,1,H,W),
+        con H, W = risoluzione delle maschere GT
     """
     model.eval()
     maps, scores, labels, masks = [], [], [], []
@@ -62,6 +69,10 @@ def run_inference(model, dataloader, device, map_postprocess: Callable | None = 
         batch_maps = batch_maps.float().reshape(images.shape[0], 1, *batch_maps.shape[-2:])
         if map_postprocess is not None:
             batch_maps = map_postprocess(batch_maps)
+        if batch_maps.shape[-2:] != batch_masks.shape[-2:]:
+            # mappa alla risoluzione delle maschere GT (es. crop nativi 512x512)
+            batch_maps = F.interpolate(batch_maps, size=tuple(batch_masks.shape[-2:]),
+                                       mode="bilinear", align_corners=False)
         maps.append(batch_maps.cpu().numpy())
         scores.append(batch_scores.float().cpu().numpy().reshape(-1))
         labels.append(np.asarray(batch_labels).reshape(-1))
@@ -221,7 +232,7 @@ def save_score_distribution(scores, labels, image_threshold, save_path):
 
 
 def save_anomaly_heatmaps(test_dataset, maps, scores, labels, masks, output_dir, num_samples=20,
-                          seed=1, denormalize_fn=denormalize, raw_label="Mappa grezza"):
+                          seed=1, raw_label="Mappa grezza"):
     """Calcola la normalizzazione globale e salva le heatmap di un campione bilanciato."""
     os.makedirs(output_dir, exist_ok=True)
 
@@ -242,13 +253,14 @@ def save_anomaly_heatmaps(test_dataset, maps, scores, labels, masks, output_dir,
 
     print(f"Salvataggio di {len(selected)} heatmap in '{output_dir}'...")
     for i in selected:
-        image, _, _, img_path = test_dataset[i]
+        img_path = (test_dataset.image_paths[i] if hasattr(test_dataset, "image_paths")
+                    else test_dataset[i][3])
         status = "Varroa" if labels[i] == 1 else "Sana"
         pred = "Varroa" if scores[i] >= image_threshold else "Sana"
         title = (f"{os.path.basename(img_path)} — GT: {status} | Pred: {pred} | "
                  f"score {scores[i]:.4f} (soglia {image_threshold:.4f})")
         save_heatmap_figure(
-            denormalize_fn(image), masks[i, 0], maps[i, 0], norm, title,
+            load_rgb(img_path, masks.shape[-2:]), masks[i, 0], maps[i, 0], norm, title,
             os.path.join(output_dir, f"sample_{status}_{i:05d}_score_{scores[i]:.4f}.png"),
             raw_label=raw_label,
         )
@@ -257,12 +269,13 @@ def save_anomaly_heatmaps(test_dataset, maps, scores, labels, masks, output_dir,
 
 
 def evaluate_and_report(model, test_dataset, test_loader, device, output_dir, title,
-                        num_heatmaps=20, seed=1, denormalize_fn=denormalize,
+                        num_heatmaps=20, seed=1,
                         map_postprocess: Callable | None = None, raw_label="Mappa grezza"):
     """
     Valutazione finale: inferenza, metriche (con AU-PRO), heatmap normalizzate
     globalmente, distribuzione degli score e results.json in output_dir.
     """
+    os.makedirs(output_dir, exist_ok=True)
     maps, scores, labels, masks = run_inference(model, test_loader, device, map_postprocess)
     results = compute_metrics(maps, scores, labels, masks)
 
@@ -275,7 +288,7 @@ def evaluate_and_report(model, test_dataset, test_loader, device, output_dir, ti
 
     norm, image_threshold = save_anomaly_heatmaps(
         test_dataset, maps, scores, labels, masks, output_dir,
-        num_samples=num_heatmaps, seed=seed, denormalize_fn=denormalize_fn, raw_label=raw_label,
+        num_samples=num_heatmaps, seed=seed, raw_label=raw_label,
     )
     with open(os.path.join(output_dir, "results.json"), "w") as f:
         json.dump({"metrics": results, "heatmap_normalization": norm,

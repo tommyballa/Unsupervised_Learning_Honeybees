@@ -1,5 +1,5 @@
 """
-PatchCore - Anomaly detection su immagini full-frame con molte api.
+STFPM - Anomaly detection su immagini full-frame con molte api.
 
 Addestramento: crop casuali dalle immagini ad alta risoluzione di training.
 Inferenza: sliding window sull'immagine intera, con blending delle sovrapposizioni.
@@ -11,15 +11,14 @@ import re
 import random
 from pathlib import Path
 
+import cv2
 import numpy as np
 import torch
-import cv2
+from scipy.ndimage import gaussian_filter
 from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
 
-# Ensure these match your local moviad module structure
-from moviad.models import PatchCore
-from moviad.models.training_args import TrainingArgs
+from moviad.models.stfpm.stfpm import STFPM, STFPMTrainArgs
 from moviad.utilities.custom_feature_extractor_trimmed import CustomFeatureExtractor
 from moviad.utilities.evaluation.metrics import MetricLvl, RocAuc, AvgPrec, F1
 
@@ -27,24 +26,25 @@ from moviad.utilities.evaluation.metrics import MetricLvl, RocAuc, AvgPrec, F1
 # ──────────────────────────────────────────────────────────────────────
 # Configurazione
 # ──────────────────────────────────────────────────────────────────────
-TRAIN_DIR       = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train/images/original"
+TRAIN_DIR       = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train/images"
 TEST_CLEAN_DIR  = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test/images"
 TEST_VARROA_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test/synthetic_varroa_output/images"
 TEST_MASKS_DIR  = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test/synthetic_varroa_output/masks"
 
 TILE_SIZE  = 512
+EPOCHS     = 100
+BATCH_SIZE = 4
 SEED       = 1
 
-OUTPUT_DIR = "./heatmaps_patchcore_full_image"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+OUTPUT_DIR = REPO_ROOT / "heatmaps" / "full_image" / "stfpm"
 
 
 # ──────────────────────────────────────────────────────────────────────
 # Utilità
 # ──────────────────────────────────────────────────────────────────────
-def set_seed(seed: int = 1):
-    """Set random seeds for reproducibility."""
+def set_seed(seed: int):
     torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
@@ -73,37 +73,47 @@ def find_mask_for_image(img_path, masks_dir):
     return None
 
 
-class SimpleImageDataset(Dataset):
+class FullImageCropDataset(Dataset):
     """
-    Dataset class for loading training images.
-    Pre-loads all images in RAM during __init__ to avoid massive I/O bottlenecks.
+    Carica immagini ad alta resolution e restituisce crop casuali.
+    Poiché il server ha molta RAM libera, pre-carica tutte le immagini in memoria
+    durante l'__init__ per evitare il gravissimo collo di bottiglia I/O 
+    (lettura da disco di 24MP a ogni singola iterazione).
     """
-    def __init__(self, root_dir, transform=None, label=0):
-        self.root_dir = root_dir
+
+    def __init__(self, root_dir, crop_size=512, crops_per_image=10, transform=None):
+        self.crop_size = crop_size
+        self.crops_per_image = crops_per_image
         self.transform = transform
-        self.label = label
         self.image_paths = get_image_paths(root_dir)
-        print(f"Found {len(self.image_paths)} images in {root_dir}")
+        print(f"[Dataset] Trovate {len(self.image_paths)} immagini in {root_dir}")
+        print(f"[Dataset] {self.crops_per_image} crop/immagine → {len(self)} campioni/epoca")
         
-        print("[Dataset] Pre-loading original high-res images in RAM (4000x6016)...")
+        print("[Dataset] Pre-caricamento in RAM delle immagini originali (4000x6016)...")
         self.images = []
         for path in self.image_paths:
             img = cv2.imread(path)
             if img is None:
-                raise ValueError(f"Failed to load image: {path}")
+                raise ValueError(f"Impossibile leggere: {path}")
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             self.images.append(img)
-        print("[Dataset] Pre-loading complete!")
+        print("[Dataset] Pre-caricamento completato!")
 
     def __len__(self):
-        return len(self.image_paths)
+        return len(self.image_paths) * self.crops_per_image
 
     def __getitem__(self, idx):
-        img = self.images[idx]
-        
+        img_idx = idx // self.crops_per_image
+        img = self.images[img_idx]
+
+        H, W, _ = img.shape
+        y = random.randint(0, max(0, H - self.crop_size))
+        x = random.randint(0, max(0, W - self.crop_size))
+        crop = img[y:y + self.crop_size, x:x + self.crop_size]
+
         if self.transform:
-            img = self.transform(img)
-        return img, self.label
+            crop = self.transform(crop)
+        return crop
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -112,66 +122,65 @@ class SimpleImageDataset(Dataset):
 def sliding_window_inference(model, image_path, device,
                              window_size=512, stride=256, batch_size=8):
     """
-    Slices a large image into tiles, runs PatchCore inference,
-    and reconstructs the global heatmap to preserve pixel-level details.
+    Taglia l'immagine in tile, esegue STFPM su ciascuna,
+    e ricostruisce la heatmap globale mediando le sovrapposizioni.
     """
     img = cv2.imread(image_path)
     if img is None:
-        raise ValueError(f"Cannot read image {image_path}")
-    
+        raise ValueError(f"Impossibile leggere: {image_path}")
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     H, W, _ = img.shape
 
-    # Standard normalization without resizing
     normalize = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225]),
     ])
 
-    # Global maps to hold the reconstructed results
     full_anomaly_map = np.zeros((H, W), dtype=np.float32)
     weight_map = np.zeros((H, W), dtype=np.float32)
 
-    # Ensure we cover the entire image by snapping the last window to the bottom/right edges
     y_coords = list(range(0, H - window_size + 1, stride))
     if not y_coords or y_coords[-1] + window_size < H:
         y_coords.append(max(0, H - window_size))
-        
+
     x_coords = list(range(0, W - window_size + 1, stride))
     if not x_coords or x_coords[-1] + window_size < W:
         x_coords.append(max(0, W - window_size))
 
+    hanning_1d = np.hanning(window_size + 2)[1:-1]
+    hanning_2d = np.outer(hanning_1d, hanning_1d).astype(np.float32)
+
     batch_tiles = []
     batch_coords = []
     model.eval()
-    
+
     def process_batch(tiles, coords):
         batch_tensor = torch.stack(tiles).to(device)
-        
         with torch.no_grad():
+            # STFPM restituisce (score_maps [B, 1, H, W], anomaly_scores [B])
             batch_amaps, _ = model(batch_tensor)
             batch_amaps = batch_amaps.cpu().numpy()
-        
+
         for i, (y, x) in enumerate(coords):
-            amap = np.squeeze(batch_amaps[i])
-            full_anomaly_map[y:y+window_size, x:x+window_size] += amap
-            weight_map[y:y+window_size, x:x+window_size] += 1.0
+            amap = np.squeeze(batch_amaps[i])  # (window_size, window_size)
+            full_anomaly_map[y:y + window_size, x:x + window_size] += amap * hanning_2d
+            weight_map[y:y + window_size, x:x + window_size] += hanning_2d
 
     for y in y_coords:
         for x in x_coords:
-            tile = img[y:y+window_size, x:x+window_size]
+            tile = img[y:y + window_size, x:x + window_size]
             batch_tiles.append(normalize(tile))
             batch_coords.append((y, x))
-            
+
             if len(batch_tiles) == batch_size:
                 process_batch(batch_tiles, batch_coords)
                 batch_tiles, batch_coords = [], []
-                
-    if len(batch_tiles) > 0:
+
+    if batch_tiles:
         process_batch(batch_tiles, batch_coords)
-        
-    full_anomaly_map = full_anomaly_map / (weight_map + 1e-8)
+
+    full_anomaly_map /= (weight_map + 1e-8)
     return img, full_anomaly_map
 
 
@@ -214,18 +223,28 @@ def evaluate_and_visualize(model, device, output_dir, window_size=512):
         img_rgb, amap = sliding_window_inference(
             model, img_path, device,
             window_size=window_size,
-            stride=window_size // 2,
-            batch_size=8,
+            stride=window_size // 4,
+            batch_size=4,
         )
 
+        amap_smoothed = cv2.GaussianBlur(amap, (21, 21), 0)
+
+        # Usa la media dei top-100 pixel per avere uno score robusto a singoli spike di rumore
+        top_k = 100
+        amap_flat = amap_smoothed.flatten()
+        if len(amap_flat) > top_k:
+            img_score = float(np.mean(np.partition(amap_flat, -top_k)[-top_k:]))
+        else:
+            img_score = float(amap_smoothed.max())
+
         all_image_labels.append(0)
-        all_image_scores.append(float(amap.max()))
+        all_image_scores.append(img_score)
 
-        gt_mask = np.zeros_like(amap, dtype=np.float32)
+        gt_mask = np.zeros_like(amap_smoothed, dtype=np.float32)
         all_pixel_gt.append(gt_mask.flatten())
-        all_pixel_pred.append(amap.flatten())
+        all_pixel_pred.append(amap_smoothed.flatten())
 
-        _save_overlay(img_rgb, amap, output_dir, img_name)
+        _save_overlay(img_rgb, amap_smoothed, output_dir, img_name)
 
     # --- Inferenza su immagini VARROA (label=1) ---
     print("\n--- Inferenza immagini varroa sintetica ---")
@@ -236,28 +255,37 @@ def evaluate_and_visualize(model, device, output_dir, window_size=512):
         img_rgb, amap = sliding_window_inference(
             model, img_path, device,
             window_size=window_size,
-            stride=window_size // 2,
-            batch_size=8,
+            stride=window_size // 4,
+            batch_size=4,
         )
 
+        amap_smoothed = cv2.GaussianBlur(amap, (21, 21), 0)
+
+        top_k = 100
+        amap_flat = amap_smoothed.flatten()
+        if len(amap_flat) > top_k:
+            img_score = float(np.mean(np.partition(amap_flat, -top_k)[-top_k:]))
+        else:
+            img_score = float(amap_smoothed.max())
+
         all_image_labels.append(1)
-        all_image_scores.append(float(amap.max()))
+        all_image_scores.append(img_score)
 
         mask_path = find_mask_for_image(img_path, TEST_MASKS_DIR)
         if mask_path:
             gt_mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE).astype(np.float32)
             gt_mask = (gt_mask > 127).astype(np.float32)
-            if gt_mask.shape != amap.shape:
-                gt_mask = cv2.resize(gt_mask, (amap.shape[1], amap.shape[0]),
+            if gt_mask.shape != amap_smoothed.shape:
+                gt_mask = cv2.resize(gt_mask, (amap_smoothed.shape[1], amap_smoothed.shape[0]),
                                      interpolation=cv2.INTER_NEAREST)
         else:
             print(f"    ⚠ Maschera non trovata per {img_name}, uso maschera vuota")
-            gt_mask = np.zeros_like(amap, dtype=np.float32)
+            gt_mask = np.zeros_like(amap_smoothed, dtype=np.float32)
 
         all_pixel_gt.append(gt_mask.flatten())
-        all_pixel_pred.append(amap.flatten())
+        all_pixel_pred.append(amap_smoothed.flatten())
 
-        _save_overlay(img_rgb, amap, output_dir, img_name)
+        _save_overlay(img_rgb, amap_smoothed, output_dir, img_name)
 
     # --- Calcolo metriche ---
     all_image_labels = np.array(all_image_labels)
@@ -266,7 +294,7 @@ def evaluate_and_visualize(model, device, output_dir, window_size=512):
     all_pixel_pred = np.concatenate(all_pixel_pred)
 
     print(f"\n{'='*60}")
-    print("RISULTATI METRICHE — PatchCore Full Image")
+    print("RISULTATI METRICHE — STFPM Full Image")
     print(f"{'='*60}")
 
     for metric in metrics:
@@ -285,7 +313,13 @@ def evaluate_and_visualize(model, device, output_dir, window_size=512):
 
 def _save_overlay(img_rgb, amap, output_dir, img_name):
     """Salva l'overlay heatmap sull'immagine originale."""
-    amap_norm = (amap - amap.min()) / (amap.max() - amap.min() + 1e-8)
+    # Rimuoviamo il rumore dai bordi usando i percentili invece del min/max assoluto
+    margin = 64
+    amap_center = amap[margin:-margin, margin:-margin]
+    vmin = np.percentile(amap_center, 1)
+    vmax = np.percentile(amap_center, 99.9)
+    
+    amap_norm = np.clip((amap - vmin) / (vmax - vmin + 1e-8), 0, 1)
     heatmap = cv2.applyColorMap((amap_norm * 255).astype(np.uint8), cv2.COLORMAP_JET)
     heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
     overlay = cv2.addWeighted(img_rgb, 0.6, heatmap, 0.4, 0)
@@ -299,43 +333,57 @@ def _save_overlay(img_rgb, amap, output_dir, img_name):
 def main():
     set_seed(SEED)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    print(f"\nDevice in use: {device}")
+    print(f"\nDevice: {device}")
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
+    # --- Modello ---
+    teacher = CustomFeatureExtractor(
+        "wide_resnet50_2", ["layer1", "layer2", "layer3"], device, frozen=True
+    )
+    student = CustomFeatureExtractor(
+        "wide_resnet50_2", ["layer1", "layer2", "layer3"], device, frozen=False
+    )
+    model = STFPM(teacher, student).to(device)
+
+    # --- Dataset di training con crop casuali ---
     imagenet_normalize = transforms.Normalize(
         mean=[0.485, 0.456, 0.406],
         std=[0.229, 0.224, 0.225],
     )
-    
-    # RandomCrop ensures PatchCore learns from the same scale it will be tested on
-    # ToPILImage is required because cv2 reads as numpy arrays, and RandomCrop expects PIL/Tensors
     train_transform = transforms.Compose([
-        transforms.ToPILImage(),
-        transforms.RandomCrop(TILE_SIZE, pad_if_needed=True), 
         transforms.ToTensor(),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.ColorJitter(brightness=0.1, contrast=0.1),
         imagenet_normalize,
     ])
 
-    train_dataset = SimpleImageDataset(TRAIN_DIR, transform=train_transform, label=0)
-    train_dataloader = DataLoader(train_dataset, batch_size=8, shuffle=True)
-
-    # Use shallower layers (layer1, layer2) to capture fine textural details like varroa
-    feature_extractor = CustomFeatureExtractor(
-        "wide_resnet50_2", 
-        ["layer1", "layer2"],
-        device,
-        frozen=True
+    train_dataset = FullImageCropDataset(
+        TRAIN_DIR,
+        crop_size=TILE_SIZE,
+        crops_per_image=10,
+        transform=train_transform,
     )
-    
-    # Initialize PatchCore. 250k patches takes advantage of high VRAM.
-    model = PatchCore(feature_extractor=feature_extractor, memory_bank_size=100000)
-    model.to(device)
+    train_dataloader = DataLoader(
+        train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True,
+    )
 
-    print("\nTraining PatchCore...")
+    # --- Training args ---
+    training_args = STFPMTrainArgs(epochs=EPOCHS, batch_size=BATCH_SIZE)
+    training_args.init_train(model)
+
+    # --- Training ---
+    print(f"\n{'='*60}")
+    print(f"Training STFPM full-image | {EPOCHS} epoche | {len(train_dataloader)} batch/epoca")
+    print(f"{'='*60}\n")
+
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(training_args.optimizer, T_max=EPOCHS)
+
     model.train()
-    # Training args might need to be adapted based on your specific moviad setup
-    model.train_epoch(0, train_dataloader, TrainingArgs(batch_size=8, epochs=1))
+    for epoch in range(EPOCHS):
+        loss = model.train_epoch(epoch, train_dataloader, training_args)
+        scheduler.step()
+        print(f"Epoca {epoch + 1}/{EPOCHS} — loss: {loss:.6f}, lr: {scheduler.get_last_lr()[0]:.6f}")
 
     # --- Test con sliding window + metriche ---
     print(f"\nTest con sliding window (tile {TILE_SIZE}x{TILE_SIZE})...")

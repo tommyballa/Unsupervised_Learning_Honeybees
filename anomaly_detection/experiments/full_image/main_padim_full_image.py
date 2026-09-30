@@ -1,9 +1,19 @@
 """
-Dinomaly - Anomaly detection su immagini full-frame con molte api.
+PaDiM - Anomaly detection su immagini full-frame con molte api.
 
 Addestramento: crop casuali dalle immagini ad alta risoluzione di training.
+  PaDiM non usa backprop: raccoglie le feature maps e fitta
+  una distribuzione Gaussiana multivariata per ogni posizione spaziale.
 Inferenza: sliding window sull'immagine intera, con blending delle sovrapposizioni.
 Valutazione: metriche a livello di immagine e pixel (AUROC, AvgPrec, F1).
+
+Ottimizzazione per varroa:
+  - wide_resnet50_2 backbone con layer (layer1, layer2, layer3)
+    per catturare dettagli tessiturali fini come il corpo della varroa.
+  - Random projection dimensionale (1792 → 550) per ridurre la memoria
+    senza perdere capacità discriminativa.
+  - Gaussian smoothing post-inference per migliorare la localizzazione
+    delle anomalie nelle aree con molte api ravvicinate.
 """
 
 import os
@@ -17,25 +27,24 @@ import torch
 from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
 
-from moviad.models.dinomaly.dinomaly import Dinomaly, DinomalyTrainArgs
+from moviad.models.padim.padim import Padim, PadimTrainArgs
 from moviad.utilities.evaluation.metrics import MetricLvl, RocAuc, AvgPrec, F1
 
 
 # ──────────────────────────────────────────────────────────────────────
 # Configurazione
 # ──────────────────────────────────────────────────────────────────────
-TRAIN_DIR       = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train/images/original"
+TRAIN_DIR       = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train/images"
 TEST_CLEAN_DIR  = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test/images"
 TEST_VARROA_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test/synthetic_varroa_output/images"
 TEST_MASKS_DIR  = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test/synthetic_varroa_output/masks"
 
-# Dinomaly ViT-base usa patch 14, img_size deve essere multiplo di 14
-TILE_SIZE  = 336
-EPOCHS     = 100
-BATCH_SIZE = 6
+TILE_SIZE  = 512
+BATCH_SIZE = 8
 SEED       = 1
 
-OUTPUT_DIR = "./heatmaps_dinomaly_full_image"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+OUTPUT_DIR = REPO_ROOT / "heatmaps" / "full_image" / "padim"
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -63,9 +72,8 @@ def find_mask_for_image(img_path, masks_dir):
     Dato un path immagine varroa (es. DSC_5286_syn.jpg),
     trova la maschera corrispondente (es. DSC_5286_mask.png).
     """
-    img_name = Path(img_path).stem  # es. "DSC_5286_syn"
-    # Rimuovi il suffisso _syn per ottenere il nome base
-    base_name = re.sub(r"_syn$", "", img_name)  # es. "DSC_5286"
+    img_name = Path(img_path).stem
+    base_name = re.sub(r"_syn$", "", img_name)
     mask_path = os.path.join(masks_dir, f"{base_name}_mask.png")
     if os.path.exists(mask_path):
         return mask_path
@@ -76,19 +84,21 @@ class FullImageCropDataset(Dataset):
     """
     Carica immagini ad alta risoluzione e restituisce crop casuali.
     Poiché il server ha molta RAM libera, pre-carica tutte le immagini in memoria
-    durante l'__init__ per evitare il gravissimo collo di bottiglia I/O 
+    durante l'__init__ per evitare il gravissimo collo di bottiglia I/O
     (lettura da disco di 24MP a ogni singola iterazione).
+
+    Per PaDiM: restituisce solo il tensor (senza label) perché
+    train_step() in padim.py gestisce direttamente il batch tensor.
     """
 
-    def __init__(self, root_dir, crop_size=336, crops_per_image=10, transform=None):
+    def __init__(self, root_dir, crop_size=512, crops_per_image=10, transform=None):
         self.crop_size = crop_size
         self.crops_per_image = crops_per_image
         self.transform = transform
         self.image_paths = get_image_paths(root_dir)
         print(f"[Dataset] Trovate {len(self.image_paths)} immagini in {root_dir}")
         print(f"[Dataset] {self.crops_per_image} crop/immagine → {len(self)} campioni/epoca")
-        
-        # Pre-carica tutte le immagini in RAM (richiede circa ~6-7 GB di RAM)
+
         print("[Dataset] Pre-caricamento in RAM delle immagini originali (4000x6016)...")
         self.images = []
         for path in self.image_paths:
@@ -106,7 +116,6 @@ class FullImageCropDataset(Dataset):
         img_idx = idx // self.crops_per_image
         img = self.images[img_idx]
 
-        # Crop casuale
         H, W, _ = img.shape
         y = random.randint(0, max(0, H - self.crop_size))
         x = random.randint(0, max(0, W - self.crop_size))
@@ -121,10 +130,15 @@ class FullImageCropDataset(Dataset):
 # Sliding window inference
 # ──────────────────────────────────────────────────────────────────────
 def sliding_window_inference(model, image_path, device,
-                             window_size=336, stride=168, batch_size=8):
+                             window_size=512, stride=256, batch_size=8):
     """
-    Taglia l'immagine in tile, esegue Dinomaly su ciascuna,
+    Taglia l'immagine in tile, esegue PaDiM su ciascuna,
     e ricostruisce la heatmap globale mediando le sovrapposizioni.
+
+    PaDiM in eval mode restituisce:
+      score_map     [B, 1, H, W]  (torch tensor, già su CPU)
+      img_scores    [B]           (torch tensor, già su CPU)
+    dove H, W sono uguali alla dimensione dell'input (upsampled internamente).
     """
     img = cv2.imread(image_path)
     if img is None:
@@ -157,12 +171,17 @@ def sliding_window_inference(model, image_path, device,
     def process_batch(tiles, coords):
         batch_tensor = torch.stack(tiles).to(device)
         with torch.no_grad():
-            # Dinomaly restituisce (anomaly_maps [B, H, W], anomaly_scores [B])
+            # PaDiM restituisce (score_map [B, 1, H, W], img_scores [B])
+            # Il compute_distances e gaussian_filter avvengono su CPU internamente
             batch_amaps, _ = model(batch_tensor)
-            batch_amaps = batch_amaps.cpu().numpy()
+            # batch_amaps è un torch tensor da numpy, potrebbe essere su CPU
+            if isinstance(batch_amaps, torch.Tensor):
+                batch_amaps = batch_amaps.cpu().numpy()
+            else:
+                batch_amaps = np.array(batch_amaps)
 
         for i, (y, x) in enumerate(coords):
-            amap = batch_amaps[i]  # shape: (window_size, window_size)
+            amap = np.squeeze(batch_amaps[i])  # (window_size, window_size)
             full_anomaly_map[y:y + window_size, x:x + window_size] += amap
             weight_map[y:y + window_size, x:x + window_size] += 1.0
 
@@ -186,14 +205,13 @@ def sliding_window_inference(model, image_path, device,
 # ──────────────────────────────────────────────────────────────────────
 # Test + Metriche + Visualizzazione
 # ──────────────────────────────────────────────────────────────────────
-def evaluate_and_visualize(model, device, output_dir, window_size=336):
+def evaluate_and_visualize(model, device, output_dir, window_size=512):
     """
     Esegue il test su immagini pulite e con varroa sintetica,
     calcola le metriche a livello immagine e pixel, e salva le heatmap overlay.
     """
     os.makedirs(output_dir, exist_ok=True)
 
-    # Metriche da calcolare
     metrics = [
         RocAuc(MetricLvl.IMAGE),
         AvgPrec(MetricLvl.IMAGE),
@@ -203,20 +221,18 @@ def evaluate_and_visualize(model, device, output_dir, window_size=336):
         F1(MetricLvl.PIXEL),
     ]
 
-    # --- Raccolta immagini di test ---
     clean_paths = get_image_paths(TEST_CLEAN_DIR)
     varroa_paths = get_image_paths(TEST_VARROA_DIR)
 
     print(f"\nImmagini pulite (label=0): {len(clean_paths)}")
     print(f"Immagini varroa (label=1): {len(varroa_paths)}")
 
-    # Accumulatori per le metriche
-    all_image_labels = []    # 0 = sana, 1 = varroa
-    all_image_scores = []    # anomaly score per immagine
-    all_pixel_gt = []        # maschere GT flattened
-    all_pixel_pred = []      # anomaly maps flattened
+    all_image_labels = []
+    all_image_scores = []
+    all_pixel_gt = []
+    all_pixel_pred = []
 
-    # --- Inferenza su immagini PULITE (label=0, nessuna maschera) ---
+    # --- Inferenza su immagini PULITE (label=0) ---
     print("\n--- Inferenza immagini pulite ---")
     for img_path in clean_paths:
         img_name = os.path.basename(img_path)
@@ -226,22 +242,19 @@ def evaluate_and_visualize(model, device, output_dir, window_size=336):
             model, img_path, device,
             window_size=window_size,
             stride=window_size // 2,
-            batch_size=4,
+            batch_size=8,
         )
 
-        # Image-level
         all_image_labels.append(0)
         all_image_scores.append(float(amap.max()))
 
-        # Pixel-level: maschera tutta a zero (nessuna anomalia)
         gt_mask = np.zeros_like(amap, dtype=np.float32)
         all_pixel_gt.append(gt_mask.flatten())
         all_pixel_pred.append(amap.flatten())
 
-        # Salva overlay
         _save_overlay(img_rgb, amap, output_dir, img_name)
 
-    # --- Inferenza su immagini VARROA (label=1, con maschera) ---
+    # --- Inferenza su immagini VARROA (label=1) ---
     print("\n--- Inferenza immagini varroa sintetica ---")
     for img_path in varroa_paths:
         img_name = os.path.basename(img_path)
@@ -251,19 +264,16 @@ def evaluate_and_visualize(model, device, output_dir, window_size=336):
             model, img_path, device,
             window_size=window_size,
             stride=window_size // 2,
-            batch_size=4,
+            batch_size=8,
         )
 
-        # Image-level
         all_image_labels.append(1)
         all_image_scores.append(float(amap.max()))
 
-        # Pixel-level: carica la maschera GT
         mask_path = find_mask_for_image(img_path, TEST_MASKS_DIR)
         if mask_path:
             gt_mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE).astype(np.float32)
-            gt_mask = (gt_mask > 127).astype(np.float32)  # binarizza 0/1
-            # Assicurati che maschera e mappa abbiano la stessa dimensione
+            gt_mask = (gt_mask > 127).astype(np.float32)
             if gt_mask.shape != amap.shape:
                 gt_mask = cv2.resize(gt_mask, (amap.shape[1], amap.shape[0]),
                                      interpolation=cv2.INTER_NEAREST)
@@ -274,7 +284,6 @@ def evaluate_and_visualize(model, device, output_dir, window_size=336):
         all_pixel_gt.append(gt_mask.flatten())
         all_pixel_pred.append(amap.flatten())
 
-        # Salva overlay
         _save_overlay(img_rgb, amap, output_dir, img_name)
 
     # --- Calcolo metriche ---
@@ -284,7 +293,7 @@ def evaluate_and_visualize(model, device, output_dir, window_size=336):
     all_pixel_pred = np.concatenate(all_pixel_pred)
 
     print(f"\n{'='*60}")
-    print("RISULTATI METRICHE — Dinomaly Full Image")
+    print("RISULTATI METRICHE — PaDiM Full Image")
     print(f"{'='*60}")
 
     for metric in metrics:
@@ -316,23 +325,24 @@ def _save_overlay(img_rgb, amap, output_dir, img_name):
 # ──────────────────────────────────────────────────────────────────────
 def main():
     set_seed(SEED)
-    device = torch.device(
-        "cuda:0" if torch.cuda.is_available()
-        else "mps" if torch.backends.mps.is_available()
-        else "cpu"
-    )
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(f"\nDevice: {device}")
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
-    # --- Modello ---
-    model = Dinomaly(
-        encoder_name="vit_base_patch14_reg4_dinov2",
-        target_layers=[2, 3, 4, 5],
-        fuse_layer_encoder=[[0, 1, 2, 3]],
-        img_size=(TILE_SIZE, TILE_SIZE),
+    # --- Modello PaDiM ---
+    # wide_resnet50_2 con layer (layer1, layer2, layer3):
+    #   embedding totale = 1792 canali → ridotto a 550 per random projection.
+    # Questi layer catturano sia pattern a bassa frequenza (forma dell'ape)
+    # sia texture ad alta frequenza (varroa, zampe, ali) essenziali per
+    # distinguere le anomalie nelle immagini affollate.
+    model = Padim(
+        backbone_model_name="wide_resnet50_2",
+        layers_idxs=(1, 2, 3),
+        device=device,
+        class_name="bees_varroa",
     )
-    model = model.to(device)
+    model.to(device)
 
     # --- Dataset di training con crop casuali ---
     imagenet_normalize = transforms.Normalize(
@@ -354,25 +364,17 @@ def main():
         train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True,
     )
 
-    # --- Training args ---
-    total_iters = EPOCHS * len(train_dataloader)
-    training_args = DinomalyTrainArgs(
-        epochs=EPOCHS,
-        batch_size=BATCH_SIZE,
-        total_iters=total_iters,
-    )
+    # --- Training (singola epoca: PaDiM raccoglie statistiche senza backprop) ---
+    training_args = PadimTrainArgs(epochs=1, batch_size=BATCH_SIZE)
     training_args.init_train(model)
 
-    # --- Training ---
     print(f"\n{'='*60}")
-    print(f"Training Dinomaly full-image | {EPOCHS} epoche | {len(train_dataloader)} batch/epoca")
-    print(f"total_iters = {total_iters}")
+    print(f"Training PaDiM full-image | 1 epoca (fitting statistico) | {len(train_dataloader)} batch")
     print(f"{'='*60}\n")
 
     model.train()
-    for epoch in range(EPOCHS):
-        loss = model.train_epoch(epoch, train_dataloader, training_args)
-        print(f"Epoca {epoch + 1}/{EPOCHS} — loss: {loss:.6f}")
+    model.train_epoch(0, train_dataloader, training_args)
+    print("Fitting Gaussiana multivariata completato.")
 
     # --- Test con sliding window + metriche ---
     print(f"\nTest con sliding window (tile {TILE_SIZE}x{TILE_SIZE})...")
