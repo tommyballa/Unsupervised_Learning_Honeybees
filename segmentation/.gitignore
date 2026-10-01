@@ -8,3 +8,8 @@ runs/
 bus.jpg
 venv/
 .vscode/
+
+# bee_al: embedding estratti e modelli versionati
+data/
+models/
+.pytest_cache/

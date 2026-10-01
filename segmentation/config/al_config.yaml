@@ -1,0 +1,76 @@
+# Configurazione unica di active learning + semi-supervised (letta da bee_al/config.py).
+# I percorsi relativi sono risolti rispetto alla root del repo.
+
+seed: 42
+
+paths:
+  dataset_dir: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees
+  results_dir: active_learning_tool/results   # al_labels.csv, validation_set.json, CSV legacy
+  embeddings_dir: data/embeddings             # embedding dell'extractor congelato (v000)
+  models_dir: models                          # models/vNNN/ prodotti dai re-train
+
+labels:
+  # Le classi NON sono definite qui: nascono dalle etichette inserite nell'hub.
+  classes: []            # solo suggerimenti, mostrati come quick label
+  label_aliases: {}      # es. {"Bad Seg": "Bad_Seg"}: applicati in lettura, lo storico non cambia
+  reject_classes: []     # es. ["Bad_Seg", "Blurry"]: restano nel kNN, escluse dai cluster finali
+
+extractor:
+  model: dinov2_vits14   # oppure dinov2_vitb14
+  image_size: 224
+  batch_size: 128
+  num_workers: 4
+  shard_size: 2048
+  device: auto           # auto | cuda | cuda:0 | cpu
+
+knn:
+  k: 10
+  temperature: 0.07      # peso del vicino = exp(similarità / temperature)
+  backend: auto          # auto | faiss | sklearn | numpy
+  # Le api più lontane da ogni esempio etichettato (questa frazione delle non etichettate)
+  # non vengono forzate in una classe: formano il gruppo "non assegnate". 0 = disattivato.
+  unassigned_fraction: 0.05
+
+propagation:
+  enabled: true
+  n_neighbors: 15
+  alpha: 0.8
+  max_iter: 30
+  tol: 1.0e-4
+
+query:
+  batch_size: 30
+  cold_start_threshold: 50
+  uncertainty: margin              # margin | entropy | least_confidence
+  uncertainty_source: propagation  # knn | propagation
+  candidate_multiplier: 10         # top-M più incerte, M = candidate_multiplier × batch
+  random_fraction: 0.1
+  novelty_fraction: 0.2            # quota del batch per le api più lontane da ogni etichetta (regime normale)
+
+validation:
+  size: 100
+  seed: 123
+
+hub:
+  show_suggestion: false      # suggerimento kNN nascosto per evitare l'effetto ancora
+  assignment_timeout_s: 900   # dopo quanto un'immagine assegnata e non etichettata torna libera
+
+retrain:
+  enabled: false
+  policy: label_count     # label_count | plateau | either
+  initial_labels: 50      # primo job dopo N nuove etichette...
+  growth_factor: 2.0      # ...poi N cresce: 50, 100, 200, 400, ...
+  plateau_rounds: 3       # K round senza miglioramento della metrica di validazione
+  metric: macro_f1        # macro_f1 | accuracy
+  min_delta: 0.0
+
+simulation:
+  seeds: [0, 1, 2, 3, 4]
+  max_labels: 400
+  threshold_metric: macro_f1
+  threshold: 0.8
+  synthetic_n: 3000
+  synthetic_dim: 64
+  synthetic_classes: 6
+  synthetic_imbalance: 0.6   # ogni classe ha il 60% degli esempi della precedente
+  synthetic_noise: 2.0

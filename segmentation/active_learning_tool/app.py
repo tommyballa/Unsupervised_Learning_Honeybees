@@ -258,6 +258,12 @@ def index():
                 <a href="/inspect" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px; border-left: 4px solid var(--btn-yellow);">4. Inspect Clusters</a>
                 <a href="/clean" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px; border-left: 4px solid var(--btn-red);">5. Clean Clusters (Remove Outliers)</a>
                 <a href="/results" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px;">6. Annotation Dashboard Metrics</a>
+
+                <div style="border-top: 1px solid var(--border-color); margin: 5px 0;"></div>
+
+                <a href="/al-labeling" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px; border-left: 4px solid var(--btn-green);">7. Active Learning Labeling</a>
+                <a href="/al-status" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px; border-left: 4px solid var(--btn-green);">8. Active Learning Status</a>
+                <a href="/al-clusters" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px; border-left: 4px solid var(--btn-green);">9. Active Learning Clusters</a>
             </div>
         </div>
         """
@@ -509,6 +515,18 @@ def results():
     </div>
     """
     return render_template_string(html)
+
+
+# ----------------- ACTIVE LEARNING (bee_al) ----------------- #
+# Adds /al-labeling, /al-clusters, /al-status and /al-refresh. The routes above are untouched
+# and keep working even if bee_al or its dependencies are missing.
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    from bee_al.hub import create_blueprint
+    app.register_blueprint(create_blueprint(BASE_CSS))
+except ImportError as e:
+    print(f"Active learning pages disabled: {e}")
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8002, debug=False)
