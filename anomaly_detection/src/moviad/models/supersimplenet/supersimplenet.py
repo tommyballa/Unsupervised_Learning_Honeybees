@@ -53,6 +53,12 @@ class SuperSimpleNet(nn.Module):
         backbone (str): backbone name
         layers (list[str]): backbone layers utilised
         stop_grad (bool): whether to stop gradient from class. to seg. head.
+        noise_std (float): std of the Gaussian noise of the synthetic anomalies.
+        upscale (float): features at `upscale` x the size of the first layer (2 in the paper).
+        patch_size (int): side of the neighboring patch aggregation.
+        map_sigma (float): sigma of the Gaussian smoothing of the final anomaly map (0 = none).
+        cls_head (bool): if False only the segmentation head is used (and trained):
+            the anomaly score is the maximum of the anomaly map before upscaling and smoothing.
     """
 
     def __init__(
@@ -60,11 +66,17 @@ class SuperSimpleNet(nn.Module):
         feature_extractor,
         perlin_threshold: float = DEFAULT_PARAMETERS["perlin_threshold"],
         stop_grad: bool = DEFAULT_PARAMETERS["stop_grad"],
+        noise_std: float = DEFAULT_PARAMETERS["gaussian_noise_std"],
+        upscale: float = 2,
+        patch_size: int = 3,
+        map_sigma: float = 4,
+        cls_head: bool = True,
     ) -> None:
         super().__init__()
+        self.cls_head = cls_head
 
         # feature extractor and pool
-        self.feature_extractor = UpscalingFeatureExtractor(feature_extractor)
+        self.feature_extractor = UpscalingFeatureExtractor(feature_extractor, patch_size=patch_size, upscale=upscale)
         channels = self.feature_extractor.get_channels_dim()
 
         # feature adapter
@@ -76,14 +88,14 @@ class SuperSimpleNet(nn.Module):
         )
         self.adaptor.apply(init_weights)
 
-        self.segdec = Discriminator(channel_dim=channels, stop_grad=stop_grad)
+        self.segdec = Discriminator(channel_dim=channels, stop_grad=stop_grad, cls_head=cls_head)
         self.anomaly_generator = AnomalyGenerator(
             noise_mean=self.DEFAULT_PARAMETERS["gaussian_noise_mean"], 
-            noise_std=self.DEFAULT_PARAMETERS["gaussian_noise_std"], 
+            noise_std=noise_std,
             threshold=perlin_threshold,
         )
 
-        self.anomaly_map_generator = AnomalyMapGenerator(sigma=4)
+        self.anomaly_map_generator = AnomalyMapGenerator(sigma=map_sigma)
 
     def forward(
         self,
@@ -102,7 +114,8 @@ class SuperSimpleNet(nn.Module):
 
         Returns:
             inference: anomaly map and score
-            training: anomaly map, score and GT masks and labels
+            training: anomaly map, score (None without the classification head)
+                and GT masks and labels
         """
         output_size = images.shape[-2:]
 
@@ -122,6 +135,8 @@ class SuperSimpleNet(nn.Module):
             )
 
             anomaly_map, anomaly_score = self.segdec(features)
+            if not self.cls_head:
+                anomaly_score = None
             return anomaly_map, anomaly_score, masks, labels
 
         anomaly_map, anomaly_score = self.segdec(adapted)
@@ -182,13 +197,16 @@ class AnomalyMapGenerator(nn.Module):
     """Final anomaly map generator, responsible for upscaling and smoothing.
 
     Args:
-        sigma (float) Gaussian kernel sigma value.
+        sigma (float) Gaussian kernel sigma value (0: no smoothing).
     """
 
     def __init__(self, sigma: float) -> None:
         super().__init__()
-        kernel_size = 2 * math.ceil(3 * sigma) + 1
-        self.smoothing = torchvision.transforms.GaussianBlur(kernel_size, sigma=0.4)
+        if sigma > 0:
+            kernel_size = 2 * math.ceil(3 * sigma) + 1
+            self.smoothing = torchvision.transforms.GaussianBlur(kernel_size, sigma=sigma)
+        else:
+            self.smoothing = nn.Identity()
 
     def forward(self, out_map: torch.Tensor, final_size: tuple[int, int]) -> torch.Tensor:
         """Upscale and smooth anomaly map to get final anomaly map of same size as input image.

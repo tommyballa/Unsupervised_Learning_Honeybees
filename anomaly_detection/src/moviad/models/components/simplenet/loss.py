@@ -47,7 +47,7 @@ class SSNLoss(nn.Module):
     def forward(
         self,
         pred_map: torch.Tensor,
-        pred_score: torch.Tensor,
+        pred_score: torch.Tensor | None,
         target_mask: torch.Tensor,
         target_label: torch.Tensor,
     ) -> torch.Tensor:
@@ -60,7 +60,8 @@ class SSNLoss(nn.Module):
 
         Args:
             pred_map: predicted anomaly maps.
-            pred_score: predicted anomaly scores.
+            pred_score: predicted anomaly scores (None: model without
+                classification head, only Lseg).
             target_mask: GT anomaly masks.
             target_label: GT anomaly labels.
 
@@ -69,6 +70,8 @@ class SSNLoss(nn.Module):
         """
         map_focal = self.focal_loss(pred_map, target_mask)
         map_trunc_l1 = self.trunc_l1_loss(pred_map, target_mask)
+        if pred_score is None:
+            return map_focal + map_trunc_l1
         score_focal = self.focal_loss(pred_score, target_label)
 
         return map_focal + map_trunc_l1 + score_focal

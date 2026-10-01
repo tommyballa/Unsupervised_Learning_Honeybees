@@ -19,15 +19,19 @@ class Discriminator(nn.Module):
     Args:
         channel_dim (int): channel dimension of features.
         stop_grad (bool): whether to stop gradient from class. head to seg. head.
+        cls_head (bool): if False there is no classification head and the
+            anomaly score is the maximum of the anomaly map.
     """
 
     def __init__(
         self,
         channel_dim: int,
         stop_grad: bool = False,
+        cls_head: bool = True,
     ) -> None:
         super().__init__()
         self.stop_grad = stop_grad
+        self.cls_head = cls_head
 
         # 1x1 conv - linear layer equivalent
         self.seg_head = nn.Sequential(
@@ -47,6 +51,10 @@ class Discriminator(nn.Module):
                 bias=False,
             ),
         )
+
+        if not cls_head:
+            self.apply(init_weights)
+            return
 
         # pooling for cls. conv out and map
         self.map_avg_pool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
@@ -93,6 +101,9 @@ class Discriminator(nn.Module):
         """
         # get anomaly map from seg head
         ano_map = self.seg_head(features)
+
+        if not self.cls_head:
+            return ano_map, ano_map.flatten(1).max(dim=1).values
 
         map_dec_copy = ano_map
         if self.stop_grad:

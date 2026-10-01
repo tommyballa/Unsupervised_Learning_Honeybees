@@ -4,7 +4,36 @@ SuperSimpleNet - Anomaly detection su singole api (single bee crops).
 Addestramento: immagini normali di singole api (VarroaDataset, split TRAIN).
                Le anomalie vengono simulate nello spazio delle feature
                (rumore gaussiano mascherato con Perlin noise), come nel paper.
-Best:          ogni EVAL_INTERVAL epoche (e all'ultima) metriche sul test set;
+               AdamW del paper (adaptor 1e-4, segdec 2e-4) con cosine annealing
+               per step, fp16 autocast in training.
+Ottimizzazione (sweep: experiments/single_bee/sweep_supersimplenet.py,
+logs/supersimplenet_sweep/; metriche dello sweep: pixel AP a 128 px, img AUROC
+dal massimo della mappa):
+  - la configurazione del paper (256x256, layer2+layer3, score della testa di
+    classificazione, 30 epoche) si ferma a img AUROC 0.726 / pixel AP 0.098
+    (checkpoints/single_bee/supersimplenet_baseline_256/);
+  - risoluzione nativa 512 (la varroa ha diametro ~32 px): a 256 img AUROC
+    ~0.65 dopo 750 step contro ~0.88 a 512. Ingrandire l'input a 768 non
+    aiuta (0.93);
+  - score = massimo della mappa (CLS_HEAD = False): la testa di classificazione
+    vede anomalie sintetiche estese (Perlin) e non generalizza alla varroa
+    (img AUROC 0.55-0.80 quando il massimo della mappa dà 0.91-0.94), e
+    addestrare la sola testa di segmentazione non peggiora la mappa. Media dei
+    top-k pixel e blur prima dello score non aiutano;
+  - layer1 alla sua risoluzione (feature 128x128): con layer2+layer3 tutte le
+    varianti si fermano a 0.93-0.94 (feature 64x64 o 128x128) e gli errori sono
+    le varroe piccole (AUROC 0.89 sotto 800 px di area, 0.99 sopra 1300);
+    con layer1-3 a 128x128 0.952-0.956. Layer1 ridotto a 64x64 non aiuta (0.90);
+  - rumore: std 0.02 (0.015 del paper è equivalente ma più lento; 0.01 troppo
+    lento; 0.05 satura a 0.91-0.92, 0.15 non funziona). Soglia Perlin 0.6,
+    standardizzazione delle feature per canale e pooling 1x1 non aiutano;
+  - blur della mappa (MAP_SIGMA, usato solo per la mappa): sigma 8 px a 512 è
+    il migliore per la pixel AP (0.45 contro 0.26 senza blur), 16 px peggiora;
+  - il learning rate deve scendere: a lr costante le metriche oscillano molto
+    tra una valutazione e l'altra, il meglio arriva nella parte finale del coseno.
+Con questo script (metriche ufficiali a 512): step 6000 img_roc_auc 0.952 /
+img_avg_prec 0.769 / pxl_avg_prec 0.516.
+Best:          ogni EVAL_INTERVAL step (e alla fine) metriche sul test set;
                la configurazione migliore (img_roc_auc, a parità pxl_avg_prec)
                viene salvata in checkpoints/single_bee/supersimplenet/
                (best.pth + config.json).
@@ -18,7 +47,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import MultiStepLR
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from tqdm import tqdm
@@ -46,20 +75,23 @@ TRAIN_DIR       = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/proces
 GT_SIZE         = (512, 512)
 
 BACKBONE        = "wide_resnet50_2"
-LAYERS          = ["layer2", "layer3"]   # come nel paper SuperSimpleNet
-IMG_SIZE        = (256, 256)
-EPOCHS          = 30
-BATCH_SIZE      = 32
-EVAL_INTERVAL   = 5            # valuta ogni N epoche (e sempre all'ultima)
+LAYERS          = ["layer1", "layer2", "layer3"]   # il paper usa layer2 + layer3
+IMG_SIZE        = (512, 512)   # risoluzione nativa dei crop
+FEATURE_UPSCALE = 1            # feature alla risoluzione di layer1 (128x128); nel paper 2x il primo layer
+NOISE_STD       = 0.02         # std del rumore gaussiano delle anomalie sintetiche (paper: 0.015)
+CLS_HEAD        = False        # solo testa di segmentazione: score = massimo della mappa
+MAP_SIGMA       = 8.0          # blur gaussiano della mappa (px a 512), non usato per lo score
+TRAIN_STEPS     = 6000         # ~4 epoche con batch 16
+BATCH_SIZE      = 16
+EVAL_INTERVAL   = 1000         # valuta ogni N step (e sempre alla fine)
+AMP             = True         # fp16 autocast in training (backbone e testa di segmentazione)
 NUM_WORKERS     = 8
 SEED            = 1
 
-# Iperparametri del paper / anomalib
+# Ottimizzatore del paper / anomalib (AdamW), con cosine annealing per step fino a 0
 ADAPTOR_LR      = 1e-4
 SEGDEC_LR       = 2e-4
 WEIGHT_DECAY    = 1e-5
-LR_GAMMA        = 0.4
-LR_MILESTONES   = [int(EPOCHS * 0.8), int(EPOCHS * 0.9)]   # in epoche
 PERLIN_THRESHOLD = SuperSimpleNet.DEFAULT_PARAMETERS["perlin_threshold"]
 
 NUM_HEATMAPS    = 20           # metà sane, metà con varroa
@@ -119,6 +151,10 @@ def build_model(device):
         feature_extractor=feature_extractor,
         perlin_threshold=PERLIN_THRESHOLD,
         stop_grad=SuperSimpleNet.DEFAULT_PARAMETERS["stop_grad"],
+        noise_std=NOISE_STD,
+        upscale=FEATURE_UPSCALE,
+        map_sigma=MAP_SIGMA,
+        cls_head=CLS_HEAD,
     ).to(device)
 
 
@@ -134,28 +170,6 @@ def load_model_state(model, state):
 # ──────────────────────────────────────────────────────────────────────
 # Training
 # ──────────────────────────────────────────────────────────────────────
-def train_epoch(model, dataloader, optimizer, loss_fn, device):
-    model.train()
-    avg_loss = 0.0
-    for images in tqdm(dataloader):
-        images = images.to(device)
-        B, _, H, W = images.shape
-        # tutte le immagini di training sono normali: maschere e label a zero,
-        # le anomalie vengono generate dal modello nello spazio delle feature
-        masks = torch.zeros(B, 1, H, W, device=device)
-        labels = torch.zeros(B, device=device)
-
-        anomaly_map, anomaly_score, masks, labels = model(images=images, masks=masks, labels=labels)
-        loss = loss_fn(pred_map=anomaly_map, pred_score=anomaly_score,
-                       target_mask=masks, target_label=labels)
-
-        optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        optimizer.step()
-        avg_loss += loss.item()
-    return avg_loss / len(dataloader)
-
-
 def train_supersimplenet_single_bee():
     set_seed(SEED)
     device = torch.device(
@@ -181,31 +195,60 @@ def train_supersimplenet_single_bee():
         num_workers=NUM_WORKERS, pin_memory=True,
     )
 
-    # --- Optimizer, scheduler (per epoca) e loss ---
+    # --- Optimizer, scheduler (per step) e loss ---
     optimizer = AdamW([
         {"params": model.adaptor.parameters(), "lr": ADAPTOR_LR},
         {"params": model.segdec.parameters(), "lr": SEGDEC_LR, "weight_decay": WEIGHT_DECAY},
     ])
-    scheduler = MultiStepLR(optimizer, milestones=LR_MILESTONES, gamma=LR_GAMMA)
+    scheduler = CosineAnnealingLR(optimizer, T_max=TRAIN_STEPS)
+    use_amp = AMP and device.type == "cuda"
+    scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
     loss_fn = SSNLoss()
     tracker = BestTracker(CHECKPOINT_DIR, script_config(globals()))
 
     print(f"\n{'='*60}")
-    print(f"Training SuperSimpleNet single-bee | {EPOCHS} epoche | {len(train_loader)} batch/epoca")
+    print(f"Training SuperSimpleNet single-bee | {TRAIN_STEPS} step "
+          f"| {len(train_loader)} batch/epoca | valutazione ogni {EVAL_INTERVAL} step")
     print(f"{'='*60}\n")
 
-    for epoch in range(EPOCHS):
-        loss = train_epoch(model, train_loader, optimizer, loss_fn, device)
-        scheduler.step()
-        print(f"Epoca {epoch + 1}/{EPOCHS} — loss: {loss:.6f}, lr: {scheduler.get_last_lr()}")
+    step, running_loss, n = 0, 0.0, 0
+    while step < TRAIN_STEPS:
+        for images in tqdm(train_loader, desc=f"step {step}/{TRAIN_STEPS}", leave=False):
+            model.train()
+            images = images.to(device, non_blocking=True)
+            B, _, H, W = images.shape
+            # tutte le immagini di training sono normali: maschere e label a zero,
+            # le anomalie vengono generate dal modello nello spazio delle feature
+            masks = torch.zeros(B, 1, H, W, device=device)
+            labels = torch.zeros(B, device=device)
 
-        if (epoch + 1) % EVAL_INTERVAL == 0 or epoch == EPOCHS - 1:
-            maps, scores, labels, masks = run_inference(model, test_loader, device)
-            results = compute_metrics(maps, scores, labels, masks, with_pro=False)
-            print_metrics(results)
-            tracker.update(epoch + 1, results, lambda: model_state(model))
+            with torch.autocast(device.type, dtype=torch.float16, enabled=use_amp):
+                anomaly_map, anomaly_score, masks, labels = model(images=images, masks=masks, labels=labels)
+            loss = loss_fn(pred_map=anomaly_map.float(),
+                           pred_score=None if anomaly_score is None else anomaly_score.float(),
+                           target_mask=masks, target_label=labels)
 
-    print(f"\nBest SuperSimpleNet — {tracker.summary()}")
+            optimizer.zero_grad(set_to_none=True)
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+            scheduler.step()
+            step += 1
+            running_loss += loss.item(); n += 1
+
+            if step % EVAL_INTERVAL == 0 or step == TRAIN_STEPS:
+                print(f"Step {step}/{TRAIN_STEPS} (epoca {step / len(train_loader):.2f}) — "
+                      f"loss: {running_loss / n:.6f}, lr: {scheduler.get_last_lr()}")
+                running_loss, n = 0.0, 0
+                maps, scores, labels, masks = run_inference(model, test_loader, device)
+                results = compute_metrics(maps, scores, labels, masks, with_pro=False)
+                del maps, masks
+                print_metrics(results)
+                tracker.update(step, results, lambda: model_state(model))
+            if step >= TRAIN_STEPS:
+                break
+
+    print(f"\nBest SuperSimpleNet (\"epoca\" = step di training) — {tracker.summary()}")
     print(f"Heatmap e metriche finali: python experiments/plot_heatmaps.py single_bee {MODEL_NAME}")
 
 

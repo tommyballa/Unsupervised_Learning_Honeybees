@@ -8,12 +8,15 @@ class UpscalingFeatureExtractor(nn.Module):
     Args:
         backbone (str): backbone name.
         layers (list[str]): list of layers used for extraction.
+        patch_size (int): side of the neighboring patch aggregation (average pooling).
+        upscale (float): the feature map has `upscale` x the size of the first (largest) layer.
     """
 
-    def __init__(self, featurre_extractor, patch_size: int = 3) -> None:
+    def __init__(self, featurre_extractor, patch_size: int = 3, upscale: float = 2) -> None:
         super().__init__()
 
         self.feature_extractor = featurre_extractor
+        self.upscale = upscale
 
         self.pooler = nn.AvgPool2d(
             kernel_size=patch_size,
@@ -33,12 +36,13 @@ class UpscalingFeatureExtractor(nn.Module):
         features = self.feature_extractor(input_tensor)
 
         _, _, h, w = features[0].shape
+        size = (int(h * self.upscale), int(w * self.upscale))
         feature_map = []
         for layer in features:
-            # upscale all to 2x the size of the first (largest)
+            # upscale all to `upscale` x the size of the first (largest), 2x in the paper
             resized = F.interpolate(
                 layer,
-                size=(h * 2, w * 2),
+                size=size,
                 mode="bilinear",
             )
             feature_map.append(resized)
