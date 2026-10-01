@@ -1,0 +1,4 @@
+p1_base --epochs 8
+p2_lr01 --epochs 6 --lr 0.01
+p3_boot1 --epochs 6 --ad-layers 2,3 --bootstrap 1
+p5_ema --epochs 6 --ema 0.999

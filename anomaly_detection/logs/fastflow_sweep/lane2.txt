@@ -1,0 +1,4 @@
+r2_m4 --epochs 6 --masked-loss 4 --fg-dilate 0 --sigma 8
+r2_m4_lr3e4 --epochs 6 --masked-loss 4 --fg-dilate 0 --sigma 8 --lr 3e-4
+r2_m4_flip --epochs 6 --masked-loss 4 --fg-dilate 0 --sigma 8 --hflip
+r2_m4_s384 --epochs 6 --masked-loss 4 --fg-dilate 0 --sigma 8 --img-size 384

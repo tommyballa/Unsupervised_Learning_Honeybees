@@ -32,12 +32,15 @@ class FastFlowTrainArgs(TrainingArgs):
             self.loss_function = fastflow_loss
 
 
-def create_fastflow(img_shape, backbone_name, device, normalize=True):
+def create_fastflow(img_shape, backbone_name, device, normalize=True, flow_steps=8, hidden_ratio=1.0,
+                    conv3x3_only=False, **model_kwargs):
     # normalize=True: LayerNorm addestrabili per scala sulle feature ResNet, come nel paper/anomalib
-    fast_flow_model = CompleteFastFlowModel(backbone_name, input_size=img_shape, normalize=normalize, device=device)
+    # model_kwargs: opzioni di CompleteFastFlowModel (mappa, foreground, loss mascherata, ...)
+    fast_flow_model = CompleteFastFlowModel(backbone_name, input_size=img_shape, normalize=normalize, device=device,
+                                            **model_kwargs)
     fast_flow_module = FastflowModel(
-        input_size=img_shape, flow_steps=8, conv3x3_only=False,
-        hidden_ratio=1.0, channels=fast_flow_model.channels, scales=fast_flow_model.scales
+        input_size=img_shape, flow_steps=flow_steps, conv3x3_only=conv3x3_only,
+        hidden_ratio=hidden_ratio, channels=fast_flow_model.channels, scales=fast_flow_model.scales
     )
     fast_flow_model.fast_flow_module = fast_flow_module
     fast_flow_model.to(device)
@@ -353,6 +356,8 @@ class AllInOneBlock(InvertibleModule):
         sub_jac = self.clamp * torch.tanh(a[:, :ch])
         if self.GIN:
             sub_jac -= torch.mean(sub_jac, dim=self.sum_dims, keepdim=True)
+        # log-det dell'accoppiamento per pixel (somma sui canali), usato da pixel_log_jacobian
+        self.pixel_jac = (-1) ** rev * sub_jac.sum(1)
 
         if not rev:
             return (x * torch.exp(sub_jac) + a[:, ch:], torch.sum(sub_jac, dim=self.sum_dims))
@@ -539,17 +544,74 @@ def create_fast_flow_block(
         )
     return nodes
 
-class AnomalyMapGenerator(nn.Module):
-    """Generate Anomaly Heatmap."""
+def pixel_log_jacobian(flow_block) -> Tensor:
+    """Log-det per pixel (B, h, w) dell'ultimo forward di un blocco FastFlow (SequenceINN di AllInOneBlock).
 
-    def __init__(self, input_size):
+    Le permutazioni sono ortogonali (log-det nullo): restano l'accoppiamento affine
+    (salvato per pixel in AllInOneBlock._affine) e lo scaling globale, uguale per ogni pixel.
+    La somma sui pixel coincide con il log-det restituito dal flow.
+    """
+    total = 0
+    for block in flow_block.module_list:
+        scale = block.global_scale_activation(block.global_scale)
+        total = total + block.pixel_jac + torch.log(scale).sum()
+    return total
+
+
+def foreground_mask(images: Tensor, threshold: float, mean, std) -> Tensor:
+    """Maschera (B,1,H,W) dei pixel non di sfondo: crop con sfondo nero (es. singole api segmentate)."""
+    mean = torch.as_tensor(mean, device=images.device, dtype=images.dtype).view(1, -1, 1, 1)
+    std = torch.as_tensor(std, device=images.device, dtype=images.dtype).view(1, -1, 1, 1)
+    return ((images * std + mean).amax(1, keepdim=True) > threshold).float()
+
+
+def resize_mask(mask: Tensor, pixels: int) -> Tensor:
+    """Dilata (pixels > 0) o erode (pixels < 0) una maschera binaria (B,1,H,W)."""
+    if pixels > 0:
+        return F.max_pool2d(mask, 2 * pixels + 1, stride=1, padding=pixels)
+    if pixels < 0:
+        return 1 - F.max_pool2d(1 - mask, -2 * pixels + 1, stride=1, padding=-pixels)
+    return mask
+
+
+def gaussian_blur(x: Tensor, sigma: float) -> Tensor:
+    """Come TF.gaussian_blur (kernel 2*round(4 sigma)+1, padding reflect) ma separabile:
+    con sigma grandi (immagini 512) il kernel 2D sarebbe molto lento."""
+    radius = int(round(4 * sigma))
+    t = torch.arange(-radius, radius + 1, device=x.device, dtype=x.dtype)
+    kernel = torch.exp(-0.5 * (t / sigma) ** 2)
+    kernel = kernel / kernel.sum()
+    x = F.pad(x, (radius, radius, radius, radius), mode="reflect")
+    x = F.conv2d(x, kernel.view(1, 1, 1, -1))
+    return F.conv2d(x, kernel.view(1, 1, -1, 1))
+
+
+class AnomalyMapGenerator(nn.Module):
+    """Generate Anomaly Heatmap.
+
+    Args:
+        sigma: sigma del blur gaussiano finale (pixel alla risoluzione di input).
+        map_type: "z2" (FastFlow: media sui canali di z^2) oppure "nll" (NLL per pixel e
+            per canale, 0.5 z^2 - log-det/C: tiene conto anche dello Jacobiano locale).
+        scales: indici delle scale da mediare (None = tutte).
+    """
+
+    def __init__(self, input_size, sigma: float = 4.0, map_type: str = "z2", scales=None):
         super().__init__()
         self.input_size = input_size if isinstance(input_size, tuple) else tuple(input_size)
+        self.sigma = sigma
+        self.map_type = map_type
+        self.scales = scales
 
-    def forward(self, hidden_variables: List[Tensor]) -> Tensor:
+    def forward(self, hidden_variables: List[Tensor], flow_blocks=None, foreground: Tensor = None) -> Tensor:
         flow_maps: List[Tensor] = []
-        for hidden_variable in hidden_variables:
+        for i, hidden_variable in enumerate(hidden_variables):
+            if self.scales is not None and i not in self.scales:
+                continue
             distance = torch.mean(hidden_variable**2, dim=1, keepdim=True)
+            if self.map_type == "nll":
+                log_jac = pixel_log_jacobian(flow_blocks[i])[:, None] / hidden_variable.shape[1]
+                distance = 0.5 * distance - log_jac
             flow_map = F.interpolate(
                 input=distance,
                 size=self.input_size,
@@ -557,19 +619,42 @@ class AnomalyMapGenerator(nn.Module):
                 align_corners=False,
             )
             flow_maps.append(flow_map)
-            
+
         flow_maps = torch.stack(flow_maps, dim=-1)
         anomaly_map = torch.mean(flow_maps, dim=-1)
 
-        # Apply 2D Gaussian blur using torchvision
-        anomaly_map = TF.gaussian_blur(anomaly_map, kernel_size=[33, 33], sigma=[4.0, 4.0])
+        if foreground is not None:
+            # fuori dal foreground la mappa vale il minimo sul foreground (lo sfondo non è mai anomalo)
+            low = anomaly_map.masked_fill(foreground == 0, float("inf")).amin(dim=(2, 3), keepdim=True)
+            low = torch.where(torch.isinf(low), torch.zeros_like(low), low)
+            anomaly_map = torch.where(foreground > 0, anomaly_map, low)
 
-        return anomaly_map
+        return gaussian_blur(anomaly_map, self.sigma)
 
 class CompleteFastFlowModel(VADModel):
-    def __init__(self, backbone_name, input_size, normalize, device):
+    """
+    Opzioni oltre al FastFlow standard (default = comportamento originale):
+        blur_sigma, map_type, map_scales: post-processing della mappa (vedi AnomalyMapGenerator).
+        foreground_threshold: se impostato, lo sfondo è nero (crop segmentati): un pixel è
+            foreground se la sua intensità RGB massima (0-1) supera la soglia.
+        foreground_erode: px di erosione (>0) della maschera di foreground per la mappa:
+            il bordo della sagoma ha feature instabili.
+        masked_loss_dilate: se impostato, la loss è la NLL per pixel mediata sui soli pixel di
+            foreground (dilatati di N px): il flow non spreca capacità sullo sfondo, quasi
+            costante, che altrimenti domina la loss (log-det enormi).
+        backbone_amp: estrazione delle feature (backbone congelato) in bfloat16.
+    """
+
+    def __init__(self, backbone_name, input_size, normalize, device, blur_sigma=4.0, map_type="z2",
+                 map_scales=None, foreground_threshold=None, foreground_erode=0, masked_loss_dilate=None,
+                 backbone_amp=False, image_mean=(0.485, 0.456, 0.406), image_std=(0.229, 0.224, 0.225)):
         super().__init__()
         self.device = device
+        self.foreground_threshold = foreground_threshold
+        self.foreground_erode = foreground_erode
+        self.masked_loss_dilate = masked_loss_dilate
+        self.backbone_amp = backbone_amp
+        self.image_mean, self.image_std = image_mean, image_std
 
         if backbone_name in ["cait_m48_448", "deit_base_distilled_patch16_384"]:
             feature_extractor = timm.create_model(backbone_name, pretrained=True)
@@ -584,7 +669,8 @@ class CompleteFastFlowModel(VADModel):
        
         self.input_size = input_size
         self.feature_extractor = feature_extractor
-        self.anomaly_map_generator = AnomalyMapGenerator(input_size=input_size)
+        self.anomaly_map_generator = AnomalyMapGenerator(input_size=input_size, sigma=blur_sigma,
+                                                         map_type=map_type, scales=map_scales)
 
         if backbone_name in ["cait_m48_448", "deit_base_distilled_patch16_384"]:
             channels = [768]
@@ -634,9 +720,26 @@ class CompleteFastFlowModel(VADModel):
         if self.training:
             return hidden_variables, log_jacobians
         else:
-            return self.post_process(hidden_variables)
+            foreground = None
+            if self.foreground_threshold is not None:
+                foreground = resize_mask(self.foreground(input_tensor), -self.foreground_erode)
+            return self.post_process(hidden_variables, foreground)
 
-    def post_process(self, hidden_variables: List[Tensor]) -> Tuple[Tensor, Tensor]:
+    def foreground(self, input_tensor: Tensor) -> Tensor:
+        return foreground_mask(input_tensor.to(self.device), self.foreground_threshold,
+                               self.image_mean, self.image_std)
+
+    def masked_loss(self, input_tensor: Tensor, hidden_variables: List[Tensor]) -> Tensor:
+        """NLL media per pixel e per canale sui soli pixel di foreground (dilatati)."""
+        mask = resize_mask(self.foreground(input_tensor), self.masked_loss_dilate)
+        loss = 0
+        for hidden_variable, flow_block in zip(hidden_variables, self.fast_flow_module.fast_flow_blocks):
+            m = F.adaptive_max_pool2d(mask, hidden_variable.shape[-2:])[:, 0]
+            nll = 0.5 * (hidden_variable**2).sum(1) - pixel_log_jacobian(flow_block)
+            loss = loss + (nll * m).sum() / (m.sum() * hidden_variable.shape[1]).clamp_min(1)
+        return loss
+
+    def post_process(self, hidden_variables: List[Tensor], foreground: Tensor = None) -> Tuple[Tensor, Tensor]:
         """Generate anomaly maps from hidden variables.
 
         Args:
@@ -645,7 +748,8 @@ class CompleteFastFlowModel(VADModel):
         Returns:
             Tuple[Tensor, Tensor]: (anomaly_maps, anomaly_scores)
         """
-        anomaly_maps = self.anomaly_map_generator(hidden_variables)
+        anomaly_maps = self.anomaly_map_generator(hidden_variables, self.fast_flow_module.fast_flow_blocks,
+                                                  foreground)
         anomaly_scores = anomaly_maps.view(anomaly_maps.shape[0], -1).max(dim=1).values
         return anomaly_maps, anomaly_scores
 
@@ -680,7 +784,10 @@ class CompleteFastFlowModel(VADModel):
     def train_step(self, batch: torch.Tensor, training_args: TrainingArgs):
         batch = batch.to(self.device)
         hidden_variables, log_jacobians = self.forward(batch)
-        loss = training_args.loss_function(hidden_variables, log_jacobians)
+        if self.masked_loss_dilate is not None:
+            loss = self.masked_loss(batch, hidden_variables)
+        else:
+            loss = training_args.loss_function(hidden_variables, log_jacobians)
 
         training_args.optimizer.zero_grad()
         loss.backward()
@@ -697,10 +804,10 @@ class CompleteFastFlowModel(VADModel):
         Returns:
             List[Tensor]: List of features.
         """
-        with torch.no_grad():
+        with torch.no_grad(), torch.autocast(torch.device(self.device).type, dtype=torch.bfloat16, enabled=self.backbone_amp):
             features = self.feature_extractor(input_tensor.to(self.device))
         # Apply LayerNorm outside no_grad so gradients flow through norms
-        features = [self.norms[i](feature) for i, feature in enumerate(features)]
+        features = [self.norms[i](feature.float()) for i, feature in enumerate(features)]
         return features
 
     def _get_cait_features(self, input_tensor: Tensor) -> List[Tensor]:

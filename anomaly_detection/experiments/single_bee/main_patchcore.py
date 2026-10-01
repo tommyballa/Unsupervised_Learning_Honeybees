@@ -2,13 +2,15 @@
 PatchCore — Anomaly detection su singole api (dataset Ceschi).
 
 Addestramento: feature wide_resnet50_2 ImageNet congelate (layer1-3) delle api
-               sane (VarroaDataset, TRAIN), 10% delle patch di ogni immagine,
-               memory bank ridotta a 20000 patch con coreset greedy. Nessuna
+               sane (VarroaDataset, TRAIN), MAX_TRAIN_PATCHES patch casuali in totale
+               (stesso numero per immagine, prese sull'ape e non sullo sfondo
+               nero), memory bank ridotta a MEMORY_BANK_SIZE patch con coreset
+               greedy. Nessuna
                epoca da scegliere: la memory bank viene salvata in
                checkpoints/single_bee/patchcore/ (best.pth + config.json).
 Valutazione:   mappa = distanza dal vicino più prossimo nella memory bank
-               (blur gaussiano), score immagine = media ripesata delle 5 patch
-               peggiori.
+               (blur gaussiano), azzerata fuori dall'ape; score immagine = media
+               ripesata delle 5 patch peggiori dell'ape.
 Heatmap e metriche finali (AUROC, AvgPrec, F1, AUPRO), con la stessa
 normalizzazione globale degli altri modelli:
     python experiments/plot_heatmaps.py single_bee patchcore
@@ -21,6 +23,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torchvision import transforms
 
 from moviad.datasets.dataset_arguments import DatasetArguments
@@ -46,7 +49,14 @@ GT_SIZE      = (512, 512)
 
 BACKBONE     = "wide_resnet50_2"
 LAYERS       = ["layer1", "layer2", "layer3"]
-MEMORY_BANK_SIZE = 20000
+MEMORY_BANK_SIZE = 30000
+# patch candidate al coreset in totale (fp16 su CPU, ~36GB): ~430 per immagine
+MAX_TRAIN_PATCHES = 10_000_000
+# maschera dell'ape: pixel non neri (lo sfondo dei crop è nero, ~86% dell'immagine),
+# chiusura per riempire le zone scure del corpo, poi margine attorno all'ape
+FG_THRESHOLD = 10 / 255
+FG_CLOSING   = 15           # px (lato del kernel)
+FG_DILATION  = 8            # px di margine
 IMG_SIZE     = (512, 512)
 BATCH_SIZE   = 32
 TEST_BATCH_SIZE = 16
@@ -85,10 +95,24 @@ def dataset_args():
     )
 
 
+def _dilate(mask, size):
+    return F.max_pool2d(mask, size, stride=1, padding=size // 2)
+
+
+def bee_foreground(images):
+    """Maschera (B,1,H,W) dell'ape da immagini normalizzate ImageNet."""
+    mean = torch.tensor(IMAGENET_MEAN, device=images.device).view(1, 3, 1, 1)
+    std = torch.tensor(IMAGENET_STD, device=images.device).view(1, 3, 1, 1)
+    rgb = images * std + mean
+    mask = (rgb.amax(dim=1, keepdim=True) > FG_THRESHOLD).float()
+    mask = 1 - _dilate(1 - _dilate(mask, FG_CLOSING), FG_CLOSING)    # chiusura
+    return _dilate(mask, 2 * FG_DILATION + 1)
+
+
 def build_model(device):
     feature_extractor = CustomFeatureExtractor(BACKBONE, LAYERS, device, frozen=True)
     model = PatchCore(feature_extractor=feature_extractor, memory_bank_size=MEMORY_BANK_SIZE)
-    return PatchCoreCL(model)
+    return PatchCoreCL(model, max_train_patches=MAX_TRAIN_PATCHES, foreground_fn=bee_foreground)
 
 
 def model_state(patchcore):

@@ -4,17 +4,35 @@ from moviad.models.patchcore.patchcore import PatchCore
 from moviad.models.training_args import TrainingArgs
 from moviad.utilities.get_sizes import params_to_mb, count_params
 
+from typing import Callable
+
 import torch
+import torch.nn.functional as F
 from tqdm import tqdm
 
 class PatchCoreCL(ContinualModel):
 
-    def __init__(self, patchcore_model: PatchCore):
+    def __init__(self, patchcore_model: PatchCore, max_train_patches: int = 4_000_000,
+                 foreground_fn: Callable[[torch.Tensor], torch.Tensor] | None = None):
         super().__init__(patchcore_model)
 
         # change the patchcore memory bank with a set of memory banks, one per task
         self.vad_model.memory_bank = {}
         self.n_samples_per_task = self.vad_model.memory_bank_size
+        # tetto sulle patch candidate al coreset (tenute in fp16 su CPU): con una
+        # percentuale fissa per immagine la RAM cresce con il dataset (23k api a
+        # 512x512, layer1-3 → ~38M patch, ~270GB in fp32 + la copia di torch.cat)
+        self.max_train_patches = max_train_patches
+        # foreground_fn(images) -> maschera (B,1,H,W) dell'oggetto alla risoluzione
+        # dell'input. Se data: nel training le patch si campionano prima
+        # sull'oggetto (la memory bank non si spreca sullo sfondo), in inferenza
+        # score immagine e mappa ignorano lo sfondo
+        self.foreground_fn = foreground_fn
+
+    def _grid_mask(self, images: torch.Tensor, pixel_mask: torch.Tensor, grid_hw: tuple) -> torch.Tensor:
+        """Maschera (B, h*w) sulla griglia delle feature: patch che toccano l'oggetto."""
+        grid = F.adaptive_max_pool2d(pixel_mask.float(), grid_hw)
+        return grid.reshape(images.shape[0], -1).to(self.vad_model.device) > 0
 
     def _rebalance_memory_bank(self):
         n_tasks = len(self.vad_model.memory_bank) + 1
@@ -40,26 +58,45 @@ class PatchCoreCL(ContinualModel):
             prefetch_factor=2
         )
 
-        embeddings = []
+        # stesso numero di patch casuali per ogni immagine, entro max_train_patches
+        # in totale, scritte in un buffer fp16 preallocato (niente torch.cat)
+        patches_per_image = max(1, self.max_train_patches // len(train_dataset))
+        embeddings = None
+        n_filled = 0
 
         with torch.no_grad():
 
             print("Embedding Extraction:")
             for batch in tqdm(iter(train_dataloader)):
-                embedding = self.vad_model(batch)
-                # PatchCore generates a huge amount of patches at 384x384 (53GB+ of RAM for Varroa).
-                # Randomly subsample 10% of the patches to prevent CPU OOM.
-                num_patches = embedding.size(0)
-                subsample_size = int(num_patches * 0.1)
-                indices = torch.randperm(num_patches)[:subsample_size]
-                embeddings.append(embedding[indices].cpu())
+                images = batch[0] if isinstance(batch, (tuple, list)) else batch
+                embedding, batch_size, grid_h, grid_w = self.vad_model.extract_embedding(images)
+                embedding = embedding.reshape(batch_size, -1, embedding.shape[-1])
+                num_patches = embedding.shape[1]
+                keep = min(patches_per_image, num_patches)
+                # ordine casuale; con foreground_fn le patch dell'oggetto vengono prima
+                # (se l'oggetto ha meno di keep patch si completa con lo sfondo)
+                priority = torch.rand(batch_size, num_patches, device=embedding.device)
+                if self.foreground_fn is not None:
+                    fg = self._grid_mask(images, self.foreground_fn(images.to(embedding.device)),
+                                         (grid_h, grid_w))
+                    priority = priority + fg.to(priority.device).float()
+                indices = priority.argsort(dim=1, descending=True)[:, :keep]
+                sampled = torch.gather(embedding, 1, indices.unsqueeze(-1).expand(-1, -1, embedding.shape[-1]))
+                sampled = sampled.reshape(-1, embedding.shape[-1]).half().cpu()
 
-            embeddings = torch.cat(embeddings, dim = 0)
+                if embeddings is None:
+                    embeddings = torch.empty((len(train_dataset) * keep, sampled.shape[1]), dtype=torch.float16)
+                    print(f"  {keep} patch per immagine, buffer {tuple(embeddings.shape)} "
+                          f"({embeddings.numel() * 2 / 1e9:.1f} GB fp16)")
+                embeddings[n_filled:n_filled + sampled.shape[0]] = sampled
+                n_filled += sampled.shape[0]
+
+            embeddings = embeddings[:n_filled]
             torch.cuda.empty_cache()
 
             #apply coreset reduction
             print("Coreset Extraction:")
-            coreset = self.vad_model.coreset_extractor.extract_coreset(embeddings)
+            coreset = self.vad_model.coreset_extractor.extract_coreset(embeddings).float()
 
             self.vad_model.memory_bank[task_index] = coreset
 
@@ -72,6 +109,9 @@ class PatchCoreCL(ContinualModel):
       anomaly_maps, pred_scores, mean_distances = [], [], []
       embedding, batch_size, width, height = self.vad_model.extract_embedding(batch)
       image_size = batch.shape[2:]
+      if self.foreground_fn is not None:
+          pixel_mask = self.foreground_fn(batch.to(self.vad_model.device)).float()
+          grid_mask = self._grid_mask(batch, pixel_mask, (width, height))
 
       for task_id in self.vad_model.memory_bank:
           task_memory_bank = self.vad_model.memory_bank[task_id].to(self.vad_model.device)
@@ -89,16 +129,19 @@ class PatchCoreCL(ContinualModel):
           patch_scores_2d = patch_scores.reshape(batch_size, -1)       # (batch, H*W)
           locations_2d   = locations.reshape(batch_size, -1)           # (batch, H*W)
 
-          # Anomaly score
+          # Anomaly score (solo sulle patch dell'oggetto, se c'è la maschera)
+          score_patches = patch_scores_2d * grid_mask if self.foreground_fn is not None else patch_scores_2d
           pred_score = self.vad_model.compute_anomaly_score_old(
-              patch_scores_2d, locations_2d, embedding, task_memory_bank
+              score_patches, locations_2d, embedding, task_memory_bank
           )
 
-          # Anomaly map
+          # Anomaly map, azzerata fuori dall'oggetto (bordo del crop e alone sullo sfondo)
           patch_scores_spatial = patch_scores_2d.reshape(batch_size, 1, width, height)
           batch_anomaly_maps = self.vad_model.anomaly_map_generator(
               patch_scores_spatial, image_size=image_size
           )
+          if self.foreground_fn is not None:
+              batch_anomaly_maps = batch_anomaly_maps * pixel_mask
 
           anomaly_maps.append(batch_anomaly_maps)
           pred_scores.append(pred_score)

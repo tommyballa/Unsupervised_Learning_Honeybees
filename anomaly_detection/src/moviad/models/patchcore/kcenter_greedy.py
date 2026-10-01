@@ -115,9 +115,14 @@ class CoresetExtractor:
             else:
                 print(f"   PyTorch Random Projection from {z_lib.shape[1]} to {target_dim}...")
                 # Generiamo la matrice di proiezione Gaussiana
-                proj_matrix = torch.randn(z_lib.shape[1], target_dim, device=z_lib.device) / (target_dim ** 0.5)
-                # Applichiamo la proiezione vettoriale
-                z_lib = torch.matmul(z_lib, proj_matrix)
+                proj_matrix = torch.randn(z_lib.shape[1], target_dim, device=self.device) / (target_dim ** 0.5)
+                # Proiezione a blocchi sul device, in fp32: z_lib può essere fp16 su CPU
+                # e troppo grande per essere convertito tutto insieme
+                chunk = 262144
+                z_lib = torch.cat([
+                    (z_lib[i:i + chunk].to(self.device).float() @ proj_matrix).cpu()
+                    for i in range(0, z_lib.shape[0], chunk)
+                ])
                 print(f"   DONE. Transformed dim = {z_lib.shape}.")
         except Exception as e:
             print(f"   Error projecting vectors: {e}. Skipping.")

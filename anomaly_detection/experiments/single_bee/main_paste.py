@@ -5,9 +5,32 @@ PaSTe (Partially Shared Teacher-student) - Anomaly detection su singole api
 Addestramento: teacher wide_resnet50_2 ImageNet congelato; lo student (pesi
                casuali) parte dall'output di conv1 del teacher (bootstrap
                layer 0) e impara a riprodurre le feature di layer1-3 sulle api
-               sane (VarroaDataset, TRAIN). SGD lr 0.04 con cosine annealing
-               (la loss usa MSE con reduction="sum"). ad_layers [1, 2, 3]:
-               layer4 a bassa risoluzione è troppo grossolano per la varroa.
+               sane (VarroaDataset, TRAIN). SGD lr 0.04 (momentum 0.9, weight
+               decay 1e-4) con cosine annealing per step su EPOCHS epoche, bf16
+               autocast; la loss usa MSE con reduction="sum". ad_layers
+               [1, 2, 3]: layer4 a bassa risoluzione è troppo grossolano per la
+               varroa. Input 512x512 (risoluzione nativa dei crop): la varroa
+               ha diametro ~33 px, a 256 occuperebbe ~1 cella della griglia di
+               layer3.
+               Lo student generalizza presto anche sulla varroa: nello sweep
+               (experiments/single_bee/sweep_paste.py, logs/paste_sweep/) le
+               metriche hanno il picco alle prime epoche e poi scendono mentre
+               la loss continua a calare. Con questo script (metriche ufficiali
+               a 512): epoca 4 img_roc_auc 0.961 / pxl_avg_prec 0.147, epoca 7
+               0.949 / 0.064; la vecchia ricetta (20 epoche, cosine per epoca,
+               valutazione ogni 5) trovava 0.923 / 0.032. Per questo schedule
+               corto (8 epoche) e valutazione a ogni epoca. Non
+               aiutano: lr 0.01, bootstrap al layer1 (ad_layers [2, 3]), EMA
+               dei pesi dello student; flip/rot90 in training non danno un
+               vantaggio stabile (sweep, pixel AP a 128 px: 0.955 / 0.19
+               all'epoca 4, poi 0.945 / 0.08).
+Valutazione:   mappa = distanza coseno teacher/student del solo layer3
+               (MAP_LAYERS); layer1-2 servono come supervisione dello student
+               ma sulla varroa sono rumorosi (falsi positivi su testa, torace
+               e pose insolite). Nello sweep layer3 da solo, senza blur, è la
+               variante migliore sia per img_roc_auc sia per pxl_avg_prec
+               rispetto a somma/prodotto/normalizzazione con layer1-2, blur e
+               score top-k. Score immagine = massimo della mappa.
 Best:          ogni EVAL_INTERVAL epoche (e all'ultima) metriche sul test set;
                la configurazione migliore (img_roc_auc, a parità pxl_avg_prec)
                viene salvata in checkpoints/single_bee/paste/ (best.pth +
@@ -21,8 +44,10 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import transforms
+from tqdm import tqdm
 
 from moviad.datasets.dataset_arguments import DatasetArguments
 from moviad.datasets.varroa.varroa_dataset import VarroaDataset
@@ -48,11 +73,15 @@ BACKBONE        = "wide_resnet50_2"
 AD_LAYERS       = [1, 2, 3]
 BOOTSTRAP_LAYER = 0
 TEACHER_WEIGHTS = "IMAGENET1K_V1"
-IMG_SIZE        = (256, 256)
-EPOCHS          = 20
+IMG_SIZE        = (512, 512)    # risoluzione nativa dei crop
+MAP_LAYERS      = [3]           # layer usati per la mappa (sottoinsieme di AD_LAYERS)
+MAP_AGGREGATION = "sum"
+MAP_SIGMA       = 0.0         # blur gaussiano della mappa (px a 512) prima dello score
+EPOCHS          = 8
 BATCH_SIZE      = 32
 LR              = 0.04
-EVAL_INTERVAL   = 5          # valuta ogni N epoche (e sempre all'ultima)
+AMP             = True       # bf16 autocast in training (~2x più veloce a 512)
+EVAL_INTERVAL   = 1          # valuta ogni N epoche (e sempre all'ultima)
 NUM_WORKERS     = 8
 SEED            = 1
 
@@ -94,6 +123,9 @@ def build_model(device):
         ad_layers=AD_LAYERS,
         weights=TEACHER_WEIGHTS,
         student_bootstrap_layer=BOOTSTRAP_LAYER,
+        map_aggregation=MAP_AGGREGATION,
+        map_layers=MAP_LAYERS,
+        map_sigma=MAP_SIGMA,
     ).to(device)
 
 
@@ -109,6 +141,27 @@ def load_model_state(model, state):
 # ──────────────────────────────────────────────────────────────────────
 # Training
 # ──────────────────────────────────────────────────────────────────────
+def train_epoch(model, loader, optimizer, scheduler, device, epoch):
+    """Come PaSTe.train_epoch, ma con bf16 autocast e scheduler per step."""
+    model.train()
+    total = 0.0
+    for images in tqdm(loader, desc=f"Epoca {epoch + 1}"):
+        images = images.to(device, non_blocking=True)
+        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=AMP and device.type == "cuda"):
+            t_feat, s_feat = model(images)
+        loss = 0.0
+        for t, s in zip(t_feat, s_feat):
+            t = F.normalize(t.float(), dim=1)
+            s = F.normalize(s.float(), dim=1)
+            loss = loss + (0.5 / (t.shape[2] * t.shape[3])) * F.mse_loss(t, s, reduction="sum")
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
+        total += loss.item()
+    return total / max(1, len(loader))
+
+
 def train_paste_single_bee():
     set_seed(SEED)
     device = torch.device(
@@ -137,7 +190,8 @@ def train_paste_single_bee():
     # SGD (momentum 0.9, weight decay 1e-4) sui soli parametri dello student
     training_args = PasteTrainArgs(epochs=EPOCHS, batch_size=BATCH_SIZE, lr=LR)
     training_args.init_train(model)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(training_args.optimizer, T_max=EPOCHS)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        training_args.optimizer, T_max=EPOCHS * len(train_loader))
     tracker = BestTracker(CHECKPOINT_DIR, script_config(globals()))
 
     print(f"\n{'='*60}")
@@ -145,8 +199,7 @@ def train_paste_single_bee():
     print(f"{'='*60}\n")
 
     for epoch in range(EPOCHS):
-        loss = model.train_epoch(epoch, train_loader, training_args)
-        scheduler.step()
+        loss = train_epoch(model, train_loader, training_args.optimizer, scheduler, device, epoch)
         print(f"Epoca {epoch + 1}/{EPOCHS} — loss: {loss:.6f}, lr: {scheduler.get_last_lr()[0]:.6f}")
 
         if (epoch + 1) % EVAL_INTERVAL == 0 or epoch == EPOCHS - 1:

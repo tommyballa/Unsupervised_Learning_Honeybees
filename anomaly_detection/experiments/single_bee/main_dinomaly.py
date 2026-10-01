@@ -40,6 +40,7 @@ from torchvision import transforms
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 import torch
+import os
 import random
 from pathlib import Path
 import numpy as np
@@ -49,13 +50,15 @@ import numpy as np
 # ──────────────────────────────────────────────────────────────────────
 MODEL_NAME     = "dinomaly"
 ENCODER_NAME   = "vit_base_patch14_reg4_dinov2"
-TARGET_LAYERS  = [2, 3, 4, 5]
-FUSE_LAYER_ENCODER = [[0, 1, 2, 3]]
+# configurazione ufficiale di Dinomaly per ViT-B: 8 layer intermedi fusi in due gruppi
+TARGET_LAYERS  = [2, 3, 4, 5, 6, 7, 8, 9]
+FUSE_LAYER_ENCODER = [[0, 1, 2, 3], [4, 5, 6, 7]]
+FUSE_LAYER_DECODER = [[0, 1, 2, 3], [4, 5, 6, 7]]
 MAX_RATIO      = 0.01   # score immagine = media del top-1% dei pixel (come nel repo ufficiale)
 IMG_SIZE       = (518, 518)
-EPOCHS         = 20
+EPOCHS         = 10
 BATCH_SIZE     = 32
-EVAL_INTERVAL  = 5      # valuta ogni N epoche (e sempre all'ultima)
+EVAL_INTERVAL  = 1      # valuta ogni N epoche (e sempre all'ultima)
 SEED           = 1
 NUM_WORKERS    = 8
 
@@ -67,7 +70,8 @@ GT_SIZE        = (512, 512)
 
 NUM_HEATMAPS   = 20      # metà sane, metà con varroa
 OUTPUT_DIR     = REPO_ROOT / "heatmaps" / "single_bee" / MODEL_NAME
-CHECKPOINT_DIR = REPO_ROOT / "checkpoints" / "single_bee" / MODEL_NAME
+CHECKPOINT_DIR = Path(os.environ.get("DINOMALY_CKPT_DIR",
+                                    REPO_ROOT / "checkpoints" / "single_bee" / MODEL_NAME))
 
 
 def set_seed(seed):
@@ -134,6 +138,7 @@ def build_model(device):
         encoder_name=ENCODER_NAME,
         target_layers=TARGET_LAYERS,
         fuse_layer_encoder=FUSE_LAYER_ENCODER,
+        fuse_layer_decoder=FUSE_LAYER_DECODER,
         # il decoder usa LinearAttention2, che ignora l'attention mask: il
         # neighbor masking non avrebbe effetto (e non è usato nel repo ufficiale)
         mask_neighbor_size=0,

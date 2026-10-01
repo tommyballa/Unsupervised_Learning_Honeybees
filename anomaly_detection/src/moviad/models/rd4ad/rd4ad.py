@@ -45,11 +45,18 @@ class RD4AD(VADModel):
         },
     }
 
-    def __init__(self, backbone_name, input_size=(224, 224)):
+    def __init__(self, backbone_name, input_size=(224, 224), blur_sigma=4.0, layers=None):
+        """
+        Args:
+            blur_sigma: sigma del blur gaussiano sulla mappa (a input_size); 0 = nessun blur
+            layers: indici dei layer sommati nella mappa (None = tutti)
+        """
         super().__init__()
 
         self.device = torch.device("cpu")
         self.input_size = input_size
+        self.blur_sigma = blur_sigma
+        self.layers = layers
 
         if backbone_name in self.MAPPING:
             models = self.MAPPING[backbone_name]
@@ -115,12 +122,10 @@ class RD4AD(VADModel):
 
     def post_process(self, enc_batch, dec_batch) -> torch.Tensor:
         anomaly_map = None
-        sigma = 4
-        kernel_size = 2 * int(4.0 * sigma + 0.5) + 1
-        blur = GaussianBlur(kernel_size=kernel_size, sigma=4)
 
         # iterate over the feature extraction layers batches
-        for i in range(len(enc_batch)):
+        layers = range(len(enc_batch)) if self.layers is None else self.layers
+        for i in layers:
             fs = dec_batch[i]
             ft = enc_batch[i]
 
@@ -138,7 +143,10 @@ class RD4AD(VADModel):
             else:
                 anomaly_map += a_map
 
-        anomaly_map = blur(anomaly_map)
+        if self.blur_sigma > 0:
+            sigma = self.blur_sigma
+            kernel_size = 2 * int(4.0 * sigma + 0.5) + 1
+            anomaly_map = GaussianBlur(kernel_size=kernel_size, sigma=sigma)(anomaly_map)
         return anomaly_map, torch.max(anomaly_map.view(anomaly_map.size(0), -1), dim=1)[0]
 
     def __call__(self, batch):

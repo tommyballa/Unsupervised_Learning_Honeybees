@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 import torch
 import torch.nn.functional as F
+import torchvision.transforms.functional as TF
 from tqdm import tqdm
 
 from moviad.utilities.custom_feature_extractor_trimmed import CustomFeatureExtractor
@@ -29,10 +30,27 @@ class STFPM(VADModel):
         self,
         teacher: CustomFeatureExtractor,
         student: CustomFeatureExtractor,
+        map_aggregation: str = "prod",
+        map_layers: List[int] | None = None,
+        map_sigma: float = 0.0,
     ):
+        """
+        Args:
+            map_aggregation: how the per-layer score maps are combined, "prod" (element-wise
+                product, as in the STFPM paper) or "sum".
+            map_layers: indexes (in the list of extracted feature maps) of the layers used for
+                the anomaly map (default: all). The student is still trained on all the layers.
+            map_sigma: std (in pixels of the output map) of the gaussian blur applied to the
+                anomaly map before taking the image score (0 = no blur).
+        """
         super().__init__()
+        if map_aggregation not in ("prod", "sum"):
+            raise ValueError(f"map_aggregation must be 'prod' or 'sum', got {map_aggregation!r}")
         self.teacher = teacher
         self.student = student
+        self.map_aggregation = map_aggregation
+        self.map_layers = None if map_layers is None else [int(l) for l in map_layers]
+        self.map_sigma = float(map_sigma)
         self.device = torch.device("cpu")
         self.mse_loss = torch.nn.MSELoss(reduction="sum")
 
@@ -113,16 +131,27 @@ class STFPM(VADModel):
         """
 
         device = t_feat[0].device
-        score_maps = torch.tensor([1.0], device=device)
+        score_maps = torch.tensor(
+            [1.0 if self.map_aggregation == "prod" else 0.0], device=device
+        )
         for j in range(len(t_feat)):
+            if self.map_layers is not None and j not in self.map_layers:
+                continue
             t_feat[j] = F.normalize(t_feat[j], dim=1)
             s_feat[j] = F.normalize(s_feat[j], dim=1)
             sm = torch.sum((t_feat[j] - s_feat[j]) ** 2, 1, keepdim=True)
             sm = F.interpolate(
                 sm, size=output_shape, mode="bilinear", align_corners=False
             )
-            # aggregate score map by element-wise product
-            score_maps = score_maps * sm
+            # aggregate score map by element-wise product (or sum)
+            if self.map_aggregation == "prod":
+                score_maps = score_maps * sm
+            else:
+                score_maps = score_maps + sm
+
+        if self.map_sigma > 0:
+            k = 2 * int(round(4 * self.map_sigma)) + 1
+            score_maps = TF.gaussian_blur(score_maps, kernel_size=[k, k], sigma=[self.map_sigma] * 2)
 
         anomaly_scores = torch.max(score_maps.view(score_maps.size(0), -1), dim=1)[0]
         return score_maps, anomaly_scores

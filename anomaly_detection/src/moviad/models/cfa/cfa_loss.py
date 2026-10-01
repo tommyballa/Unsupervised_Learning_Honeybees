@@ -14,8 +14,8 @@ def soft_boundary(phi_p: torch.Tensor, memory_bank, K, J, r, alpha, nu) -> float
 
     features = torch.sum(torch.pow(phi_p, 2), 2, keepdim=True)
     centers  = torch.sum(torch.pow(memory_bank, 2), 0, keepdim=True)
-    f_c      = 2 * torch.matmul(phi_p, (memory_bank))
-    dist     = features + centers - f_c
+    # operazioni in-place: una sola matrice (patch x memory bank) in memoria
+    dist     = torch.matmul(phi_p, (memory_bank)).mul_(-2).add_(features).add_(centers)
     n_neighbors = K + J
     dist     = dist.topk(n_neighbors, largest=False).values
 

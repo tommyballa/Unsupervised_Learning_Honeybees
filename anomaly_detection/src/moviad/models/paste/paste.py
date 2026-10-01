@@ -11,6 +11,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset
 from torchvision import transforms
+import torchvision.transforms.functional as TF
 from torchvision.models import get_model
 from tqdm import tqdm
 from dataclasses import dataclass
@@ -208,6 +209,9 @@ class PaSTe(nn.Module):
         ad_layers: Optional[Union[List[int], List[str]]] = None,
         weights="IMAGENET1K_V2",
         student_bootstrap_layer: Optional[int] = None,
+        map_aggregation: str = "prod",
+        map_layers: Optional[List[int]] = None,
+        map_sigma: float = 0.0,
     ):
         """
         This class manages the PasTe AD model
@@ -224,6 +228,12 @@ class PaSTe(nn.Module):
                 The teacher computes the feature maps un and including this layer, and the output of this
                 layer is used as input for the student model. If False, the student model is trained from
                 the input image.
+            map_aggregation: how the per-layer score maps are combined, "prod" (element-wise
+                product, as in STFPM/PaSTe) or "sum".
+            map_layers: subset of ad_layers used for the anomaly map (default: all). The student
+                is still trained on all the ad_layers.
+            map_sigma: std (in pixels of output_size) of the gaussian blur applied to the anomaly
+                map before taking the image score (0 = no blur).
         """
         super(PaSTe, self).__init__()
 
@@ -232,6 +242,11 @@ class PaSTe(nn.Module):
 
         self.input_size = input_size
         self.output_size = output_size
+        if map_aggregation not in ("prod", "sum"):
+            raise ValueError(f"map_aggregation must be 'prod' or 'sum', got {map_aggregation!r}")
+        self.map_aggregation = map_aggregation
+        self.map_layers = None if map_layers is None else [int(l) for l in map_layers]
+        self.map_sigma = float(map_sigma)
 
         # backbone params
         self.weights_name = weights
@@ -432,16 +447,29 @@ class PaSTe(nn.Module):
         """
 
         device = t_feat[0].device
-        score_maps = torch.tensor([1.0], device=device)
+        score_maps = torch.tensor(
+            [1.0 if self.map_aggregation == "prod" else 0.0], device=device
+        )
+        # ad_layer index of each feature map (t_feat is trimmed to the student's last maps)
+        feat_layers = self.ad_layers[-len(t_feat):]
         for j in range(len(t_feat)):
+            if self.map_layers is not None and feat_layers[j] not in self.map_layers:
+                continue
             t_feat[j] = F.normalize(t_feat[j], dim=1)
             s_feat[j] = F.normalize(s_feat[j], dim=1)
             sm = torch.sum((t_feat[j] - s_feat[j]) ** 2, 1, keepdim=True)
             sm = F.interpolate(
                 sm, size=self.output_size, mode="bilinear", align_corners=False
             )
-            # aggregate score map by element-wise product
-            score_maps = score_maps * sm
+            # aggregate score map by element-wise product (or sum)
+            if self.map_aggregation == "prod":
+                score_maps = score_maps * sm
+            else:
+                score_maps = score_maps + sm
+
+        if self.map_sigma > 0:
+            k = 2 * int(round(4 * self.map_sigma)) + 1
+            score_maps = TF.gaussian_blur(score_maps, kernel_size=[k, k], sigma=[self.map_sigma] * 2)
 
         anomaly_scores = torch.max(score_maps.view(score_maps.size(0), -1), dim=1)[0]
         return score_maps, anomaly_scores

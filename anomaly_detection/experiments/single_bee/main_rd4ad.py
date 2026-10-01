@@ -4,7 +4,17 @@ RD4AD (Reverse Distillation) - Anomaly detection su singole api (single bee crop
 Addestramento: immagini normali di singole api (VarroaDataset, split TRAIN),
                con augmentation geometrica (flip) perché le api possono avere
                qualsiasi orientamento.
-Best:          ogni EVAL_INTERVAL epoche (e all'ultima) metriche sul test set;
+Ottimizzazione (sweep: experiments/single_bee/sweep_rd4ad.py):
+  - risoluzione nativa 512 (le varroe sono piccole): img AUROC ~0.90 a 256,
+    ~0.96 a 384, ~0.978 a 512;
+  - mappa dai soli layer 1 e 2 (il layer 0 è rumoroso: img AP 0.85 contro ~0.75);
+  - training breve: con 23k immagini RD4AD over-generalizza già dopo ~1 epoca
+    (il decoder impara a ricostruire anche le anomalie e le metriche calano),
+    quindi poche epoche con LR coseno e valutazione frequente;
+  - EMA dei pesi (EMA_DECAY) disponibile ma disattivata: stabilizza le run
+    lunghe, ma al picco precoce è in ritardo (384: img AUROC 0.954 contro 0.962);
+  - training in bf16 (autocast), valutazione in fp32.
+Best:          ogni EVAL_INTERVAL step (e alla fine) metriche sul test set;
                la configurazione migliore (img_roc_auc, a parità pxl_avg_prec)
                viene salvata in checkpoints/single_bee/rd4ad/ (best.pth +
                config.json).
@@ -12,6 +22,8 @@ Heatmap e metriche finali (AUROC, AvgPrec, F1, AUPRO) dalla best:
     python experiments/plot_heatmaps.py single_bee rd4ad
 """
 
+import copy
+import math
 import random
 from pathlib import Path
 
@@ -19,10 +31,12 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
+from tqdm import tqdm
 
 from moviad.datasets.dataset_arguments import DatasetArguments
 from moviad.datasets.varroa.varroa_dataset import VarroaDataset
-from moviad.models.rd4ad.rd4ad import RD4AD, RD4ADTrainArgs
+from moviad.models.rd4ad.loss_functions import rd4ad_cosine_loss
+from moviad.models.rd4ad.rd4ad import RD4AD
 from moviad.utilities.configurations import Split
 from moviad.utilities.evaluation.checkpoints import BestTracker, clean_state_dict, script_config
 from moviad.utilities.evaluation.report import (
@@ -41,10 +55,17 @@ TRAIN_DIR     = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processe
 GT_SIZE       = (512, 512)
 
 BACKBONE      = "wide_resnet50_2"
-IMG_SIZE      = (256, 256)   # RD4AD richiede multipli di 32
-EPOCHS        = 20
+IMG_SIZE      = (512, 512)   # RD4AD richiede multipli di 32
+TRAIN_EPOCHS  = 0.5          # epoche (anche frazionarie): il picco è tra 1/4 e 1/2 epoca
 BATCH_SIZE    = 16
-EVAL_INTERVAL = 5            # valuta ogni N epoche (e sempre all'ultima)
+LR            = 0.005        # paper: Adam lr 0.005, betas (0.5, 0.999)
+BETAS         = (0.5, 0.999)
+WARMUP_FRAC   = 0.02         # warmup lineare, poi decadimento coseno fino a 0
+EMA_DECAY     = 0.0          # EMA dei pesi di bn + decoder (0 = off: al picco precoce l'EMA è in ritardo)
+AMP           = True         # bf16 autocast in training
+EVAL_INTERVAL = 181          # valuta ogni N step (~1/8 di epoca) e sempre alla fine
+BLUR_SIGMA    = 4.0          # sigma del blur sulla mappa a IMG_SIZE (= 2 a 256)
+LAYERS        = (1, 2)       # layer sommati nella mappa (None = tutti e 3): il layer 0 è rumoroso
 NUM_WORKERS   = 8
 SEED          = 1
 
@@ -99,7 +120,8 @@ def dataset_args():
 
 
 def build_model(device):
-    model = RD4AD(backbone_name=BACKBONE, input_size=IMG_SIZE).to(device)
+    model = RD4AD(backbone_name=BACKBONE, input_size=IMG_SIZE,
+                  blur_sigma=BLUR_SIGMA, layers=LAYERS).to(device)
     # l'encoder (teacher) è congelato: l'optimizer aggiorna solo bottleneck e decoder
     for p in model.encoder.parameters():
         p.requires_grad_(False)
@@ -120,6 +142,18 @@ def load_model_state(model, state):
 # ──────────────────────────────────────────────────────────────────────
 # Training
 # ──────────────────────────────────────────────────────────────────────
+@torch.no_grad()
+def update_ema(ema_model, model, step):
+    # decay ridotto nei primi step (come timm ModelEmaV2 con warmup)
+    decay = min(EMA_DECAY, (1 + step) / (10 + step))
+    for ema_mod, mod in ((ema_model.bn, model.bn), (ema_model.decoder, model.decoder)):
+        for e, m in zip(ema_mod.state_dict().values(), mod.state_dict().values()):
+            if e.dtype.is_floating_point:
+                e.mul_(decay).add_(m.detach(), alpha=1 - decay)
+            else:
+                e.copy_(m)
+
+
 def train_rd4ad_single_bee():
     set_seed(SEED)
     device = torch.device(
@@ -132,6 +166,8 @@ def train_rd4ad_single_bee():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
     model = build_model(device)
+    ema_model = copy.deepcopy(model) if EMA_DECAY > 0 else model
+    ema_model.encoder = model.encoder  # encoder congelato condiviso
 
     train_dataset = AugmentedTrainDataset(VarroaDataset(dataset_args(), "varroa", Split.TRAIN))
     test_dataset = VarroaDataset(dataset_args(), "varroa", Split.TEST)
@@ -145,27 +181,52 @@ def train_rd4ad_single_bee():
         num_workers=NUM_WORKERS, pin_memory=True,
     )
 
-    training_args = RD4ADTrainArgs(epochs=EPOCHS, batch_size=BATCH_SIZE,
-                                   evaluation_epoch_interval=EVAL_INTERVAL)
-    training_args.init_train(model)
+    # l'encoder (teacher) è congelato: l'optimizer aggiorna solo bottleneck e decoder
+    optimizer = torch.optim.Adam(list(model.decoder.parameters()) + list(model.bn.parameters()),
+                                 lr=LR, betas=BETAS)
+    total_steps = int(TRAIN_EPOCHS * len(train_loader))
+    warmup = max(1, int(WARMUP_FRAC * total_steps))
+    scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer, lambda s: min(1.0, (s + 1) / warmup) * 0.5 * (1 + math.cos(math.pi * min(s, total_steps) / total_steps)))
+    use_amp = AMP and device.type == "cuda"
     tracker = BestTracker(CHECKPOINT_DIR, script_config(globals()))
 
     print(f"\n{'='*60}")
-    print(f"Training RD4AD single-bee | {EPOCHS} epoche | {len(train_loader)} batch/epoca")
+    print(f"Training RD4AD single-bee | {TRAIN_EPOCHS} epoche = {total_steps} step "
+          f"| {len(train_loader)} batch/epoca | valutazione ogni {EVAL_INTERVAL} step")
     print(f"{'='*60}\n")
 
-    for epoch in range(EPOCHS):
-        model.train()
-        loss = model.train_epoch(epoch, train_loader, training_args)
-        print(f"Epoca {epoch + 1}/{EPOCHS} — loss: {loss:.6f}")
+    step, running_loss, n = 0, 0.0, 0
+    while step < total_steps:
+        for batch in tqdm(train_loader, desc=f"step {step}/{total_steps}", leave=False):
+            model.train()
+            batch = batch.to(device, non_blocking=True)
+            with torch.autocast(device.type, dtype=torch.bfloat16, enabled=use_amp):
+                teacher = model.encoder(batch)
+                student = model.decoder(model.bn(teacher))
+            loss = sum(rd4ad_cosine_loss(t.float(), s.float()) for t, s in zip(teacher, student))
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
+            step += 1
+            if ema_model is not model:
+                update_ema(ema_model, model, step)
+            running_loss += loss.item(); n += 1
 
-        if (epoch + 1) % EVAL_INTERVAL == 0 or epoch == EPOCHS - 1:
-            maps, scores, labels, masks = run_inference(model, test_loader, device)
-            results = compute_metrics(maps, scores, labels, masks, with_pro=False)
-            print_metrics(results)
-            tracker.update(epoch + 1, results, lambda: model_state(model))
+            if step % EVAL_INTERVAL == 0 or step == total_steps:
+                print(f"Step {step}/{total_steps} (epoca {step / len(train_loader):.2f}) — "
+                      f"loss: {running_loss / n:.6f}, lr: {scheduler.get_last_lr()[0]:.2e}")
+                running_loss, n = 0.0, 0
+                maps, scores, labels, masks = run_inference(ema_model, test_loader, device)
+                results = compute_metrics(maps, scores, labels, masks, with_pro=False)
+                del maps, masks
+                print_metrics(results)
+                tracker.update(step, results, lambda: model_state(ema_model))
+            if step >= total_steps:
+                break
 
-    print(f"\nBest RD4AD — {tracker.summary()}")
+    print(f"\nBest RD4AD (\"epoca\" = step di training) — {tracker.summary()}")
     print(f"Heatmap e metriche finali: python experiments/plot_heatmaps.py single_bee {MODEL_NAME}")
 
 
