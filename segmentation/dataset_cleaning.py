@@ -280,7 +280,8 @@ def clean_and_filter(img_bgr, mask, is_raw_polygon, filename):
     if border_pixels > 15: return None
     
     # --- FILTRO 3: Spezza ponti sottili (thin bridges) ---
-    open_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+    # Kernel aumentato per staccare con maggior forza api adiacenti o collegate
+    open_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (25, 25))
     opened_mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, open_kernel)
     
     contours, _ = cv2.findContours(opened_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -291,18 +292,20 @@ def clean_and_filter(img_bgr, mask, is_raw_polygon, filename):
     clean_mask = np.zeros_like(mask)
     cv2.drawContours(clean_mask, [largest_contour], -1, 255, thickness=cv2.FILLED)
     
-    dilate_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
+    # Kernel aumentato per recuperare zampe e antenne dopo il taglio più aggressivo
+    dilate_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (19, 19))
     clean_mask = cv2.dilate(clean_mask, dilate_kernel, iterations=1)
     clean_mask = cv2.bitwise_and(clean_mask, mask)
     
     total_mask_area = cv2.countNonZero(mask)
     main_area = cv2.countNonZero(clean_mask)
     if total_mask_area > 0:
-        if (1.0 - (main_area / total_mask_area)) > 0.15: return None
+        if (1.0 - (main_area / total_mask_area)) > 0.20: return None
     
-    # Chiudiamo i buchi interni
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
-    clean_mask = cv2.morphologyEx(clean_mask, cv2.MORPH_CLOSE, kernel)
+    # Chiudiamo i buchi interni in modo definitivo riempiendo i contorni esterni
+    contours_clean, _ = cv2.findContours(clean_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if contours_clean:
+        cv2.drawContours(clean_mask, contours_clean, -1, 255, thickness=cv2.FILLED)
     
     # --- FILTRO 5: Area minima ---
     area = cv2.countNonZero(clean_mask)
@@ -411,6 +414,6 @@ def run_cleaning(input_dir, output_dir):
 
 
 if __name__ == "__main__":
-    raw_dir = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train/anomaly_bees"
-    clean_dir = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee/cleaned_bees"
+    raw_dir = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/raw_bees"
+    clean_dir = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees"
     run_cleaning(raw_dir, clean_dir)

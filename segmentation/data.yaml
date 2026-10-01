@@ -1,5 +1,6 @@
-train: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train/images
-val: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test/images
+train: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_merged/images
+val: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/val_split/images
+test: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_split/images
 
 nc: 1
 names: ['bee']

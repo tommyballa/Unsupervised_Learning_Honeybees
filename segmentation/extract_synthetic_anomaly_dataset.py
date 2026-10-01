@@ -25,13 +25,13 @@ from dataset_cleaning import clean_and_filter, refine_raw_polygon_mask, normaliz
 
 # --- Configurazione ---
 # Cartella con le immagini sintetiche e maschere generate da varroa_generator.py
-SYNTHETIC_DIR = "/mnt/disk1/borsattifr/datasets/bees_datasets/DatasetApi_Ceschi/processed/test/synthetic_varroa_output_v2/images"
+SYNTHETIC_DIR = "/mnt/disk1/borsattifr/datasets/bees_datasets/DatasetApi_Ceschi/processed/test_merged/synthetic_varroa_output/images"
 
 # Modello YOLO per la segmentazione (lo stesso usato in extract_anomaly_dataset.py)
-YOLO_MODEL_PATH = "runs/segment/runs/segment/bee_model_finetuned_yolo26s-2/weights/best.pt"
+YOLO_MODEL_PATH = "runs/segment/runs/segment/bee_model_finetuned_yolo26s_dominiuniti/weights/best.pt"
 
 # Output
-OUTPUT_BASE = "/mnt/disk1/borsattifr/datasets/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee"
+OUTPUT_BASE = "/mnt/disk1/borsattifr/datasets/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee_merged"
 OUTPUT_NORMAL = os.path.join(OUTPUT_BASE, "normal")
 OUTPUT_ANOMALOUS = os.path.join(OUTPUT_BASE, "anomalous")
 OUTPUT_MASKS = os.path.join(OUTPUT_BASE, "masks")

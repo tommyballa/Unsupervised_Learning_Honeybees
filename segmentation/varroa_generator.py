@@ -4,14 +4,14 @@ import random
 import os
 
 # --- Configurazione ---
-IMAGES_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test/images"
-LABELS_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test/labels"
+IMAGES_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_merged/images"
+LABELS_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_merged/labels"
 VARROA_PATHS = [
     "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/varroa_alpha.png",
     "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/varroa_alpha2.png",
     "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/varroa_alpha3.png",
 ]
-OUTPUT_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test/synthetic_varroa_output_v2"
+OUTPUT_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_merged/synthetic_varroa_output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 import glob
 
