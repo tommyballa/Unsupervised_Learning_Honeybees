@@ -15,6 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG_PATH = REPO_ROOT / "config" / "al_config.yaml"
 
 UNCERTAINTIES = ("margin", "entropy", "least_confidence")
+ID_SEPARATOR = "__"  # tra nome della cartella e nome del file negli image_id
 
 
 def _check(cond: bool, msg: str) -> None:
@@ -25,6 +26,9 @@ def _check(cond: bool, msg: str) -> None:
 @dataclass
 class PathsConfig:
     dataset_dir: str = "data/images"
+    # Più cartelle: {nome: cartella}. Se non è vuoto ha la precedenza su ``dataset_dir``
+    # e l'image_id diventa "<nome>__<file>", perché i nomi dei file si ripetono tra cartelle.
+    dataset_dirs: dict[str, str] = field(default_factory=dict)
     results_dir: str = "active_learning_tool/results"
     embeddings_dir: str = "data/embeddings"
     models_dir: str = "models"
@@ -117,9 +121,29 @@ class RetrainConfig:
     plateau_rounds: int = 3
     metric: str = "macro_f1"
     min_delta: float = 0.0
+    trainer: str = "contrastive"
+    python: str = "venv/bin/python"
+    min_labels: int = 20
+    require_improvement: bool = True
+    pseudo_label_threshold: float = 0.95
+    unfreeze_blocks: int = 2
+    steps: int = 300
+    batch_size: int = 96
+    labeled_fraction: float = 0.5
+    lr_backbone: float = 1e-5
+    lr_head: float = 1e-3
+    temperature: float = 0.1
+    projection_dim: int = 128
+    num_workers: int = 8
+    device: str = "auto"
 
     def __post_init__(self) -> None:
         _check(self.policy in ("label_count", "plateau", "either"), "retrain.policy sconosciuta")
+        _check(self.trainer in ("contrastive", "stub"), "retrain.trainer in (contrastive, stub)")
+        _check(self.pseudo_label_threshold > 0, "retrain.pseudo_label_threshold > 0")
+        _check(0 < self.labeled_fraction < 1, "retrain.labeled_fraction in (0, 1)")
+        _check(self.steps >= 1 and self.batch_size >= 4, "retrain.steps >= 1 e batch_size >= 4")
+        _check(self.temperature > 0, "retrain.temperature > 0")
         _check(self.metric in ("macro_f1", "accuracy"), "retrain.metric in (macro_f1, accuracy)")
         _check(self.initial_labels >= 1 and self.growth_factor >= 1, "retrain.initial_labels/growth_factor >= 1")
 
@@ -158,8 +182,16 @@ class ALConfig:
         return p if p.is_absolute() else Path(self.root) / p
 
     @property
+    def dataset_sources(self) -> list[tuple[str, Path]]:
+        """Cartelle delle immagini come (prefisso dell'image_id, cartella); prefisso vuoto con una sola cartella."""
+        if self.paths.dataset_dirs:
+            return [(f"{name}{ID_SEPARATOR}", self.resolve(d)) for name, d in self.paths.dataset_dirs.items()]
+        return [("", self.resolve(self.paths.dataset_dir))]
+
+    @property
     def dataset_dir(self) -> Path:
-        return self.resolve(self.paths.dataset_dir)
+        """Prima (o unica) cartella del dataset."""
+        return self.dataset_sources[0][1]
 
     @property
     def results_dir(self) -> Path:
@@ -236,6 +268,9 @@ def config_from_dict(data: Optional[dict[str, Any]], root: Union[str, Path, None
     data = dict(data or {})
     _check("root" not in data, "'root' non va nel file di configurazione")
     cfg: ALConfig = _from_dict(ALConfig, data)
+    for name in cfg.paths.dataset_dirs:
+        _check(bool(name) and "/" not in name and ID_SEPARATOR not in name,
+               f"paths.dataset_dirs: nome non valido {name!r} (niente '/' né '{ID_SEPARATOR}')")
     if root is not None:
         cfg.root = str(Path(root).resolve())
     return cfg

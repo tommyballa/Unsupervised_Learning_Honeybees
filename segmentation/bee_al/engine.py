@@ -113,7 +113,9 @@ class ALEngine:
         self.spreader: Optional[LabelSpreader] = None
         if self.cfg.propagation.enabled:
             p = self.cfg.propagation
-            self.spreader = LabelSpreader.from_bank(self.bank, p.n_neighbors, p.alpha, p.max_iter, p.tol)
+            self.spreader = LabelSpreader.from_bank(
+                self.bank, p.n_neighbors, p.alpha, p.max_iter, p.tol, cache_dir=self.cfg.results_dir / "cache"
+            )
 
     def set_embeddings(self, embeddings: Embeddings, model_version: str) -> None:
         """Sostituisce l'extractor (fine re-train): nuova bank, nuovo grafo, incertezze ricalcolate."""

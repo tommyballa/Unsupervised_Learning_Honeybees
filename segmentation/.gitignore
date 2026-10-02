@@ -12,4 +12,9 @@ venv/
 # bee_al: embedding estratti e modelli versionati
 data/
 models/
+models_*/
 .pytest_cache/
+
+# log pesanti dei training e log runtime dell'hub (contengono l'URL pubblico del tunnel)
+logs/train_*.log
+logs/hub_*.log

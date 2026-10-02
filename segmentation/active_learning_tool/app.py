@@ -518,7 +518,7 @@ def results():
 
 
 # ----------------- ACTIVE LEARNING (bee_al) ----------------- #
-# Adds /al-labeling, /al-clusters, /al-status and /al-refresh. The routes above are untouched
+# Adds /al-labeling, /al-clusters, /al-status, /al-refresh, /al-retrain and /al-image. The routes above are untouched
 # and keep working even if bee_al or its dependencies are missing.
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

@@ -16,22 +16,6 @@ ORIGINAL_ROUTES = {
 }
 
 
-@pytest.fixture(scope="module")
-def hub_app(tmp_path_factory):
-    """Importa app.py da una cartella temporanea: il suo ``results`` relativo finisce lì."""
-    import os
-
-    cwd = os.getcwd()
-    os.chdir(tmp_path_factory.mktemp("hub_cwd"))
-    try:
-        spec = importlib.util.spec_from_file_location("hub_app_under_test", REPO_ROOT / "active_learning_tool" / "app.py")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-    finally:
-        os.chdir(cwd)
-    return module
-
-
 @pytest.fixture
 def client(hub_app, cfg, synth, monkeypatch, tmp_path):
     X, y, ids = synth
@@ -74,7 +58,7 @@ def test_pages_require_login(hub_app):
 def test_labeling_saves_label_and_moves_on(client, cfg):
     html = client.get("/al-labeling").get_data(as_text=True)
     first = _image_id(html)
-    assert f"/get_image/{first}" in html
+    assert f"/al-image/{first}" in html
     assert "kNN suggestion" not in html                      # suggerimento nascosto di default
     assert _image_id(client.get("/al-labeling").get_data(as_text=True)) == first  # ricaricare non cambia ape
 
@@ -151,6 +135,33 @@ def test_missing_embeddings_shows_instructions(hub_app, monkeypatch, tmp_path):
     assert c.get("/results").status_code == 200  # il resto dell'hub continua a funzionare
 
 
+def test_slow_start_shows_a_loading_page_instead_of_hanging(hub_app, cfg, synth, monkeypatch, tmp_path):
+    import threading
+
+    X, y, ids = synth
+    gate = threading.Event()
+
+    def slow(cls, path=None):
+        gate.wait(10)
+        return ALEngine(cfg, Embeddings(ids, list(ids), X))
+
+    monkeypatch.setattr(al_hub.STATE, "engine", None)
+    monkeypatch.setattr(al_hub.STATE, "_thread", None)
+    monkeypatch.setattr(ALEngine, "from_config", classmethod(slow))
+    monkeypatch.chdir(tmp_path)
+    c = hub_app.app.test_client()
+    c.post("/", data={"email": "t@x.it"})
+
+    for url in ("/al-labeling", "/al-status", "/al-clusters"):      # tutte rispondono subito
+        r = c.get(url)
+        assert r.status_code == 503 and "Active learning is starting" in r.get_data(as_text=True)
+        assert 'http-equiv="refresh"' in r.get_data(as_text=True)
+    assert c.get("/").status_code == 200                              # la dashboard non aspetta
+    gate.set()
+    al_hub.STATE.wait(20)
+    assert c.get("/al-status").status_code == 200 and "0 of 300 images" in c.get("/al-status").get_data(as_text=True)
+
+
 def test_clusters_page(client, synth):
     X, y, ids = synth
     truth = dict(zip(ids, y))
@@ -163,8 +174,8 @@ def test_clusters_page(client, synth):
     html = client.get("/al-clusters?n=6&order=confident").get_data(as_text=True)
     classes = client.engine.bank.classes
     assert all(c in html for c in classes) and "predicted" in html
-    assert 0 < html.count("/get_image/") <= 6 * (len(classes) + 1)   # +1: gruppo "non assegnate"
-    assert html.count("/get_image/") > client.get("/al-clusters?n=1").get_data(as_text=True).count("/get_image/")
+    assert 0 < html.count("/al-image/") <= 6 * (len(classes) + 1)   # +1: gruppo "non assegnate"
+    assert html.count("/al-image/") > client.get("/al-clusters?n=1").get_data(as_text=True).count("/al-image/")
     assert client.get("/al-clusters?n=abc&order=boh").status_code == 200
     assert hub_app_rules(client) >= {"/al-clusters"}
 
@@ -228,3 +239,26 @@ def test_clusters_page_edits_labels(client, synth):
         assert r.status_code == 200 and "color: var(--btn-red)" in r.get_data(as_text=True)
     assert client.engine.bank.label_of(done[4]) == truth[done[4]]
     assert hub_app_rules(client) >= {"/al-clusters"} and client.get("/inspect").status_code == 200
+
+
+def test_retrain_button(client, synth):
+    X, y, ids = synth
+    truth = dict(zip(ids, y))
+    client.engine.cfg.retrain.trainer = "stub"
+
+    r = client.post("/al-retrain")                            # troppo poche etichette: messaggio, nessun job
+    assert r.status_code == 302 and "retrain_error" in r.headers["Location"]
+    html = client.get(r.headers["Location"]).get_data(as_text=True)
+    assert "Re-train not started" in html and "at least 20 labels" in html and "disabled" in html
+
+    for _ in range(3):
+        _label_first_batch(client, truth)
+    html = client.get("/al-status").get_data(as_text=True)
+    assert "Start re-train now" in html and "only when you press the button" in html and "Not available" not in html
+
+    assert client.post("/al-retrain").status_code == 302
+    client.engine.retrain.join(20)
+    assert client.engine.model_version == "v001"
+    html = client.get("/al-status").get_data(as_text=True)
+    assert "v001" in html and "In use." in html and "button, t@x.it" not in html
+    assert "/al-retrain" in hub_app_rules(client)

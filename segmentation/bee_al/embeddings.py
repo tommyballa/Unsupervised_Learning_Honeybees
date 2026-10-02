@@ -46,6 +46,25 @@ def list_images(dataset_dir: Union[str, Path]) -> list[Path]:
     return sorted(p for p in d.iterdir() if p.suffix.lower() in IMAGE_EXTENSIONS)
 
 
+def list_dataset(sources: Sequence[tuple[str, Union[str, Path]]]) -> tuple[list[str], list[Path]]:
+    """Image_id e percorsi di tutte le cartelle (vedi ``ALConfig.dataset_sources``).
+
+    L'image_id è il prefisso della cartella più il nome del file, così resta unico
+    anche quando due cartelle contengono file con lo stesso nome.
+    """
+    ids: list[str] = []
+    paths: list[Path] = []
+    for prefix, folder in sources:
+        if not Path(folder).is_dir():
+            continue
+        for p in list_images(folder):
+            ids.append(f"{prefix}{p.name}")
+            paths.append(p)
+    if len(set(ids)) != len(ids):
+        raise ValueError("image_id duplicati tra le cartelle del dataset")
+    return ids, paths
+
+
 def _write_json_atomic(path: Path, data: dict[str, Any]) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     with open(tmp, "w", encoding="utf-8") as f:
@@ -83,10 +102,12 @@ def extract_embeddings(
     meta: Optional[dict[str, Any]] = None,
     shard_size: int = 2048,
     log: Callable[[str], None] = lambda s: None,
+    image_ids: Optional[Sequence[str]] = None,
 ) -> int:
     """Estrae gli embedding mancanti e li salva a shard. Restituisce quanti ne ha aggiunti.
 
     Si può interrompere e rilanciare: le immagini già presenti nel manifest vengono saltate.
+    ``image_ids`` dà un id a ogni percorso; se manca, l'id è il nome del file.
     ``meta`` (modello, dimensione immagine, ...) deve coincidere con quello di un'estrazione precedente.
     """
     out = Path(out_dir)
@@ -99,21 +120,25 @@ def extract_embeddings(
             "Usa un'altra cartella o cancella quella esistente."
         )
 
+    paths = [Path(p) for p in image_paths]
+    ids = list(image_ids) if image_ids is not None else [p.name for p in paths]
+    if len(ids) != len(paths) or len(set(ids)) != len(ids):
+        raise ValueError("image_ids deve avere un id distinto per ogni immagine")
     done = _done_ids(out, manifest)
-    todo = [Path(p) for p in image_paths if Path(p).name not in done]
+    todo = [(i, p) for i, p in zip(ids, paths) if i not in done]
     log(f"{len(done)} immagini già fatte, {len(todo)} da estrarre")
 
     added = 0
     for start in range(0, len(todo), shard_size):
         chunk = todo[start:start + shard_size]
-        emb = np.asarray(encoder(chunk), dtype=np.float32)
+        emb = np.asarray(encoder([p for _, p in chunk]), dtype=np.float32)
         ok = np.isfinite(emb).all(axis=1)
-        manifest["failed"].extend(p.name for p, good in zip(chunk, ok) if not good)
-        kept = [p for p, good in zip(chunk, ok) if good]
+        manifest["failed"].extend(i for (i, _), good in zip(chunk, ok) if not good)
+        kept = [item for item, good in zip(chunk, ok) if good]
         if kept:
             X = l2_normalize(emb[ok])
             name = f"shard_{len(manifest['shards']):05d}.npz"
-            _write_shard(out, name, [p.name for p in kept], [str(p) for p in kept], X)
+            _write_shard(out, name, [i for i, _ in kept], [str(p) for _, p in kept], X)
             manifest["shards"].append({"file": name, "count": len(kept)})
             manifest["dim"] = int(X.shape[1])
             added += len(kept)

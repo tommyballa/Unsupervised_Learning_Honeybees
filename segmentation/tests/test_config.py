@@ -18,7 +18,7 @@ def test_default_yaml_loads_with_spec_defaults():
 def test_relative_paths_resolve_against_root(tmp_path):
     cfg = config_from_dict({"paths": {"results_dir": "res"}}, root=tmp_path)
     assert cfg.al_labels_path == tmp_path / "res" / "al_labels.csv"
-    assert load_config().results_dir == REPO_ROOT / "active_learning_tool" / "results"
+    assert load_config().embeddings_dir == REPO_ROOT / "data" / "embeddings_batch3+4"
 
 
 def test_unknown_key_and_bad_values_are_rejected():

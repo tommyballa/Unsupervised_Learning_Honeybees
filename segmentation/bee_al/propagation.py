@@ -1,7 +1,10 @@
 """Label spreading su un grafo kNN sparso (Zhou et al., 2004). Nessuna rete da addestrare."""
 from __future__ import annotations
 
-from typing import Sequence
+import hashlib
+import os
+from pathlib import Path
+from typing import Sequence, Union
 
 import numpy as np
 import scipy.sparse as sp
@@ -30,6 +33,31 @@ def build_knn_graph(bank: MemoryBank, n_neighbors: int = 15) -> sp.csr_matrix:
     return (D @ W @ D).tocsr()
 
 
+def load_or_build_graph(bank: MemoryBank, n_neighbors: int = 15, cache_dir: Union[str, Path, None] = None) -> sp.csr_matrix:
+    """Come ``build_knn_graph``, ma riusa il grafo salvato su disco se gli embedding sono gli stessi.
+
+    Su dataset grandi costruire il grafo richiede circa un minuto; il file in cache
+    è legato al contenuto degli embedding e al numero di vicini, quindi non va mai invalidato a mano.
+    """
+    if cache_dir is None:
+        return build_knn_graph(bank, n_neighbors)
+    key = hashlib.sha1(np.ascontiguousarray(bank.X).tobytes()).hexdigest()[:16]
+    path = Path(cache_dir) / f"knn_graph_{key}_k{n_neighbors}.npz"
+    if path.exists():
+        try:
+            graph = sp.load_npz(path).tocsr()
+            if graph.shape == (len(bank), len(bank)):
+                return graph
+        except Exception:
+            pass  # file rovinato (es. scrittura interrotta): si ricostruisce
+    graph = build_knn_graph(bank, n_neighbors)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp.npz")
+    sp.save_npz(tmp, graph)
+    os.replace(tmp, path)
+    return graph
+
+
 class LabelSpreader:
     """Propaga le etichette lungo il grafo: ``F <- alpha * S F + (1 - alpha) * Y0``."""
 
@@ -41,9 +69,10 @@ class LabelSpreader:
 
     @classmethod
     def from_bank(
-        cls, bank: MemoryBank, n_neighbors: int = 15, alpha: float = 0.8, max_iter: int = 30, tol: float = 1e-4
+        cls, bank: MemoryBank, n_neighbors: int = 15, alpha: float = 0.8, max_iter: int = 30, tol: float = 1e-4,
+        cache_dir: Union[str, Path, None] = None,
     ) -> "LabelSpreader":
-        return cls(build_knn_graph(bank, n_neighbors), alpha=alpha, max_iter=max_iter, tol=tol)
+        return cls(load_or_build_graph(bank, n_neighbors, cache_dir), alpha=alpha, max_iter=max_iter, tol=tol)
 
     def propagate(self, labeled_idx: Sequence[int], labels: Sequence[str]) -> Prediction:
         """Distribuzione sulle classi per ogni nodo del grafo.

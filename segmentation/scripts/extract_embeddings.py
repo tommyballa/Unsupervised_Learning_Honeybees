@@ -17,7 +17,7 @@ from bee_al.config import load_config  # noqa: E402
 from bee_al.embeddings import (  # noqa: E402
     build_torch_encoder,
     extract_embeddings,
-    list_images,
+    list_dataset,
     load_backbone,
     read_manifest,
 )
@@ -30,6 +30,7 @@ def main() -> None:
     ap.add_argument("--out", default=None, help="sovrascrive paths.embeddings_dir")
     ap.add_argument("--device", default=None, help="sovrascrive extractor.device")
     ap.add_argument("--limit", type=int, default=None, help="solo le prime N immagini (prova veloce)")
+    ap.add_argument("--weights", default=None, help="pesi di un re-train (es. models/v001/backbone.pt) al posto di quelli pre-addestrati")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -37,16 +38,24 @@ def main() -> None:
     model_name = args.model or ex.model
     out_dir = cfg.resolve(args.out) if args.out else cfg.embeddings_dir
 
-    images = list_images(cfg.dataset_dir)
+    sources = cfg.dataset_sources
+    image_ids, images = list_dataset(sources)
+    for prefix, folder in sources:
+        n = sum(i.startswith(prefix) for i in image_ids) if prefix else len(image_ids)
+        print(f"{n:6d} immagini in {folder}" + ("" if folder.is_dir() else "  (cartella non trovata)"))
     if args.limit:
-        images = images[:args.limit]
+        image_ids, images = image_ids[:args.limit], images[:args.limit]
     if not images:
-        sys.exit(f"Nessuna immagine trovata in {cfg.dataset_dir}")
-    print(f"{len(images)} immagini in {cfg.dataset_dir}")
+        sys.exit("Nessuna immagine trovata")
     print(f"Modello {model_name}, output {out_dir}")
 
+    backbone = load_backbone(model_name)
+    if args.weights:
+        import torch
+
+        backbone.load_state_dict(torch.load(cfg.resolve(args.weights), map_location="cpu"))
     encoder = build_torch_encoder(
-        load_backbone(model_name),
+        backbone,
         image_size=ex.image_size,
         batch_size=ex.batch_size,
         num_workers=ex.num_workers,
@@ -57,9 +66,10 @@ def main() -> None:
         images,
         out_dir,
         encoder,
-        meta={"model": model_name, "image_size": ex.image_size},
+        meta={"model": model_name, "image_size": ex.image_size, **({"weights": args.weights} if args.weights else {})},
         shard_size=ex.shard_size,
         log=print,
+        image_ids=image_ids,
     )
     manifest = read_manifest(out_dir)
     total = sum(s["count"] for s in manifest["shards"])

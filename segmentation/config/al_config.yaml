@@ -4,10 +4,17 @@
 seed: 42
 
 paths:
-  dataset_dir: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees
-  results_dir: active_learning_tool/results   # al_labels.csv, validation_set.json, CSV legacy
-  embeddings_dir: data/embeddings             # embedding dell'extractor congelato (v000)
-  models_dir: models                          # models/vNNN/ prodotti dai re-train
+  # Cartelle delle api, {nome: cartella}. L'image_id di ogni ape è "<nome>__<file>",
+  # perché i nomi dei file (bee_00000_...) si ripetono da una cartella all'altra.
+  dataset_dirs:
+    train_b34: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_batch3+4/cleaned_bees
+    test_b34_novarroa: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee_batch3+4_novarroa/cleaned_bees
+  # Stato separato da quello del dataset precedente (train_single_bee_merged), che resta in
+  # active_learning_tool/results, data/embeddings e models.
+  # Etichette e modelli stanno su /mnt/disk1: il disco di sistema è quasi pieno.
+  results_dir: /mnt/disk1/tommaso_ballarin/bee_al/results_batch3+4   # al_labels.csv, validation_set.json, al_rounds.jsonl
+  embeddings_dir: data/embeddings_batch3+4             # embedding dell'extractor congelato (v000)
+  models_dir: /mnt/disk1/tommaso_ballarin/bee_al/models_batch3+4     # vNNN/ prodotti dai re-train
 
 labels:
   # Le classi NON sono definite qui: nascono dalle etichette inserite nell'hub.
@@ -56,6 +63,8 @@ hub:
   assignment_timeout_s: 900   # dopo quanto un'immagine assegnata e non etichettata torna libera
 
 retrain:
+  # Il pulsante "Start re-train" in /al-status funziona sempre.
+  # enabled: true fa partire i job anche da soli, secondo la policy qui sotto.
   enabled: false
   policy: label_count     # label_count | plateau | either
   initial_labels: 50      # primo job dopo N nuove etichette...
@@ -63,6 +72,23 @@ retrain:
   plateau_rounds: 3       # K round senza miglioramento della metrica di validazione
   metric: macro_f1        # macro_f1 | accuracy
   min_delta: 0.0
+
+  # --- trainer contrastive (fine-tuning dell'extractor) ---
+  trainer: contrastive    # contrastive | stub
+  python: venv/bin/python # interprete con torch: il training gira in un processo separato dall'hub
+  min_labels: 20          # sotto questa soglia (o con meno di 2 classi) il re-train non parte
+  require_improvement: true     # se la metrica di validazione peggiora, la versione nuova viene scartata
+  pseudo_label_threshold: 0.95  # confidenza minima per usare la predizione di un'ape come pseudo-label (> 1 = nessuna)
+  unfreeze_blocks: 2      # ultimi blocchi del ViT da addestrare (0 = tutti)
+  steps: 300
+  batch_size: 96          # api per step; ognuna entra con 2 viste aumentate
+  labeled_fraction: 0.5   # parte del batch presa da etichettate + pseudo-label; il resto è non etichettato
+  lr_backbone: 1.0e-5
+  lr_head: 1.0e-3
+  temperature: 0.1
+  projection_dim: 128
+  num_workers: 8
+  device: auto
 
 simulation:
   seeds: [0, 1, 2, 3, 4]

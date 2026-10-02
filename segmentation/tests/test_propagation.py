@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 import scipy.sparse as sp
 
 from bee_al.memory_bank import MemoryBank
@@ -74,3 +75,28 @@ def test_unreached_nodes_have_zero_rows():
     pred = LabelSpreader.from_bank(bank, n_neighbors=2).propagate_bank(bank)
     assert (pred.probs[:3, 0] == 1.0).all()
     assert (pred.probs[3:].sum(axis=1) == 0).all()
+
+
+def test_graph_cache_is_reused_and_tied_to_the_embeddings(synth, tmp_path, monkeypatch):
+    from bee_al import propagation
+
+    bank = _bank(synth)
+    first = LabelSpreader.from_bank(bank, n_neighbors=8, cache_dir=tmp_path).graph
+    assert len(list(tmp_path.glob("knn_graph_*_k8.npz"))) == 1
+
+    monkeypatch.setattr(propagation, "build_knn_graph", lambda *a, **k: pytest.fail("il grafo andava letto dalla cache"))
+    again = LabelSpreader.from_bank(bank, n_neighbors=8, cache_dir=tmp_path).graph
+    assert abs(first - again).max() < 1e-12
+    monkeypatch.undo()
+
+    X, _, ids = synth
+    other = MemoryBank(ids, np.roll(X, 1, axis=1))               # embedding diversi (es. dopo un re-train): file nuovo
+    LabelSpreader.from_bank(other, n_neighbors=8, cache_dir=tmp_path)
+    LabelSpreader.from_bank(bank, n_neighbors=5, cache_dir=tmp_path)
+    assert len(list(tmp_path.glob("knn_graph_*.npz"))) == 3
+
+    broken = next(tmp_path.glob("knn_graph_*_k8.npz"))
+    for f in tmp_path.glob("knn_graph_*_k8.npz"):
+        f.write_bytes(b"rotto")                                   # cache rovinata: si ricostruisce senza errori
+    assert LabelSpreader.from_bank(bank, n_neighbors=8, cache_dir=tmp_path).graph.shape == (300, 300)
+    assert broken.stat().st_size > 100

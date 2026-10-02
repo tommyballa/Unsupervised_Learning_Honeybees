@@ -1,31 +1,71 @@
 """Pagine Flask dell'active learning, registrate dall'hub come blueprint."""
 from __future__ import annotations
 
+import os
 import threading
+import time
 from pathlib import Path
 from typing import Optional, Union
 
-from flask import Blueprint, redirect, render_template_string, request, session, url_for
+from flask import Blueprint, abort, redirect, render_template_string, request, send_file, session, url_for
 
 from . import REMOVED_LABEL, UNKNOWN_LABEL
 from .engine import ALEngine, ALError
 from .retrain import RetrainManager
 
 
+class EngineLoading(Exception):
+    """L'engine si sta ancora caricando in background."""
+
+
 class HubState:
-    """Engine condiviso da tutte le richieste, creato alla prima che ne ha bisogno."""
+    """Engine condiviso da tutte le richieste, caricato in background alla prima che ne ha bisogno.
+
+    Su dataset grandi il primo avvio richiede circa un minuto (grafo dei vicini): nel
+    frattempo le pagine mostrano un avviso invece di restare bloccate.
+    """
 
     def __init__(self) -> None:
         self.engine: Optional[ALEngine] = None
         self.config_path: Union[str, Path, None] = None
         self.lock = threading.Lock()
+        self.error: Optional[Exception] = None
+        self.started_at = 0.0
+        self._thread: Optional[threading.Thread] = None
+
+    def _load(self) -> None:
+        try:
+            engine = ALEngine.from_config(self.config_path)
+            RetrainManager.attach(engine)
+            self.engine = engine
+        except Exception as e:
+            self.error = e
 
     def get_engine(self) -> ALEngine:
+        """Engine pronto, altrimenti ``EngineLoading`` o l'errore dell'ultimo tentativo di caricamento."""
         with self.lock:
-            if self.engine is None:
-                self.engine = ALEngine.from_config(self.config_path)
-                RetrainManager.attach(self.engine)
-            return self.engine
+            if self.engine is not None:
+                return self.engine
+            if self._thread is not None and self._thread.is_alive():
+                raise EngineLoading()
+            if self.error is not None:
+                error, self.error, self._thread = self.error, None, None  # la prossima richiesta riprova
+                raise error
+            self.started_at = time.time()
+            self._thread = threading.Thread(target=self._load, daemon=True, name="bee-al-load")
+            self._thread.start()
+        self._thread.join(0.5)  # se il caricamento è rapido la pagina arriva subito
+        with self.lock:
+            if self.engine is not None:
+                return self.engine
+            if self.error is not None:
+                error, self.error, self._thread = self.error, None, None
+                raise error
+        raise EngineLoading()
+
+    def wait(self, timeout: Optional[float] = None) -> None:
+        if self._thread is not None:
+            self._thread.join(timeout)
 
 
 STATE = HubState()
@@ -42,6 +82,7 @@ _NAV = """
 """
 
 _MESSAGE_PAGE = """
+{% if reload %}<meta http-equiv="refresh" content="{{ reload }}">{% endif %}
 {{ css|safe }}
 <div class="container">
     """ + _NAV + """
@@ -59,7 +100,7 @@ _LABELING_PAGE = """
     {% if error %}<p style="color: var(--btn-red);"><b>{{ error }}</b></p>{% endif %}
     {% if redo %}<p style="color: var(--btn-yellow);">Fixing your previous label: <b>{{ previous_label }}</b></p>{% endif %}
     <div style="text-align: center; margin: 20px 0;">
-        <img src="{{ url_for('serve_image', filename=image_id) }}" style="max-width: 400px; max-height: 400px; border-radius: 8px;">
+        <img src="{{ url_for('al.image', image_id=image_id) }}" style="max-width: 400px; max-height: 400px; border-radius: 8px;">
     </div>
     {% if suggestion %}
     <p style="color: #94a3b8;">kNN suggestion: <b>{{ suggestion[0] }}</b> ({{ '%.0f' % (suggestion[1] * 100) }}%)</p>
@@ -100,6 +141,7 @@ document.querySelectorAll('.quick-label-btn').forEach(function (b) {
 """
 
 _STATUS_PAGE = """
+{% if s.retrain and s.retrain.state == 'running' %}<meta http-equiv="refresh" content="5">{% endif %}
 {{ css|safe }}
 <div class="container">
     """ + _NAV + """
@@ -114,14 +156,37 @@ _STATUS_PAGE = """
         <tr><th>Current batch</th><td>{{ s.batch_id }}: {{ s.batch_done }} / {{ s.batch_size }} done</td></tr>
         <tr><th>Validation set</th><td>{{ s.validation_labeled }} / {{ s.validation_size }} labeled</td></tr>
         <tr><th>Model version / config</th><td>{{ s.model_version }} / {{ s.config_id }}</td></tr>
-        {% if s.retrain %}
-        <tr><th>Heavy re-train</th><td>{{ s.retrain.state }}{% if s.retrain.reason %} ({{ s.retrain.reason }}){% endif %}
-            &mdash; next after {{ s.retrain.next_threshold }} new labels ({{ s.retrain.new_labels }} so far)</td></tr>
-        {% endif %}
     </table>
     <form method="POST" action="{{ url_for('al.refresh') }}">
         <button class="btn" type="submit">Recompute propagation &amp; start next batch</button>
     </form>
+
+    {% if s.retrain %}{% set r = s.retrain %}
+    <h2>Heavy re-train (contrastive fine-tuning)</h2>
+    {% if retrain_error %}<p style="color: var(--btn-red);"><b>{{ retrain_error }}</b></p>{% endif %}
+    <table>
+        <tr><th>State</th><td>
+            {% if r.state == 'running' %}<b style="color: var(--btn-yellow);">running</b>
+                {% if r.progress %}&mdash; {{ r.progress.phase }}{% if r.progress.total %} {{ r.progress.step }} / {{ r.progress.total }}{% endif %}{% if r.progress.loss is not none %}, loss {{ '%.3f' % r.progress.loss }}{% endif %}, {{ r.progress.elapsed_s }} s{% endif %}
+                <span style="color:#94a3b8;">(started: {{ r.reason }}). You can keep labeling; this page reloads by itself.</span>
+            {% elif r.state == 'failed' %}<b style="color: var(--btn-red);">failed</b> &mdash; {{ r.error }}
+            {% else %}idle{% endif %}
+        </td></tr>
+        <tr><th>Automatic</th><td>{% if r.auto %}on ({{ r.policy }}): next after {{ r.next_threshold }} new labels, {{ r.new_labels }} so far{% else %}off &mdash; only when you press the button{% endif %}</td></tr>
+        {% if r.last %}
+        <tr><th>Last re-train</th><td>{{ r.last.version }} on {{ r.last.created }}, {{ r.last.n_labels }} labels + {{ r.last.n_pseudo }} pseudo-labels, {{ r.last.duration_s }} s.
+            {% if r.last.validation_before and r.last.validation_after %}
+            Validation {{ r.last.metric }}: {{ '%.3f' % r.last.validation_before[r.last.metric] }} &rarr; {{ '%.3f' % r.last.validation_after[r.last.metric] }}.
+            {% else %}<span style="color: var(--btn-yellow);">No validation labels: it could not be checked whether it helped.</span>{% endif %}
+            {% if r.last.accepted %}<b style="color: var(--btn-green);">In use.</b>{% else %}<b style="color: var(--btn-red);">Discarded (worse than before); the previous model is still in use.</b>{% endif %}
+        </td></tr>
+        {% endif %}
+    </table>
+    <form method="POST" action="{{ url_for('al.retrain') }}">
+        <button class="btn" type="submit" {% if r.blocked_by %}disabled style="opacity: 0.5; cursor: not-allowed;"{% endif %}>Start re-train now</button>
+        {% if r.blocked_by and r.state != 'running' %}<p style="color: #94a3b8; font-size: 14px;">Not available: {{ r.blocked_by }}.</p>{% endif %}
+    </form>
+    {% endif %}
 
     <h2>Validation metrics</h2>
     {% if s.metrics.accuracy is not none %}
@@ -161,7 +226,7 @@ _STATUS_PAGE = """
 _BEE_TILE = """
 <label class="grid-item-container" style="width: 120px; text-align: center; font-size: 12px; color: #94a3b8;">
     <input type="checkbox" name="selected_images" value="{{ b.image_id }}">
-    <img src="{{ url_for('serve_image', filename=b.image_id) }}" title="{{ b.image_id }}{{ tip }}">
+    <img src="{{ url_for('al.image', image_id=b.image_id) }}" title="{{ b.image_id }}{{ tip }}">
     {{ caption }}
 </label>
 """
@@ -278,22 +343,42 @@ _CLUSTERS_PAGE = """
 
 
 def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) -> Blueprint:
-    """Blueprint con ``/al-labeling``, ``/al-clusters``, ``/al-status`` e ``/al-refresh``.
+    """Blueprint con ``/al-labeling``, ``/al-clusters``, ``/al-status``, ``/al-refresh`` e ``/al-retrain``.
 
     ``base_css`` è il CSS dell'hub, così le pagine nuove hanno lo stesso aspetto.
     """
     bp = Blueprint("al", __name__)
     STATE.config_path = config_path
 
-    def message(title: str, text: str, code: int = 200):
-        html = render_template_string(_MESSAGE_PAGE, css=base_css, user=session.get("user_email"), title=title, message=text)
+    def message(title: str, text: str, code: int = 200, reload: int = 0):
+        html = render_template_string(
+            _MESSAGE_PAGE, css=base_css, user=session.get("user_email"), title=title, message=text, reload=reload
+        )
         return html, code
 
     def engine_or_message():
         try:
             return STATE.get_engine(), None
-        except FileNotFoundError as e:
+        except EngineLoading:
+            waited = int(time.time() - STATE.started_at)
+            text = ("Loading embeddings and building the neighbour graph. The first start on a new dataset takes "
+                    f"about a minute, later ones a few seconds. This page reloads by itself ({waited} s so far).")
+            return None, message("Active learning is starting", text, 503, reload=3)
+        except (FileNotFoundError, ValueError) as e:
             return None, message("Active learning not ready", str(e), 503)
+
+    @bp.route("/al-image/<image_id>")
+    def image(image_id: str):
+        """Immagine di un'ape, letta dal percorso salvato con gli embedding (più cartelle possibili)."""
+        if not session.get("user_email"):
+            abort(403)
+        engine, _ = engine_or_message()
+        if engine is None or image_id not in engine.bank:
+            abort(404)
+        path = engine.bank.paths[engine.bank.index_of(image_id)]
+        if not os.path.isfile(path):
+            abort(404)
+        return send_file(path, max_age=3600)
 
     @bp.route("/al-labeling", methods=["GET", "POST"])
     def labeling():
@@ -355,7 +440,24 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
         engine, page = engine_or_message()
         if engine is None:
             return page
-        return render_template_string(_STATUS_PAGE, css=base_css, user=session.get("user_email"), s=engine.status())
+        return render_template_string(
+            _STATUS_PAGE, css=base_css, user=session.get("user_email"), s=engine.status(),
+            retrain_error=request.args.get("retrain_error"),
+        )
+
+    @bp.route("/al-retrain", methods=["POST"])
+    def retrain():
+        if not session.get("user_email"):
+            return redirect(url_for("index"))
+        engine, page = engine_or_message()
+        if engine is None:
+            return page
+        try:
+            manager = engine.retrain or RetrainManager.attach(engine)
+            manager.start(f"button, {session.get('user_email')}")
+        except ValueError as e:
+            return redirect(url_for("al.status", retrain_error=f"Re-train not started: {e}."))
+        return redirect(url_for("al.status"))
 
     @bp.route("/al-clusters", methods=["GET", "POST"])
     def clusters():
