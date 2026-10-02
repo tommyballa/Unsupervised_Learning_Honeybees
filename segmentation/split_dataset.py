@@ -2,9 +2,9 @@ import os
 import shutil
 import random
 
-source_dir = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_merged"
-val_dir = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/val_split"
-test_dir = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_split"
+source_dir = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_batch3+4"
+val_dir = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/val_split_batch3+4"
+test_dir = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_split_batch3+4"
 
 os.makedirs(os.path.join(val_dir, "images"), exist_ok=True)
 os.makedirs(os.path.join(val_dir, "labels"), exist_ok=True)

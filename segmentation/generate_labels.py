@@ -13,8 +13,8 @@ import gc
 model = LangSAM()
 
 datasets = [
-    ("/mnt/disk1/borsattifr/datasets/bees_datasets/DatasetApi_Ceschi/processed/train2/images", "/mnt/disk1/borsattifr/datasets/bees_datasets/DatasetApi_Ceschi/processed/train2/labels"),
-    ("/mnt/disk1/borsattifr/datasets/bees_datasets/DatasetApi_Ceschi/processed/test2/images", "/mnt/disk1/borsattifr/datasets/bees_datasets/DatasetApi_Ceschi/processed/test2/labels")
+    ("/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_batch4_labelled/images", "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_batch4_labelled/labels"),
+    ("/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_batch4_labelled/images", "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_batch4_labelled/labels")
 ]
 
 text_prompt = "bee."

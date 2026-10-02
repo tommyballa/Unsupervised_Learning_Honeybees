@@ -1,11 +1,16 @@
 import os
+import sys
 import numpy as np
 from ultralytics import YOLO
 
 def main():
     print(" Caricamento del modello...")
 
-    model = YOLO("runs/segment/runs/segment/bee_model_finetuned_yolo26s_dominiuniti_splittestval/weights/best.pt")
+    # Uso: python test_yolo.py [percorso_pesi] [imgsz]
+    weights = sys.argv[1] if len(sys.argv) > 1 else "runs/segment/runs/segment/bee_model_finetuned_yolo26s_batch3+4_img1440/weights/best.pt"
+    imgsz = int(sys.argv[2]) if len(sys.argv) > 2 else 2048
+    print(f" Pesi: {weights} | imgsz: {imgsz}")
+    model = YOLO(weights)
 
     print("\n Inizio il Testing sul test set (calcolo metriche Precision, Recall, mAP, IoU, F1)...")
 
@@ -13,9 +18,9 @@ def main():
     metrics = model.val(
         data="data.yaml",
         split="test",
-        imgsz=2048,
+        imgsz=imgsz,
         batch=16,
-        device=0,
+        device=1,                     # GPU 0 è occupata da altri job
         conf=0.10,
         max_det=2000
     )

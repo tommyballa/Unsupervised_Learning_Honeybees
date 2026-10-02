@@ -27,13 +27,13 @@ def save_manifest(out_dir, manifest):
 
 def main():
     print(" Caricamento del modello YOLO...")
-    model = YOLO("runs/segment/runs/segment/bee_model_finetuned_yolo26s_dominiuniti/weights/best.pt")
+    model = YOLO("runs/segment/runs/segment/bee_model_finetuned_yolo26s_batch3+4_img1440/weights/best.pt")
     
     # Scegli la cartella da cui estrarre le api (qui usiamo il train set remoto)
-    source_dir = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_merged/images"
+    source_dir = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_batch3+4/images"
     
     # Output: cartella con TUTTE le api estratte grezze (senza filtri)
-    out_dir = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/raw_bees"
+    out_dir = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee_batch3+4_novarroa/raw_bees"
     os.makedirs(out_dir, exist_ok=True)
     
     # Carica il manifesto per sapere quali immagini sorgente sono già state processate

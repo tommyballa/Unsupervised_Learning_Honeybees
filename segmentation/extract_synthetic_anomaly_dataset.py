@@ -6,7 +6,7 @@ Pipeline:
 1. Carica l'immagine sintetica e la GT mask della varroa (generati da varroa_generator.py)
 2. Usa l'inferenza del modello YOLO per trovare e croppare ogni ape
 3. Estrae la maschera del poligono grezzo dell'ape
-4. Passa l'immagine grezza e la maschera a dataset_cleaning.clean_and_filter per la pipeline unificata di sanificazione, rotazione, sfumatura bordi
+4. Passa l'immagine grezza e la maschera a dataset_cleaning.clean_bee per la pipeline unificata di sanificazione, rotazione, sfumatura bordi
 5. Incrocia la GT mask varroa pulita con la nuova immagine
 6. Salva:
    - Il crop dell'ape (512x512, sfondo nero, perfettamente smussato e orientato)
@@ -20,7 +20,7 @@ import csv
 import numpy as np
 from ultralytics import YOLO
 # Importiamo la funzione aggiornata dal nuovo script di pulizia ottimizzato
-from dataset_cleaning import clean_and_filter, refine_raw_polygon_mask, normalize_orientation, normalize_scale, feather_edges
+from dataset_cleaning import TARGET_SIZE, clean_bee
 
 
 # --- Configurazione ---
@@ -118,88 +118,21 @@ def process_synthetic_image(syn_img_path, mask_path, model):
             syn_img, varroa_mask, det["polygon"], det["bbox"]
         )
 
-        dummy_filename = f"bee_{i:05d}_conf{det['conf']:.2f}.png"
 
-        # 2. Dato che dobbiamo applicare le stesse rotazioni e scale anche
-        #    alla maschera varroa, non possiamo chiamare "clean_and_filter" 
-        #    così com'è, perché scarterebbe la maschera varroa.
-        #    Replichiamo quindi la pipeline di clean_and_filter applicando 
-        #    le trasformazioni in parallelo su bee_mask e varroa_mask.
-        
-        # Filtro 1: Confidenza YOLO
-        if det['conf'] < 0.35:
+        # 2. Pulizia e normalizzazione dell'ape con la pipeline di dataset_cleaning.
+        #    clean_bee restituisce anche l'affine usata (crop -> frame finale): la
+        #    applichiamo alla maschera varroa, che resta così allineata all'ape.
+        result = clean_bee(img_crop, bee_mask_crop, is_raw_polygon=True)
+        if result.image is None:
             discarded += 1
             continue
-            
-        # Raffinamento maschera ape
-        refined_bee_mask = refine_raw_polygon_mask(bee_mask_crop)
-        
-        # Intersechiamo la maschera varroa grezza con l'ape (così varroa fuori dall'ape viene ignorata)
-        varroa_mask_crop = cv2.bitwise_and(varroa_mask_crop, refined_bee_mask)
-        
-        # Passiamo al blocco di pulizia interno di clean_and_filter chiamandolo normalmente per
-        # avere l'ape pulita e capire se viene scartata
-        cleaned_bee = clean_and_filter(img_crop, bee_mask_crop, is_raw_polygon=True, filename=dummy_filename)
-        
-        if cleaned_bee is None:
-            discarded += 1
-            continue
+        cleaned_bee = result.image
 
-        # Poiché clean_and_filter non trasforma anche la varroa_mask_crop con le stesse matrici,
-        # applichiamo manualmente rotazione e scaling della pulizia alla varroa_mask_crop per tenerla allineata!
-        
-        # Riapplichiamo le trasformazioni necessarie alla varroa per combaciare con cleaned_bee.
-        # A questo punto sappiamo che clean_and_filter estrae un contour, lo smussa, fa bitwise_and, CLAHE,
-        # e poi usa normalize_orientation e normalize_scale.
-        
-        # Per avere l'allineamento 1:1, otteniamo la nuova maschera esatta di "cleaned_bee"
-        gray = cv2.cvtColor(cleaned_bee, cv2.COLOR_BGR2GRAY)
-        _, final_bee_mask = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY)
-        
-        # ORA: la maschera varroa grezza (varroa_mask_crop) è nel sistema di coordinate del crop iniziale (img_crop).
-        # Cleaned bee ha subito rotazione e scala. 
-        # Per essere perfetti e replicare il flusso, estraiamo la logica di normalizzazione geometrica:
-        
-        # ====================
-        # RIPRODUCIAMO LE TRASFORMAZIONI GEOMETRICHE SULLA VARROA
-        # Dato che clean_and_filter incapsula queste trasformazioni, dobbiamo riprodurle qui
-        # o ricostruire la maschera varroa trasformata.
-        # ====================
-        
-        # Dalla riga ~173-250 di dataset_cleaning.py, sappiamo quali operazioni di pulizia subisce la maschera
-        # Ripercorriamo lo stesso path per la maschera (senza l'immagine che abbiamo già tramite clean_and_filter):
-        open_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
-        opened_mask = cv2.morphologyEx(refined_bee_mask, cv2.MORPH_OPEN, open_kernel)
-        contours, _ = cv2.findContours(opened_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if not contours: 
-            continue
-        largest_contour = max(contours, key=cv2.contourArea)
-        clean_mask = np.zeros_like(refined_bee_mask)
-        cv2.drawContours(clean_mask, [largest_contour], -1, 255, thickness=cv2.FILLED)
-        dilate_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
-        clean_mask = cv2.dilate(clean_mask, dilate_kernel, iterations=1)
-        clean_mask = cv2.bitwise_and(clean_mask, refined_bee_mask)
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
-        clean_mask = cv2.morphologyEx(clean_mask, cv2.MORPH_CLOSE, kernel)
-        
-        # Smoothing contorni per la maschera master
-        clean_mask = cv2.GaussianBlur(clean_mask, (31, 31), 0)
-        _, clean_mask = cv2.threshold(clean_mask, 127, 255, cv2.THRESH_BINARY)
-        
-        # 1. Orientamento. Dobbiamo ruotare sia l'immagine "dummy" (usiamo la varroa) sia la maschera.
-        # Creiamo un'immagine varroa BGR fake per usare le funzioni esistenti
-        varroa_bgr = cv2.cvtColor(varroa_mask_crop, cv2.COLOR_GRAY2BGR)
-        
-        varroa_rotated, mask_rotated = normalize_orientation(varroa_bgr, clean_mask)
-        
-        # 2. Scala. 
-        varroa_scaled, _ = normalize_scale(varroa_rotated, mask_rotated, target_size=512, target_fill=0.60)
-        
-        # Convertiamo di nuovo varroa_scaled in GRAY
-        varroa_final_mask = cv2.cvtColor(varroa_scaled, cv2.COLOR_BGR2GRAY)
-        
-        # Intersezione finale per sicurezza con l'ape finale (rimuove varroa scappata dai bordi smussati)
-        varroa_final_mask = cv2.bitwise_and(varroa_final_mask, final_bee_mask)
+        varroa_final_mask = cv2.warpAffine(varroa_mask_crop, result.matrix, (TARGET_SIZE, TARGET_SIZE),
+                                           flags=cv2.INTER_NEAREST, borderValue=0)
+
+        # Intersezione con la maschera finale dell'ape (la varroa fuori dall'ape viene ignorata)
+        varroa_final_mask = cv2.bitwise_and(varroa_final_mask, result.mask)
 
         # Ricalcola i pixel di varroa effettivi rimasti nella maschera trasformata
         n_px = cv2.countNonZero(varroa_final_mask)

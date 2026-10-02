@@ -1,4 +1,6 @@
+import ast
 import os
+import sys
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 from ultralytics import YOLO
 
@@ -8,18 +10,19 @@ def main():
     print("Inizio il Fine-Tuning di YOLO con le etichette create da LangSAM...")
     
     # 2. Avvia l'addestramento
-    # Ottimizzato per dataset piccolo (~90 immagini) con oggetti piccoli (api)
-    results = model.train(
+    # Ottimizzato per dataset piccolo (~300 immagini) con oggetti piccoli (api)
+    params = dict(
         data="data.yaml",             # Il file di configurazione del dataset
-        epochs=150,                   # Più epoche per convergere meglio
+        epochs=200,                   # Più epoche per convergere meglio
         imgsz=1280,                   # Risoluzione alta, stessa della validazione
         batch=2,                      # Ridotto: con ~400 api/immagine la VRAM oscilla troppo
-        device=0,                     # Usa la GPU primaria
-        workers=2,                    # FONDAMENTALE SU WINDOWS
+        device=1,                     # GPU 0 è occupata da altri job
+        workers=8,
+        cache=True,                   # Immagini ridimensionate in RAM: evita di decodificare 24MP a ogni epoca
         project="runs/segment",       
-        name="bee_model_finetuned_yolo26s_dominiuniti_splittestval",   
-        max_det=1200,                  # Massimo numero di predizioni per immagine (molte api!)
-        patience=20,                  # Early stopping con pazienza alta per non fermarsi troppo presto
+        name="bee_model_finetuned_yolo26s_batch3+4",   
+        max_det=1500,                  # Massimo numero di predizioni per immagine (molte api!)
+        patience=40,                  # Early stopping con pazienza alta per non fermarsi troppo presto
         # --- Optimizer & Learning Rate ---
         optimizer='AdamW',            # Migliore convergenza su dataset piccoli
         lr0=0.001,                    # Learning rate iniziale
@@ -39,9 +42,17 @@ def main():
         fliplr=0.5,                   # Flip orizzontale
         flipud=0.2,                   # Flip verticale
         # --- Varie ---
-        label_smoothing=0.05,         # Leggero label smoothing per migliorare la generalizzazione
         overlap_mask=True,            # Gestisce maschere sovrapposte correttamente
     )
+    # Override da riga di comando, es: python train_yolo.py device=2 imgsz=1600 name=prova
+    for arg in sys.argv[1:]:
+        key, value = arg.split("=", 1)
+        try:
+            value = ast.literal_eval(value)
+        except (ValueError, SyntaxError):
+            pass
+        params[key] = value
+    results = model.train(**params)
     
     print("\n Addestramento completato!")
 

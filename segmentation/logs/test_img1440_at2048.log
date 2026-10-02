@@ -1,0 +1,35 @@
+ Caricamento del modello...
+ Pesi: runs/segment/runs/segment/bee_model_finetuned_yolo26s_batch3+4_img1440/weights/best.pt | imgsz: 2048
+
+ Inizio il Testing sul test set (calcolo metriche Precision, Recall, mAP, IoU, F1)...
+Ultralytics 8.4.138 🚀 Python-3.10.12 torch-2.14.0+cu130 CUDA:1 (NVIDIA RTX A6000, 48539MiB)
+YOLO26s-seg summary (fused): 139 layers, 10,365,727 parameters, 0 gradients, 34.3 GFLOPs
+[34m[1mval: [0mFast image access ✅ (ping: 0.0±0.0 ms, read: 4060.0±1860.4 MB/s, size: 13378.4 KB)
+[K[34m[1mval: [0mScanning /mnt/disk1/borsattifr/datasets/bees_datasets/DatasetApi_Ceschi/processed/test_split_batch3+4/labels... 1 images, 0 backgrounds, 0 corrupt: 1% ──────────── 1/56 2.5it/s 0.1s<22.3s[K[34m[1mval: [0mScanning /mnt/disk1/borsattifr/datasets/bees_datasets/DatasetApi_Ceschi/processed/test_split_batch3+4/labels... 16 images, 0 backgrounds, 0 corrupt: 28% ━━━───────── 16/56 42.5it/s 0.2s<0.9s[K[34m[1mval: [0mScanning /mnt/disk1/borsattifr/datasets/bees_datasets/DatasetApi_Ceschi/processed/test_split_batch3+4/labels... 33 images, 0 backgrounds, 0 corrupt: 58% ━━━━━━━───── 33/56 68.3it/s 0.4s<0.3s[K[34m[1mval: [0mScanning /mnt/disk1/borsattifr/datasets/bees_datasets/DatasetApi_Ceschi/processed/test_split_batch3+4/labels... 42 images, 0 backgrounds, 0 corrupt: 75% ━━━━━━━━━─── 42/56 66.6it/s 0.5s<0.2s[K[34m[1mval: [0mScanning /mnt/disk1/borsattifr/datasets/bees_datasets/DatasetApi_Ceschi/processed/test_split_batch3+4/labels... 56 images, 0 backgrounds, 0 corrupt: 100% ━━━━━━━━━━━━ 56/56 96.5it/s 0.6s
+[34m[1mval: [0mNew cache created: /mnt/disk1/borsattifr/datasets/bees_datasets/DatasetApi_Ceschi/processed/test_split_batch3+4/labels.cache
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Mask(P          R      mAP50  mAP50-95): 25% ━━━───────── 1/4 41.4s/it 12.4s<2:04[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Mask(P          R      mAP50  mAP50-95): 50% ━━━━━━────── 2/4 8.2s/it 15.3s<16.4s[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Mask(P          R      mAP50  mAP50-95): 75% ━━━━━━━━━─── 3/4 6.9s/it 20.2s<6.9s[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95)     Mask(P          R      mAP50  mAP50-95): 100% ━━━━━━━━━━━━ 4/4 5.5s/it 21.8s
+                   all         56      19314      0.901      0.861      0.898      0.662      0.895      0.855      0.893      0.628
+Speed: 23.3ms preprocess, 22.2ms inference, 0.0ms loss, 8.5ms postprocess per image
+Results saved to [1m/home/tommaso_ballarin/bee_segmentation/bee_segmentation/runs/segment/val-6[0m
+
+ Validazione completata! Controlla i risultati numerici qui sopra.
+
+--- Mask Segmentation Metrics ---
+Mask mAP50:     0.8926
+Mask mAP50-95:  0.6280
+Mask mAP75:     0.7377
+Mask Precision: 0.8947
+Mask Recall:    0.8554
+Mask F1:        0.8746
+Mask IoU (totale): 0.7772
+Mask IoU (micro-avg): 0.6576
+
+--- Box Detection Metrics ---
+Box mAP50:      0.8979
+Box mAP50-95:   0.6624
+Box mAP75:      0.7487
+Box Precision:  0.9006
+Box Recall:     0.8614
+Box F1:         0.8806
+
+I grafici (Curve Precision-Recall, Confusion Matrix, ecc.) sono stati salvati nella nuova cartella generata in 'runs/segment/val'
