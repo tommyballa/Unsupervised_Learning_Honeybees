@@ -251,7 +251,7 @@ _STATUS_PAGE = """
     <table>
         <tr><th>Stratum</th><th>Bees in the snapshot</th><th>Sampled</th><th>Labeled</th></tr>
         {% for st in s.audit.strata %}
-        <tr><td>{{ 'Unassigned' if st.id == '__unassigned__' else st.id }}</td><td>{{ st.N_h }}</td><td>{{ st.n_h }}</td><td>{{ st.done }}</td></tr>
+        <tr><td>{{ st.id|replace('__unassigned__', 'Unassigned') }}</td><td>{{ st.N_h }}</td><td>{{ st.n_h }}</td><td>{{ st.done }}</td></tr>
         {% endfor %}
     </table>
     {% endif %}
@@ -328,7 +328,7 @@ _RESULTS_PAGE = """
     <table>
         <tr><th>Stratum</th><th>Bees</th><th>Sampled</th><th>Answered</th><th>"Non so"</th><th>Precision</th><th>95% CI</th></tr>
         {% for s in e.strata %}
-        <tr><td>{{ 'Unassigned' if s.id == '__unassigned__' else s.id }}{% if s.kind == 'reject' %} <span style="color: var(--btn-red); font-size: 12px;">reject</span>{% endif %}</td>
+        <tr><td>{{ s.id|replace('__unassigned__', 'Unassigned') }}{% if s.kind == 'reject' %} <span style="color: var(--btn-red); font-size: 12px;">reject</span>{% endif %}</td>
             <td>{{ s.N_h }}</td><td>{{ s.n_sampled }}</td><td>{{ s.n_labeled }}</td><td>{{ s.unknown }}</td>
             <td>{{ pct(s.precision) }}</td><td>{% if s.ci_low is not none %}{{ pct(s.ci_low) }} &ndash; {{ pct(s.ci_high) }}{% else %}-{% endif %}</td></tr>
         {% endfor %}

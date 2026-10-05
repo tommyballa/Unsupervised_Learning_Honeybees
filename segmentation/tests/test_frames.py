@@ -98,3 +98,53 @@ def test_session_and_colony_from_the_frame_name():
     for bad in ("(", r"(?P<hive>\d+)", r"\d+"):
         with pytest.raises(ValueError):
             config_from_dict({"frames": {"frame_pattern": bad}})
+
+
+def _session_dirs(tmp_path, colony, split):
+    """Copia finta delle cartelle dei frame originali: ``split`` dice a quale sessione va ogni frame."""
+    for name, frames in colony.folders.items():
+        for frame in frames:
+            folder = tmp_path / "orig" / split(frame) / "favi"
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / frame).write_bytes(b"jpg")
+    return {s: f"orig/{s}" for s in sorted({split(f) for frames in colony.folders.values() for f in frames})}
+
+
+def test_session_from_the_folder_that_holds_the_frame(colony, tmp_path):
+    from bee_al.frames import FrameGrouper
+
+    # frame della stessa cartella di dataset finiscono in sessioni diverse, come train/test rispetto a batch_3/batch_4
+    colony.cfg.frames.session_dirs = _session_dirs(tmp_path, colony, lambda f: "giorno1" if int(f[-7:-4]) % 2 else "giorno2")
+    colony.cfg.frames.colony = "alveare_1"
+    grouper = FrameGrouper(colony.cfg)
+    assert grouper.groups("hiveA_s1_001.JPG", "tr") == ("giorno1", "alveare_1")
+    assert grouper.groups("hiveA_s1_002.JPG", "tr") == ("giorno2", "alveare_1")
+    assert grouper.groups("hiveA_s2_006.JPG", "te") == ("giorno2", "alveare_1")
+    assert grouper.groups("mai_visto.JPG", "tr") == ("tr", "alveare_1")       # non trovato: resta la cartella di dataset
+    assert grouper.groups("", "te") == ("te", "alveare_1")
+
+    colony.cfg.frames.frame_pattern = r"(?P<colony>hive[A-Z])_(?P<session>s\d)"   # la regex, se corrisponde, vince
+    assert FrameGrouper(colony.cfg).groups("hiveA_s1_001.JPG", "tr") == ("s1", "hiveA")
+    assert FrameGrouper(colony.cfg).groups("DSC_1.JPG", "tr") == ("tr", "alveare_1")
+
+
+def test_ambiguous_or_missing_session_dirs(colony, tmp_path):
+    from bee_al.frames import FrameGrouper
+
+    colony.cfg.frames.session_dirs = _session_dirs(tmp_path, colony, lambda f: "giorno1")
+    (tmp_path / "orig" / "giorno2").mkdir()
+    (tmp_path / "orig" / "giorno2" / "hiveA_s1_001.JPG").write_bytes(b"jpg")          # stesso nome in due sessioni
+    colony.cfg.frames.session_dirs.update({"giorno2": "orig/giorno2", "giorno3": "orig/non_esiste"})
+    with pytest.warns(UserWarning, match="più cartelle di sessione"):
+        grouper = FrameGrouper(colony.cfg)
+    assert grouper.groups("hiveA_s1_001.JPG", "tr") == ("tr", "")                    # ambiguo: nessuna sessione inventata
+    assert grouper.groups("hiveA_s2_003.JPG", "tr") == ("giorno1", "")
+    assert grouper.ambiguous == {"hiveA_s1_001.JPG"} and grouper.missing_dirs == [str(tmp_path / "orig" / "non_esiste")]
+
+
+def test_default_config_maps_batch_3_and_batch_4():
+    from bee_al.config import load_config
+
+    cfg = load_config()
+    assert list(cfg.frames.session_dirs) == ["batch_3", "batch_4"]
+    assert cfg.colony.time_order == {"*": ["batch_3", "batch_4"]} and cfg.audit.stratify_by == ""

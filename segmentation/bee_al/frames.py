@@ -144,6 +144,46 @@ def load_frame_maps(cfg: ALConfig) -> dict[str, Optional[FrameMap]]:
     return maps
 
 
+class FrameGrouper:
+    """Sessione e alveare di ogni frame, secondo la config ``frames``.
+
+    Ordine di precedenza per la sessione: gruppo ``session`` della regex, poi la cartella di
+    ``session_dirs`` che contiene il frame, poi il nome della cartella di dataset. Per
+    l'alveare: gruppo ``colony`` della regex, poi ``frames.colony``. Un nome di file presente
+    in più cartelle di sessione è ambiguo e non viene assegnato a nessuna.
+    """
+
+    def __init__(self, cfg: ALConfig) -> None:
+        self.pattern = cfg.frames.frame_pattern
+        self.colony = cfg.frames.colony
+        self.session_of: dict[str, str] = {}
+        self.ambiguous: set[str] = set()
+        self.missing_dirs: list[str] = []
+        for session, folder in cfg.frames.session_dirs.items():
+            root = cfg.resolve(folder)
+            if not root.is_dir():
+                self.missing_dirs.append(str(root))
+                continue
+            for path in root.rglob("*"):
+                if not path.is_file():
+                    continue
+                if self.session_of.get(path.name, session) != session:
+                    self.ambiguous.add(path.name)
+                self.session_of[path.name] = session
+        for name in self.ambiguous:
+            del self.session_of[name]
+        if self.ambiguous:
+            warnings.warn(f"{len(self.ambiguous)} frame compaiono in più cartelle di sessione (es. {sorted(self.ambiguous)[0]}): "
+                          "restano senza sessione.", stacklevel=2)
+
+    def groups(self, frame: str, dataset: str) -> tuple[str, str]:
+        """``(session, colony)`` di un frame."""
+        session, colony = frame_groups(frame, dataset, self.pattern)
+        if session == dataset and frame in self.session_of:
+            session = self.session_of[frame]
+        return session, colony or self.colony
+
+
 def frame_groups(frame: str, dataset: str, pattern: str = "") -> tuple[str, str]:
     """Sessione e alveare di un frame: ``(session, colony)``.
 

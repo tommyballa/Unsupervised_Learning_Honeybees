@@ -110,6 +110,12 @@ frames:
   # Regex con i gruppi nominati (?P<session>...) e/o (?P<colony>...) applicata al nome del frame,
   # es. "(?P<colony>hive\\d+)_(?P<session>\\d{8})". Vuota = sessione = nome della cartella, alveare assente.
   frame_pattern: ""
+  # Sessione = cartella che contiene il frame originale. I frame si chiamano DSC_xxxx.JPG e dal nome
+  # non si ricava nulla: batch_3 è del 12/09/2026, batch_4 del 26/09/2026, stesso alveare, con flash e zoom diversi.
+  session_dirs:
+    batch_3: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_3
+    batch_4: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_4
+  colony: ""             # nome dell'alveare per tutti i frame (un solo alveare fotografato); vuoto = non indicato
 
 audit:
   # Campione di controllo di uno snapshot: stratificato per classe predetta, etichettato alla cieca.
@@ -122,6 +128,10 @@ audit:
   anomaly_split_class: ""   # es. "Healthy": i suoi strati si dividono anche per anomaly score, se viene fornito
   anomaly_quantile: 0.9
   seed: 7
+  # Vuoto, oppure session | colony | dataset: divide ogni strato anche per quel gruppo, così gli errori del
+  # modello sono misurati gruppo per gruppo. Consigliato "session" quando le sessioni hanno luce o zoom
+  # diversi; il campione da etichettare cresce (circa il doppio con due sessioni).
+  stratify_by: ""
 
 colony:
   # Indicatori di colonia, calcolati sulle stime corrette dall'audit (scripts/audit_report.py).
@@ -130,7 +140,8 @@ colony:
   disease_classes: []         # I2: classi che sono segni di malattia, es. ["Varroa", "Deformed Wing"]
   min_detected: 3             # I2: api confermate da un umano perché un segno sia "detected"
   reference_groups: []        # I3: gruppi sani di riferimento; vuoto = media di tutti i gruppi
-  time_order: {}              # I5: {alveare: [sessione1, sessione2, ...]}; "*" = tutti gli alveari insieme
+  time_order:                 # I5: {alveare: [sessione1, sessione2, ...]}; "*" = tutti gli alveari insieme
+    "*": [batch_3, batch_4]
   anomaly_threshold: 0.0      # quota di api con anomaly score sopra soglia (0 = spento)
   n_boot: 1000
   seed: 11

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Union
 
 from . import UNKNOWN_LABEL
 from .config import ALConfig
-from .frames import CLEANING_MANIFEST, dataset_folders, dataset_of, discards_per_frame, frame_groups, load_frame_maps
+from .frames import CLEANING_MANIFEST, FrameGrouper, dataset_folders, dataset_of, discards_per_frame, load_frame_maps
 
 if TYPE_CHECKING:
     from .engine import ALEngine
@@ -53,7 +53,7 @@ def bee_rows(engine: "ALEngine") -> tuple[list[dict[str, str]], dict[str, Any]]:
     """
     cfg, bank = engine.cfg, engine.bank
     maps = load_frame_maps(cfg)
-    pattern = cfg.frames.frame_pattern
+    grouper = FrameGrouper(cfg)
     reject = engine.reject_classes()
     final, knn = engine.final_pred, engine.knn_pred
     final_labels, final_conf = final.labels, final.confidence
@@ -73,7 +73,7 @@ def bee_rows(engine: "ALEngine") -> tuple[list[dict[str, str]], dict[str, Any]]:
         frame = (fmap.frame_of(filename) if fmap is not None else None) or ""
         if frame:
             linked[dataset] += 1
-        session, colony = frame_groups(frame, dataset, pattern)
+        session, colony = grouper.groups(frame, dataset)
 
         human = bank.label_of(image_id)
         has_pred = bool(reached is not None and reached[i])
@@ -120,19 +120,24 @@ def bee_rows(engine: "ALEngine") -> tuple[list[dict[str, str]], dict[str, Any]]:
         }
         for name, fmap in maps.items()
     }
-    return rows, {"maps": maps, "info": frame_info}
+    sessions: dict[str, int] = {}
+    for row in rows:
+        sessions[row["session"]] = sessions.get(row["session"], 0) + 1
+    return rows, {"maps": maps, "info": frame_info, "sessions": dict(sorted(sessions.items())),
+                  "session_dirs_missing": grouper.missing_dirs, "frames_in_several_sessions": sorted(grouper.ambiguous)}
 
 
 def frame_rows(cfg: ALConfig, maps: dict[str, Any]) -> list[dict[str, Any]]:
     """Una riga per frame: api grezze estratte e api accettate/scartate dalla pulizia."""
     folders = dataset_folders(cfg)
+    grouper = FrameGrouper(cfg)
     rows: list[dict[str, Any]] = []
     for dataset, fmap in maps.items():
         if fmap is None or not fmap.reliable:
             continue
         discards = discards_per_frame(folders[dataset] / CLEANING_MANIFEST, fmap)
         for frame, raw in fmap.raw_bees_per_frame().items():
-            session, colony = frame_groups(frame, dataset, cfg.frames.frame_pattern)
+            session, colony = grouper.groups(frame, dataset)
             d = discards.get(frame)
             rows.append({
                 "dataset": dataset, "frame": frame, "session": session, "colony": colony, "raw_bees": raw,
@@ -195,6 +200,9 @@ def export_snapshot(engine: "ALEngine", name: str, annotator: str) -> Path:
             "validation_metrics": {k: last.get(k) for k in ("accuracy", "macro_f1", "knn_accuracy", "knn_macro_f1", "n_validation")},
             "stopping": engine.stopping_status(),
             "frame_maps": frames["info"],
+            "bees_per_session": frames["sessions"],
+            "session_dirs_missing": frames["session_dirs_missing"],
+            "frames_in_several_sessions": frames["frames_in_several_sessions"],
         }
         with open(tmp / "meta.json", "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=2, ensure_ascii=False)

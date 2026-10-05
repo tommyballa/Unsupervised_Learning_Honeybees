@@ -171,6 +171,11 @@ class FramesConfig:
     manifests: dict[str, str] = field(default_factory=dict)
     # regex con i gruppi nominati (?P<session>...) e/o (?P<colony>...) cercata nel nome del frame
     frame_pattern: str = ""
+    # {nome sessione: cartella con i frame originali di quella sessione}, cercati anche nelle sottocartelle.
+    # Serve quando il nome del frame non dice nulla (es. DSC_5365.JPG): la sessione è la cartella che lo contiene.
+    session_dirs: dict[str, str] = field(default_factory=dict)
+    # alveare da assegnare a tutti i frame quando la regex non ne ricava uno (un solo alveare fotografato)
+    colony: str = ""
 
     def __post_init__(self) -> None:
         if self.frame_pattern:
@@ -194,8 +199,13 @@ class AuditConfig:
     anomaly_split_class: str = ""     # es. "Healthy Adult"; vuoto = nessuna divisione per anomaly score
     anomaly_quantile: float = 0.9
     seed: int = 7
+    # Vuoto, oppure session | colony | dataset: ogni strato viene diviso anche per quel gruppo.
+    # Da usare quando i gruppi hanno immagini diverse (luce, zoom): così gli errori del modello
+    # sono stimati gruppo per gruppo invece di essere assunti uguali. Il campione cresce di conseguenza.
+    stratify_by: str = ""
 
     def __post_init__(self) -> None:
+        _check(self.stratify_by in ("", "session", "colony", "dataset"), "audit.stratify_by: vuoto, session, colony o dataset")
         _check(self.per_stratum >= 1, "audit.per_stratum >= 1")
         _check(self.large_stratum >= self.per_stratum, "audit.large_stratum >= audit.per_stratum")
         _check(self.large_threshold >= 1, "audit.large_threshold >= 1")

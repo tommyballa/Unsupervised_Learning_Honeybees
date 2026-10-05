@@ -232,3 +232,43 @@ def test_hub_results_page_and_downloads(flow, hub_app, monkeypatch, tmp_path):
     for url in ("/al-audit-file/final/predictions.csv", "/al-audit-file/final/..%2Fmeta.json", "/al-audit-file/boh/report.md",
                 "/al-audit-results?snapshot=boh", "/al-audit-results?snapshot=../x"):
         assert c.get(url).status_code == 404
+
+
+def test_sessions_from_folders_and_audit_stratified_by_session(tmp_path):
+    """Due sessioni che attraversano le cartelle di dataset; l'audit misura gli errori sessione per sessione."""
+    from test_frames import _session_dirs
+
+    data = build_colony_dataset(tmp_path, extra_cfg={"audit": {"per_stratum": 10, "stratify_by": "session"},
+                                                     "colony": {"n_boot": 100, "time_order": {"*": ["giorno1", "giorno2"]}}})
+    data.cfg.frames.session_dirs = _session_dirs(tmp_path, data, lambda f: "giorno1" if int(f[-7:-4]) % 2 else "giorno2")
+    engine = ALEngine(data.cfg, data.emb)
+    for _ in range(4):
+        label_batch(engine, data.truth)
+    out = engine.export_snapshot("s", "a@x.it")
+    rows = read_csv(out / "predictions.csv")
+    expected = {i: ("giorno1" if int(f[-7:-4]) % 2 else "giorno2") for i, f in data.frame_of.items()}
+    assert {r["image_id"]: r["session"] for r in rows} == expected
+    assert {r["dataset"] for r in rows if r["session"] == "giorno1"} == {"tr", "te"}      # le sessioni attraversano le cartelle
+    meta = json.loads((out / "meta.json").read_text())
+    assert meta["bees_per_session"] == dict(Counter(expected.values())) and meta["session_dirs_missing"] == []
+    assert {f["session"] for f in read_csv(out / "frames.csv")} == {"giorno1", "giorno2"}
+
+    engine.create_audit("s")
+    strata = engine.audit["strata"]
+    assert {s["group"] for s in strata} == {"giorno1", "giorno2"} and all(s["id"].endswith(s["group"]) for s in strata)
+    labels = {s["label"] for s in strata if s["kind"] == "class"}
+    assert len(strata) >= 2 * len(labels)                                                   # ogni classe ha uno strato per sessione
+    session_of = {r["image_id"]: r["session"] for r in rows}
+    assert all(session_of[b["image_id"]] == b["stratum"].rsplit("|", 1)[1] for b in engine.audit["bees"])
+
+    label_audit(engine, data.truth, "a@x.it")
+    label_audit(engine, data.truth, "b@x.it")
+    report = build_report(out, data.cfg, store=engine.store)
+    sessions = {g["group"]: g for g in report["estimates"]["groups"]["session"]["groups"]}
+    assert set(sessions) == {"giorno1", "giorno2"}
+    for name, g in sessions.items():                                                        # stima di ogni sessione vicina alla sua verità
+        truth = Counter(data.truth[r["image_id"]] for r in rows if r["session"] == name and r["status"] not in ("validation", "unknown", "no_prediction"))
+        for label, stats in g["classes"].items():
+            assert stats["share"] == pytest.approx(truth[label] / sum(truth.values()), abs=0.07), (name, label)
+    assert [(t["from"], t["to"]) for t in report["indicators"]["trend"]] == [("giorno1", "giorno2")]
+    assert [g["group"] for g in report["indicators"]["groups"]] == ["giorno1", "giorno2"]
