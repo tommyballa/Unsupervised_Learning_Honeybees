@@ -202,6 +202,24 @@ _STATUS_PAGE = """
         This is only an indication, evaluated over the last {{ s.stopping.window }} rounds that received new labels: nothing stops by itself.
     </p>
 
+    <h2>Snapshots</h2>
+    <p style="color: #94a3b8; font-size: 14px;">A snapshot freezes the current predictions of every bee, with its source frame. It never changes afterwards: audits and estimates are computed on it.</p>
+    {% if snapshot_error %}<p style="color: var(--btn-red);"><b>{{ snapshot_error }}</b></p>{% endif %}
+    {% if snapshot_message %}<p style="color: var(--btn-green);"><b>{{ snapshot_message }}</b></p>{% endif %}
+    <form method="POST" action="{{ url_for('al.snapshot') }}" style="display: flex; gap: 10px; align-items: center;">
+        <input type="text" name="name" required maxlength="80" placeholder="snapshot name, e.g. 2026-10-05_round42" style="flex: 3; padding: 12px; font-size: 16px;">
+        <button class="btn" type="submit" style="flex: 1; margin-top: 0;">Freeze snapshot</button>
+    </form>
+    {% if s.snapshots %}
+    <table>
+        <tr><th>Snapshot</th><th>Created</th><th>Round</th><th>Model</th><th>Bees</th><th>Predicted / labeled / unassigned</th></tr>
+        {% for snap in s.snapshots %}
+        <tr><td>{{ snap.name }}</td><td>{{ snap.created }}</td><td>{{ snap.round }}</td><td>{{ snap.model_version }}</td><td>{{ snap.n_bees }}</td>
+            <td>{{ snap.status_counts.get('predicted', 0) }} / {{ snap.status_counts.get('labeled', 0) }} / {{ snap.status_counts.get('unassigned', 0) }}</td></tr>
+        {% endfor %}
+    </table>
+    {% else %}<p>No snapshots yet.</p>{% endif %}
+
     <h2>Validation metrics</h2>
     {% if s.metrics.accuracy is not none %}
     <table>
@@ -463,7 +481,23 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
         return render_template_string(
             _STATUS_PAGE, css=base_css, user=session.get("user_email"), s=engine.status(),
             retrain_error=request.args.get("retrain_error"),
+            snapshot_error=request.args.get("snapshot_error"), snapshot_message=request.args.get("snapshot_message"),
         )
+
+    @bp.route("/al-snapshot", methods=["POST"])
+    def snapshot():
+        user = session.get("user_email")
+        if not user:
+            return redirect(url_for("index"))
+        engine, page = engine_or_message()
+        if engine is None:
+            return page
+        name = request.form.get("name", "").strip()
+        try:
+            engine.export_snapshot(name, user)
+        except ALError as e:
+            return redirect(url_for("al.status", snapshot_error=f"Snapshot not created: {e}"))
+        return redirect(url_for("al.status", snapshot_message=f"Snapshot '{name}' created."))
 
     @bp.route("/al-retrain", methods=["POST"])
     def retrain():

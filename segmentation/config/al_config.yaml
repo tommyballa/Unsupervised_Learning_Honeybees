@@ -96,6 +96,14 @@ stopping:
   max_pred_change: 0.01   # predizioni stabili: meno dell'1% delle api cambia classe da un round all'altro
   f1_min_delta: 0.01      # plateau: la macro-F1 di validazione non migliora più di così
 
+frames:
+  # Da quale frame viene ogni ape: si ricava dal manifest dell'estrazione di ogni cartella.
+  # Vuoto = <cartella pulita>/../raw_bees/_extraction_manifest.json; altrimenti {nome cartella: percorso}.
+  manifests: {}
+  # Regex con i gruppi nominati (?P<session>...) e/o (?P<colony>...) applicata al nome del frame,
+  # es. "(?P<colony>hive\\d+)_(?P<session>\\d{8})". Vuota = sessione = nome della cartella, alveare assente.
+  frame_pattern: ""
+
 simulation:
   seeds: [0, 1, 2, 3, 4]
   max_labels: 400

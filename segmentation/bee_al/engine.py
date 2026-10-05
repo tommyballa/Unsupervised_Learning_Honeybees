@@ -10,7 +10,7 @@ from typing import Any, Callable, Optional, Sequence, Union
 
 import numpy as np
 
-from . import REMOVED_LABEL, UNKNOWN_LABEL
+from . import REMOVED_LABEL, UNKNOWN_LABEL, snapshot
 from .config import DEFAULT_CONFIG_PATH, ALConfig, load_config
 from .embeddings import Embeddings, load_embeddings
 from .knn import Prediction, knn_predict, nearest_labeled_similarity
@@ -69,8 +69,10 @@ class ALEngine:
         model_version: str = BASE_VERSION,
         config_path: Union[str, Path, None] = None,
         clock: Callable[[], float] = time.time,
+        persist_rounds: bool = True,
     ) -> None:
         self.cfg = cfg
+        self.persist_rounds = persist_rounds  # False = non scrive al_rounds.jsonl (script che non sono l'hub)
         self.config_path = Path(config_path) if config_path else None
         self.clock = clock
         self.lock = threading.RLock()
@@ -92,13 +94,14 @@ class ALEngine:
         self.refresh(reload_config=False)
 
     @classmethod
-    def from_config(cls, config_path: Union[str, Path, None] = None) -> "ALEngine":
+    def from_config(cls, config_path: Union[str, Path, None] = None, persist_rounds: bool = True) -> "ALEngine":
         """Carica config, embedding dell'ultima versione, store e importa le etichette legacy."""
         cfg = load_config(config_path)
         version, emb_dir = latest_embeddings(cfg)
         store = LabelStore(cfg.al_labels_path, cfg.labels.label_aliases)
         store.import_legacy(cfg.results_dir, config_id=cfg.config_id)
-        return cls(cfg, load_embeddings(emb_dir), store, version, config_path or DEFAULT_CONFIG_PATH)
+        return cls(cfg, load_embeddings(emb_dir), store, version, config_path or DEFAULT_CONFIG_PATH,
+                   persist_rounds=persist_rounds)
 
     # ------------------------------ stato base ------------------------------ #
 
@@ -156,9 +159,10 @@ class ALEngine:
             self.round += 1
             entry["round"] = self.round
             self.history.append(entry)
-            self.rounds_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.rounds_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(entry) + "\n")
+            if self.persist_rounds:
+                self.rounds_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(self.rounds_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(entry) + "\n")
             self._new_batch()
             if self.retrain is not None:
                 self.retrain.maybe_start()
@@ -637,6 +641,23 @@ class ALEngine:
                 ],
             }
 
+    # ------------------------------- snapshot ------------------------------- #
+
+    def export_snapshot(self, name: str, annotator: str) -> Path:
+        """Congela predizioni, frame di origine e stato in ``results_dir/snapshots/<name>/``.
+
+        Lo snapshot è immutabile: un nome già usato o non valido solleva ``ALError``.
+        """
+        with self.lock:
+            try:
+                return snapshot.export_snapshot(self, name, annotator)
+            except (ValueError, FileExistsError) as e:
+                raise ALError(str(e)) from None
+
+    def list_snapshots(self) -> list[dict[str, Any]]:
+        with self.lock:
+            return snapshot.list_snapshots(self.cfg)
+
     def status(self) -> dict[str, Any]:
         with self.lock:
             q = self.cfg.query
@@ -652,6 +673,7 @@ class ALEngine:
                 "class_counts": self.bank.class_counts(),
                 "reject_classes": sorted(self.reject_classes()),
                 "stopping": self.stopping_status(),
+                "snapshots": snapshot.list_snapshots(self.cfg),
                 "cold_start": is_cold_start(self.bank.n_labeled, len(self.bank.classes), q),
                 "cold_start_threshold": q.cold_start_threshold,
                 "batch_id": self.batch_id,

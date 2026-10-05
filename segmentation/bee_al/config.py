@@ -4,6 +4,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import re
 import typing
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -163,6 +164,25 @@ class StoppingConfig:
 
 
 @dataclass
+class FramesConfig:
+    """Collegamento ape -> frame di origine (vedi ``bee_al/frames.py``)."""
+
+    # {nome cartella dataset: percorso del manifest dell'estrazione}; vuoto = <cartella pulita>/../raw_bees/
+    manifests: dict[str, str] = field(default_factory=dict)
+    # regex con i gruppi nominati (?P<session>...) e/o (?P<colony>...) cercata nel nome del frame
+    frame_pattern: str = ""
+
+    def __post_init__(self) -> None:
+        if self.frame_pattern:
+            try:
+                groups = set(re.compile(self.frame_pattern).groupindex)
+            except re.error as e:
+                raise ValueError(f"Config non valida: frames.frame_pattern non è una regex ({e})") from None
+            _check(bool(groups & {"session", "colony"}) and groups <= {"session", "colony"},
+                   "frames.frame_pattern deve avere i gruppi nominati 'session' e/o 'colony'")
+
+
+@dataclass
 class SimulationConfig:
     seeds: list[int] = field(default_factory=lambda: [0, 1, 2, 3, 4])
     max_labels: int = 400
@@ -188,6 +208,7 @@ class ALConfig:
     hub: HubConfig = field(default_factory=HubConfig)
     retrain: RetrainConfig = field(default_factory=RetrainConfig)
     stopping: StoppingConfig = field(default_factory=StoppingConfig)
+    frames: FramesConfig = field(default_factory=FramesConfig)
     simulation: SimulationConfig = field(default_factory=SimulationConfig)
     root: str = str(REPO_ROOT)  # base dei percorsi relativi; non va nel file YAML
 
