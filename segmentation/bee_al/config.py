@@ -183,6 +183,29 @@ class FramesConfig:
 
 
 @dataclass
+class AuditConfig:
+    """Campione di controllo stratificato (vedi ``bee_al/audit.py``)."""
+
+    per_stratum: int = 40
+    large_stratum: int = 250
+    large_threshold: int = 5000
+    confidence_bins: list[float] = field(default_factory=lambda: [0.9])
+    double_fraction: float = 0.1
+    anomaly_split_class: str = ""     # es. "Healthy Adult"; vuoto = nessuna divisione per anomaly score
+    anomaly_quantile: float = 0.9
+    seed: int = 7
+
+    def __post_init__(self) -> None:
+        _check(self.per_stratum >= 1, "audit.per_stratum >= 1")
+        _check(self.large_stratum >= self.per_stratum, "audit.large_stratum >= audit.per_stratum")
+        _check(self.large_threshold >= 1, "audit.large_threshold >= 1")
+        _check(all(0 < b < 1 for b in self.confidence_bins) and len(set(self.confidence_bins)) == len(self.confidence_bins),
+               "audit.confidence_bins: soglie distinte in (0, 1)")
+        _check(0 <= self.double_fraction <= 1, "audit.double_fraction in [0, 1]")
+        _check(0 < self.anomaly_quantile < 1, "audit.anomaly_quantile in (0, 1)")
+
+
+@dataclass
 class SimulationConfig:
     seeds: list[int] = field(default_factory=lambda: [0, 1, 2, 3, 4])
     max_labels: int = 400
@@ -209,6 +232,7 @@ class ALConfig:
     retrain: RetrainConfig = field(default_factory=RetrainConfig)
     stopping: StoppingConfig = field(default_factory=StoppingConfig)
     frames: FramesConfig = field(default_factory=FramesConfig)
+    audit: AuditConfig = field(default_factory=AuditConfig)
     simulation: SimulationConfig = field(default_factory=SimulationConfig)
     root: str = str(REPO_ROOT)  # base dei percorsi relativi; non va nel file YAML
 

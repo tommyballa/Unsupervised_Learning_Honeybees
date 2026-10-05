@@ -10,7 +10,7 @@ from typing import Any, Callable, Optional, Sequence, Union
 
 import numpy as np
 
-from . import REMOVED_LABEL, UNKNOWN_LABEL, snapshot
+from . import REMOVED_LABEL, UNKNOWN_LABEL, audit, snapshot
 from .config import DEFAULT_CONFIG_PATH, ALConfig, load_config
 from .embeddings import Embeddings, load_embeddings
 from .knn import Prediction, knn_predict, nearest_labeled_similarity
@@ -90,6 +90,12 @@ class ALEngine:
         )
         self._val_set = set(self.validation_ids)
         self._round_final: Optional[np.ndarray] = None  # etichette finali al round precedente (criteri di stop)
+        # Audit attivo: campione di controllo di uno snapshot, mai usato per addestrare.
+        self.audit: Optional[dict[str, Any]] = None
+        self.audit_labels: dict[str, dict[str, str]] = {}   # image_id -> {annotatore: etichetta}
+        self._audit_ids: set[str] = set()
+        self._audit_assigned: dict[str, dict[str, float]] = {}
+        self._restore_audit(set(embeddings.ids))
         self._install_embeddings(embeddings, model_version)
         self.refresh(reload_config=False)
 
@@ -132,9 +138,11 @@ class ALEngine:
         self.store.set_aliases(self.cfg.labels.label_aliases)
         self.bank.clear_labels()
         # Le api di validazione non entrano mai nella bank, nemmeno se hanno un'etichetta legacy.
-        for image_id, ev in self.store.current(lambda e: e.query_type != "validation").items():
+        # Gli eventi di validazione e di audit sono tenuti da parte: non addestrano nulla.
+        for image_id, ev in self.store.current(is_training_event).items():
             if image_id in self.bank and image_id not in self._val_set:
                 self.bank.add_label(image_id, ev.label)
+        self._reload_audit_labels()
         self.val_labels = {
             image_id: ev.label
             for image_id, ev in self.store.current(lambda e: e.query_type == "validation").items()
@@ -357,6 +365,7 @@ class ALEngine:
         excluded = set(self.bank.labeled_indices().tolist())
         excluded.update(self.bank.unknown_indices().tolist())
         excluded.update(self.bank.index_of(i) for i in self._val_set if i in self.bank)
+        excluded.update(self.bank.index_of(i) for i in self._audit_ids if i in self.bank)
         excluded.update(b.index for b in carried)
         source = self.knn_pred if self.cfg.query.uncertainty_source == "knn" else self.final_pred
         rng = np.random.default_rng([self.cfg.seed, self.round])
@@ -383,6 +392,8 @@ class ALEngine:
             now = self.clock()
             if mode == "validation":
                 return self._next_validation(annotator, now)
+            if mode == "audit":
+                return self._next_audit(annotator, now)
             pending = [b for b in self.batch if not b.done]
             for item in pending:
                 if item.assigned_to == annotator:
@@ -445,16 +456,31 @@ class ALEngine:
                     self.val_labels[image_id] = resolved
                 return label
 
+            if mode == "audit":
+                if self.audit is None or image_id not in self._audit_ids:
+                    raise ALError(f"{image_id} non fa parte dell'audit attivo")
+                self.store.append(image_id, label, annotator, confidence, "audit", self.cfg.config_id,
+                                  self.model_version, audit.batch_id_of(self.audit["snapshot"]))
+                self._audit_assigned.get(image_id, {}).pop(annotator, None)
+                resolved = self.store.resolve(label)
+                answers = self.audit_labels.setdefault(image_id, {})
+                if resolved == REMOVED_LABEL:
+                    answers.pop(annotator, None)
+                else:
+                    answers[annotator] = resolved
+                return label
+
             if image_id in self._val_set:
                 raise ALError(f"{image_id} è nel validation set: va etichettata in modalità validazione")
+            if image_id in self._audit_ids:
+                raise ALError(f"{image_id} è nel campione di audit: va etichettata in modalità audit")
             item = next((b for b in self.batch if b.image_id == image_id), None)
             if item is not None:
                 query_type, batch_id = item.query_type, item.batch_id
             else:
                 # Correzione di un'etichetta data in un batch precedente: stesso tipo di query.
                 prev = next(
-                    (e for e in reversed(self.store.events())
-                     if e.image_id == image_id and e.query_type != "validation"),
+                    (e for e in reversed(self.store.events()) if e.image_id == image_id and is_training_event(e)),
                     None,
                 )
                 if prev is not None and prev.query_type != "legacy":
@@ -537,6 +563,8 @@ class ALEngine:
                     raise ALError(f"immagine sconosciuta: {image_id}")
                 if image_id in self._val_set:
                     raise ALError(f"{image_id} è nel validation set: va etichettata in modalità validazione")
+                if image_id in self._audit_ids:
+                    raise ALError(f"{image_id} è nel campione di audit: va etichettata in modalità audit")
             resolved = self.store.resolve(label)
             changed = 0
             for image_id in image_ids:
@@ -554,7 +582,7 @@ class ALEngine:
         with self.lock:
             reject = self.reject_classes()
             groups: dict[str, list[Any]] = {}
-            for image_id, ev in self.store.current(lambda e: e.query_type != "validation").items():
+            for image_id, ev in self.store.current(is_training_event).items():
                 if image_id in self.bank and image_id not in self._val_set:
                     groups.setdefault(ev.label, []).append(ev)
             out = []
@@ -593,7 +621,7 @@ class ALEngine:
             predicted = pred.probs.sum(axis=1) > 0
             predicted[self.bank.labeled_indices()] = False
             predicted[self.bank.unknown_indices()] = False
-            predicted &= ~self.unassigned & self._not_validation()
+            predicted &= ~self.unassigned & self._not_validation() & ~self._audit_mask()
             human = self.bank.class_counts()
             reject = self.reject_classes()
             rng = np.random.default_rng([self.cfg.seed, self.round])
@@ -622,7 +650,7 @@ class ALEngine:
         ``order``: ``random``, ``uncertain`` (le più lontane) o ``confident`` (le meno lontane).
         """
         with self.lock:
-            members = np.flatnonzero(self.unassigned)
+            members = np.flatnonzero(self.unassigned & ~self._audit_mask())
             if not len(members):
                 return {"n": 0, "samples": []}
             sims = self.nearest_sim[members]
@@ -639,6 +667,135 @@ class ALEngine:
                     {"image_id": self.bank.ids[members[j]], "similarity": float(sims[j]), "nearest_class": nearest[members[j]]}
                     for j in pick
                 ],
+            }
+
+    # -------------------------------- audit --------------------------------- #
+
+    def _restore_audit(self, known_ids: set[str]) -> None:
+        """All'avvio riprende l'audit attivo salvato, altrimenti l'ultimo snapshot che ha un audit set."""
+        name = ""
+        path = self.cfg.results_dir / "active_audit.json"
+        if path.exists():
+            with open(path, "r", encoding="utf-8") as f:
+                name = json.load(f).get("snapshot", "")
+        candidates = [name] if name else [s["name"] for s in snapshot.list_snapshots(self.cfg) if s["has_audit"]]
+        for candidate in candidates:
+            folder = snapshot.snapshots_dir(self.cfg) / candidate
+            if (folder / audit.AUDIT_FILE).exists():
+                self.audit = audit.load_audit_set(folder)
+                self._audit_ids = {b["image_id"] for b in self.audit["bees"]} & known_ids
+                return
+
+    def _reload_audit_labels(self) -> None:
+        self.audit_labels = {}
+        if self.audit is None:
+            return
+        batch_id = audit.batch_id_of(self.audit["snapshot"])
+        answers = self.store.per_annotator(lambda e: e.query_type == "audit" and e.batch_id == batch_id)
+        self.audit_labels = {
+            image_id: {annotator: ev.label for annotator, ev in by_annotator.items()}
+            for image_id, by_annotator in answers.items() if image_id in self._audit_ids
+        }
+
+    def _audit_mask(self) -> np.ndarray:
+        mask = np.zeros(len(self.bank), dtype=bool)
+        mask[[self.bank.index_of(i) for i in self._audit_ids if i in self.bank]] = True
+        return mask
+
+    def create_audit(self, snapshot_name: str, anomaly_scores: Optional[dict[str, float]] = None) -> dict[str, Any]:
+        """Estrae il campione di controllo di uno snapshot (una volta sola) e lo rende l'audit attivo."""
+        with self.lock:
+            try:
+                folder = snapshot.snapshot_path(self.cfg, snapshot_name)
+                if not (folder / "predictions.csv").exists():
+                    raise ValueError(f"snapshot '{snapshot_name}' does not exist")
+                audit.create_audit_set(folder, self.cfg, anomaly_scores)
+            except (ValueError, FileExistsError) as e:
+                raise ALError(str(e)) from None
+            return self.load_audit(snapshot_name)
+
+    def load_audit(self, snapshot_name: str) -> dict[str, Any]:
+        """Rende attivo l'audit di uno snapshot e lo ricorda in ``results_dir/active_audit.json``.
+
+        Le api del campione escono dal batch in corso e non vengono più proposte in
+        modalità normale: si etichettano solo in modalità audit, alla cieca.
+        """
+        with self.lock:
+            try:
+                folder = snapshot.snapshot_path(self.cfg, snapshot_name)
+            except ValueError as e:
+                raise ALError(str(e)) from None
+            if not (folder / audit.AUDIT_FILE).exists():
+                raise ALError(f"snapshot '{snapshot_name}' has no audit set")
+            self.audit = audit.load_audit_set(folder)
+            self._audit_ids = {b["image_id"] for b in self.audit["bees"] if b["image_id"] in self.bank}
+            self._audit_assigned = {}
+            self._reload_audit_labels()
+            self.batch = [b for b in self.batch if b.done or b.image_id not in self._audit_ids]
+            path = self.cfg.results_dir / "active_audit.json"
+            tmp = path.with_name(path.name + ".tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"snapshot": snapshot_name}, f)
+            tmp.replace(path)
+            if self.batch and all(b.done for b in self.batch):
+                self.refresh()
+            return self.audit_progress()
+
+    def _audit_done(self, bee: dict[str, Any]) -> bool:
+        """Un'ape singola è completa con una risposta, una doppia con due annotatori diversi."""
+        return len(self.audit_labels.get(bee["image_id"], {})) >= (2 if bee["double"] else 1)
+
+    def _next_audit(self, annotator: str, now: float) -> Optional[BatchItem]:
+        if self.audit is None:
+            return None
+        timeout = self.cfg.hub.assignment_timeout_s
+        by_id = {b["image_id"]: b for b in self.audit["bees"]}
+        free: Optional[str] = None
+        for image_id in self.audit["order"]:
+            bee = by_id[image_id]
+            answers = self.audit_labels.get(image_id, {})
+            if image_id not in self._audit_ids or self._audit_done(bee) or annotator in answers:
+                continue  # lo stesso annotatore non riceve due volte la stessa ape
+            owners = {a: t for a, t in self._audit_assigned.get(image_id, {}).items()
+                      if now - t < timeout and a not in answers}
+            if annotator in owners:
+                free = image_id
+                break
+            slots = (2 if bee["double"] else 1) - len(answers)
+            if free is None and len(owners) < slots:
+                free = image_id
+        if free is None:
+            return None
+        self._audit_assigned.setdefault(free, {})[annotator] = now
+        batch_id = audit.batch_id_of(self.audit["snapshot"])
+        return BatchItem(free, self.bank.index_of(free), "audit", batch_id, annotator, now)
+
+    def audit_label_of(self, image_id: str, annotator: str) -> Optional[str]:
+        with self.lock:
+            return self.audit_labels.get(image_id, {}).get(annotator)
+
+    def audit_progress(self) -> Optional[dict[str, Any]]:
+        """Avanzamento dell'audit attivo: totale, completate, per strato, annotatori. ``None`` senza audit."""
+        with self.lock:
+            if self.audit is None:
+                return None
+            strata = {s["id"]: {"id": s["id"], "N_h": s["N_h"], "n_h": s["n_h"], "done": 0} for s in self.audit["strata"]}
+            done = 0
+            annotators: dict[str, int] = {}
+            for bee in self.audit["bees"]:
+                for annotator in self.audit_labels.get(bee["image_id"], {}):
+                    annotators[annotator] = annotators.get(annotator, 0) + 1
+                if self._audit_done(bee):
+                    done += 1
+                    strata[bee["stratum"]]["done"] += 1
+            return {
+                "snapshot": self.audit["snapshot"],
+                "total": len(self.audit["bees"]),
+                "done": done,
+                "double": sum(b["double"] for b in self.audit["bees"]),
+                "population": self.audit["population"],
+                "strata": list(strata.values()),
+                "annotators": dict(sorted(annotators.items())),
             }
 
     # ------------------------------- snapshot ------------------------------- #
@@ -674,6 +831,7 @@ class ALEngine:
                 "reject_classes": sorted(self.reject_classes()),
                 "stopping": self.stopping_status(),
                 "snapshots": snapshot.list_snapshots(self.cfg),
+                "audit": self.audit_progress(),
                 "cold_start": is_cold_start(self.bank.n_labeled, len(self.bank.classes), q),
                 "cold_start_threshold": q.cold_start_threshold,
                 "batch_id": self.batch_id,

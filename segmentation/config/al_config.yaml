@@ -104,6 +104,18 @@ frames:
   # es. "(?P<colony>hive\\d+)_(?P<session>\\d{8})". Vuota = sessione = nome della cartella, alveare assente.
   frame_pattern: ""
 
+audit:
+  # Campione di controllo di uno snapshot: stratificato per classe predetta, etichettato alla cieca.
+  # Le etichette di audit non entrano mai nel kNN: servono solo a correggere le stime.
+  per_stratum: 40           # api estratte da ogni strato (tutte, se lo strato ne ha meno)
+  large_stratum: 250        # api estratte dagli strati con almeno large_threshold api
+  large_threshold: 5000
+  confidence_bins: [0.9]    # ogni classe predetta è divisa in fasce di confidenza: <0.9 e >=0.9
+  double_fraction: 0.1      # quota del campione etichettata da due annotatori diversi (accordo, kappa)
+  anomaly_split_class: ""   # es. "Healthy": i suoi strati si dividono anche per anomaly score, se viene fornito
+  anomaly_quantile: 0.9
+  seed: 7
+
 simulation:
   seeds: [0, 1, 2, 3, 4]
   max_labels: 400

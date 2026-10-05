@@ -10,6 +10,7 @@ from typing import Optional, Union
 from flask import Blueprint, abort, redirect, render_template_string, request, send_file, session, url_for
 
 from . import REMOVED_LABEL, UNKNOWN_LABEL
+from .audit import parse_scores
 from .engine import ALEngine, ALError
 from .retrain import RetrainManager
 
@@ -75,6 +76,7 @@ _NAV = """
     <span><a href="/">&larr; Dashboard</a> &nbsp;|&nbsp;
         <a href="{{ url_for('al.labeling') }}">Labeling</a> &nbsp;|&nbsp;
         <a href="{{ url_for('al.labeling', mode='validation') }}">Validation set</a> &nbsp;|&nbsp;
+        <a href="{{ url_for('al.labeling', mode='audit') }}">Audit</a> &nbsp;|&nbsp;
         <a href="{{ url_for('al.clusters') }}">Clusters</a> &nbsp;|&nbsp;
         <a href="{{ url_for('al.status') }}">Status</a></span>
     <span style="font-size: 14px; color: #94a3b8;">User: {{ user }}</span>
@@ -95,7 +97,7 @@ _LABELING_PAGE = """
 {{ css|safe }}
 <div class="container">
     """ + _NAV + """
-    <h2>{{ 'Validation Set Labeling' if mode == 'validation' else 'Active Learning Labeling' }}</h2>
+    <h2>{{ {'validation': 'Validation Set Labeling', 'audit': 'Audit Labeling'}.get(mode, 'Active Learning Labeling') }}</h2>
     <p style="color: #94a3b8; font-size: 14px;">{{ progress }}</p>
     {% if error %}<p style="color: var(--btn-red);"><b>{{ error }}</b></p>{% endif %}
     {% if redo %}<p style="color: var(--btn-yellow);">Fixing your previous label: <b>{{ previous_label }}</b></p>{% endif %}
@@ -212,13 +214,42 @@ _STATUS_PAGE = """
     </form>
     {% if s.snapshots %}
     <table>
-        <tr><th>Snapshot</th><th>Created</th><th>Round</th><th>Model</th><th>Bees</th><th>Predicted / labeled / unassigned</th></tr>
+        <tr><th>Snapshot</th><th>Created</th><th>Round</th><th>Model</th><th>Bees</th><th>Predicted / labeled / unassigned</th><th>Audit</th></tr>
         {% for snap in s.snapshots %}
         <tr><td>{{ snap.name }}</td><td>{{ snap.created }}</td><td>{{ snap.round }}</td><td>{{ snap.model_version }}</td><td>{{ snap.n_bees }}</td>
-            <td>{{ snap.status_counts.get('predicted', 0) }} / {{ snap.status_counts.get('labeled', 0) }} / {{ snap.status_counts.get('unassigned', 0) }}</td></tr>
+            <td>{{ snap.status_counts.get('predicted', 0) }} / {{ snap.status_counts.get('labeled', 0) }} / {{ snap.status_counts.get('unassigned', 0) }}</td>
+            <td>
+            {% if s.audit and s.audit.snapshot == snap.name %}
+                <b style="color: var(--btn-green);">active</b>: {{ s.audit.done }} / {{ s.audit.total }} labeled
+            {% elif snap.has_audit %}
+                <form method="POST" action="{{ url_for('al.audit_activate') }}" style="margin: 0;">
+                    <input type="hidden" name="snapshot" value="{{ snap.name }}">
+                    <button class="quick-label-btn" type="submit">Make this audit active</button>
+                </form>
+            {% else %}
+                <form method="POST" action="{{ url_for('al.audit_create') }}" enctype="multipart/form-data" style="margin: 0;">
+                    <input type="hidden" name="snapshot" value="{{ snap.name }}">
+                    <button class="quick-label-btn" type="submit">Create audit set</button><br>
+                    <label style="font-size: 12px; color: #94a3b8;">optional anomaly scores (CSV image_id,score): <input type="file" name="scores" accept=".csv"></label>
+                </form>
+            {% endif %}
+            </td></tr>
         {% endfor %}
     </table>
     {% else %}<p>No snapshots yet.</p>{% endif %}
+    {% if s.audit %}
+    <h2>Audit of snapshot {{ s.audit.snapshot }}</h2>
+    <p>{{ s.audit.done }} of {{ s.audit.total }} sampled bees labeled ({{ s.audit.double }} need two different annotators), out of {{ s.audit.population }} predicted bees.
+       <a href="{{ url_for('al.labeling', mode='audit') }}">Label the audit &rarr;</a></p>
+    <p style="color: #94a3b8; font-size: 14px;">Audit bees are labeled blind and never enter the model. They are no longer proposed in normal labeling.
+        {% if s.audit.annotators %}Answers so far: {% for a, n in s.audit.annotators.items() %}{{ a }} {{ n }}{{ ', ' if not loop.last }}{% endfor %}.{% endif %}</p>
+    <table>
+        <tr><th>Stratum</th><th>Bees in the snapshot</th><th>Sampled</th><th>Labeled</th></tr>
+        {% for st in s.audit.strata %}
+        <tr><td>{{ 'Unassigned' if st.id == '__unassigned__' else st.id }}</td><td>{{ st.N_h }}</td><td>{{ st.n_h }}</td><td>{{ st.done }}</td></tr>
+        {% endfor %}
+    </table>
+    {% endif %}
 
     <h2>Validation metrics</h2>
     {% if s.metrics.accuracy is not none %}
@@ -426,9 +457,12 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
         engine, page = engine_or_message()
         if engine is None:
             return page
-        mode = "validation" if request.args.get("mode") == "validation" else "train"
+        mode = request.args.get("mode")
+        mode = mode if mode in ("validation", "audit") else "train"
         last_key = f"al_last_{mode}"
         error = None
+        if mode == "audit" and engine.audit_progress() is None:
+            return message("No audit yet", "Freeze a snapshot and create its audit set from the Status page first.")
 
         if request.method == "POST":
             image_id = request.form.get("image_id", "")
@@ -450,24 +484,33 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
         previous_label = ""
         if redo:
             image_id = previous
-            previous_label = engine.val_labels.get(image_id) if mode == "validation" else engine.bank.label_of(image_id)
+            if mode == "audit":
+                previous_label = engine.audit_label_of(image_id, user)
+            else:
+                previous_label = engine.val_labels.get(image_id) if mode == "validation" else engine.bank.label_of(image_id)
             previous_label = "Non so" if previous_label == UNKNOWN_LABEL else (previous_label or "")
         else:
             item = engine.next_image(user, mode=mode)
             if item is None:
                 if mode == "validation":
                     return message("Validation set complete", "Every validation image has been labeled (or is assigned to another annotator).")
+                if mode == "audit":
+                    return message("Nothing left for you in this audit", "Every audit bee is labeled, assigned to another annotator, or waiting for a second annotator other than you.")
                 return message("Nothing to label right now", "The rest of the batch is assigned to other annotators, or no unlabeled images are left. Try again in a moment.")
             image_id = item.image_id
 
         st = engine.status()
         if mode == "validation":
             progress = f"Validation set: {st['validation_labeled']} / {st['validation_size']} labeled. These labels are used only for evaluation."
+        elif mode == "audit":
+            progress = (f"Audit: {st['audit']['done']} / {st['audit']['total']} labeled. Label what you see: these bees were never "
+                        "labeled before, and your answers are used only to check the clusters.")
         else:
             progress = f"Batch {st['batch_id']}: {st['batch_done']} / {st['batch_size']} done. {st['n_labels']} labels in total."
         return render_template_string(
             _LABELING_PAGE, css=base_css, user=user, mode=mode, image_id=image_id, progress=progress,
-            quick_labels=engine.quick_labels(), suggestion=engine.suggestion(image_id), error=error,
+            quick_labels=engine.quick_labels(), error=error,
+            suggestion=None if mode == "audit" else engine.suggestion(image_id),  # l'audit è alla cieca
             redo=redo, previous_label=previous_label, has_previous=previous is not None,
         )
 
@@ -498,6 +541,39 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
         except ALError as e:
             return redirect(url_for("al.status", snapshot_error=f"Snapshot not created: {e}"))
         return redirect(url_for("al.status", snapshot_message=f"Snapshot '{name}' created."))
+
+    @bp.route("/al-audit-create", methods=["POST"])
+    def audit_create():
+        if not session.get("user_email"):
+            return redirect(url_for("index"))
+        engine, page = engine_or_message()
+        if engine is None:
+            return page
+        name = request.form.get("snapshot", "")
+        try:
+            upload = request.files.get("scores")
+            scores = None
+            if upload is not None and upload.filename:
+                scores = parse_scores(upload.read().decode("utf-8-sig"))
+            progress = engine.create_audit(name, scores)
+        except (ALError, ValueError, UnicodeDecodeError) as e:
+            return redirect(url_for("al.status", snapshot_error=f"Audit set not created: {e}"))
+        text = f"Audit set of '{name}' created: {progress['total']} bees in {len(progress['strata'])} strata. It is now the active audit."
+        return redirect(url_for("al.status", snapshot_message=text))
+
+    @bp.route("/al-audit-activate", methods=["POST"])
+    def audit_activate():
+        if not session.get("user_email"):
+            return redirect(url_for("index"))
+        engine, page = engine_or_message()
+        if engine is None:
+            return page
+        name = request.form.get("snapshot", "")
+        try:
+            engine.load_audit(name)
+        except ALError as e:
+            return redirect(url_for("al.status", snapshot_error=f"Audit not activated: {e}"))
+        return redirect(url_for("al.status", snapshot_message=f"The audit of '{name}' is now active."))
 
     @bp.route("/al-retrain", methods=["POST"])
     def retrain():

@@ -16,8 +16,8 @@ FIELDS = [
     "image_id", "label", "timestamp", "annotator", "confidence",
     "query_type", "config_id", "model_version", "batch_id",
 ]
-QUERY_TYPES = ("random", "diversity", "uncertainty", "novelty", "manual", "validation", "legacy")
-HELD_OUT_TYPES = ("validation",)  # eventi che non entrano mai nella memory bank
+QUERY_TYPES = ("random", "diversity", "uncertainty", "novelty", "manual", "validation", "audit", "legacy")
+HELD_OUT_TYPES = ("validation", "audit")  # eventi che non entrano mai nella memory bank
 SENTINELS = (UNKNOWN_LABEL, REMOVED_LABEL)
 UNKNOWN_TEXTS = ("non so",)  # scritto a mano nel campo libero vale come il pulsante "Non so"
 
@@ -149,6 +149,26 @@ class LabelStore:
                 out[image_id] = dataclasses.replace(ev, label=label)
         return out
 
+    def per_annotator(self, keep: Optional[Callable[[LabelEvent], bool]] = None) -> dict[str, dict[str, LabelEvent]]:
+        """Etichette per annotatore: ``{image_id: {annotator: ultimo evento di quell'annotatore}}``.
+
+        A differenza di ``current`` non vince l'ultimo evento sull'immagine: ogni annotatore
+        conserva la propria risposta (serve per la doppia etichettatura dell'audit). Gli
+        annotatori sono nell'ordine in cui hanno risposto la prima volta; alias applicati,
+        rimozioni tolte.
+        """
+        out: dict[str, dict[str, LabelEvent]] = {}
+        for ev in self.events():
+            if keep is not None and not keep(ev):
+                continue
+            label = self.resolve(ev.label)
+            answers = out.setdefault(ev.image_id, {})
+            if label == REMOVED_LABEL:
+                answers.pop(ev.annotator, None)
+            else:
+                answers[ev.annotator] = dataclasses.replace(ev, label=label)
+        return {image_id: answers for image_id, answers in out.items() if answers}
+
     # -------------------------------- legacy -------------------------------- #
 
     def import_legacy(self, results_dir: Union[str, Path], config_id: str = "") -> int:
@@ -163,7 +183,7 @@ class LabelStore:
             return 0
         latest: dict[str, LabelEvent] = {}
         for ev in self.events():
-            if ev.query_type != "validation":
+            if is_training_event(ev):
                 latest[ev.image_id] = ev
 
         added = 0
