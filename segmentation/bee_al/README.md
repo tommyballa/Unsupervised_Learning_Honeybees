@@ -60,7 +60,7 @@ In `<results_dir>/snapshots/<nome>/`:
 
 Stato di un'ape (`status`): `labeled` (etichetta umana), `predicted` (assegnata dal modello),
 `rejected` (classe finale di scarto), `unassigned` (troppo lontana da ogni esempio), `unknown`
-("Non so"), `validation`, `no_prediction`.
+("Scarta ape"), `validation`, `no_prediction`.
 
 ### Da quale frame viene ogni ape
 
@@ -133,7 +133,7 @@ Il risultato resta in cache finché non arrivano nuove risposte di audit.
 
 ### Stime
 
-Per lo strato `h`: `N_h` api nella popolazione, `n_h` risposte di audit (i "Non so" sono
+Per lo strato `h`: `N_h` api nella popolazione, `n_h` risposte di audit (i "Scarta ape" sono
 contati a parte), `r_hk` quota di risposte di classe `k`. `H_k` sono le api etichettate a mano
 come `k`: contano esatte e non vengono ricorrette.
 
@@ -162,7 +162,7 @@ Cose da sapere quando si leggono i numeri:
 - Per le api doppie vale la risposta del primo annotatore; la seconda serve solo al kappa.
 - Con pochi frame per gruppo (due o tre) il ricampionamento dei frame sottostima la variabilità:
   gli intervalli per gruppo e i trend "significant" vanno presi con cautela.
-- Le api di validazione, i "Non so" e quelle senza predizione restano fuori dalle stime.
+- Le api di validazione, i "Scarta ape" e quelle senza predizione restano fuori dalle stime.
 
 ### Indicatori di colonia
 
@@ -173,7 +173,7 @@ Calcolati per gruppo (`colony.group_by`: `frame`, `session`, `colony` o `dataset
 | I1 – profilo demografico | quote corrette, con intervallo, delle `demographic_classes` |
 | I2 – segni di malattia | per ogni classe di `disease_classes`: `detected`, `uncertain` o `not_detected` (con limite superiore) |
 | I3 – divergenza di Jensen–Shannon | distanza del profilo del gruppo dal profilo di riferimento, in [0, 1] |
-| I4 – quota non spiegata | (non assegnate + "Non so") / api del gruppo |
+| I4 – quota non spiegata | (non assegnate + "Scarta ape") / api del gruppo |
 | I5 – trend | differenza tra sessioni consecutive di I1, I2, I3, con intervallo |
 | Forza della colonia | api grezze per frame |
 | Qualità | quota di scarto stimata e scarti della pulizia automatica |

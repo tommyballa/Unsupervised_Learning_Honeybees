@@ -128,7 +128,7 @@ _LABELING_PAGE = """
             <input type="radio" id="conf-low" name="confidence" value="Low"><label for="conf-low" class="action-btn btn-low">Low</label>
         </div>
         <button class="btn" type="submit" name="action" value="label">Submit & Next</button>
-        <button class="btn" type="submit" name="action" value="unknown" formnovalidate style="background: var(--input-bg);">Non so</button>
+        <button class="btn" type="submit" name="action" value="unknown" formnovalidate style="background: var(--input-bg);">Scarta ape</button>
         {% if redo %}
         <button class="btn" type="submit" name="action" value="remove" formnovalidate style="background: var(--btn-red);">Remove label</button>
         {% endif %}
@@ -152,7 +152,7 @@ _STATUS_PAGE = """
     <h2>Active Learning Status</h2>
     <table>
         <tr><th>Labels in memory bank</th><td>{{ s.n_labels }} of {{ s.n_images }} images</td></tr>
-        <tr><th>Set aside ("Non so")</th><td>{{ s.n_unknown }}</td></tr>
+        <tr><th>Set aside ("Scarta ape")</th><td>{{ s.n_unknown }}</td></tr>
         <tr><th>Unassigned (far from every label)</th><td>{{ s.n_unassigned }}</td></tr>
         <tr><th>Round</th><td>{{ s.round }}</td></tr>
         <tr><th>Regime</th><td>{{ 'Cold start (diversity)' if s.cold_start else 'Uncertainty + diversity + novelty' }}
@@ -315,7 +315,7 @@ _RESULTS_PAGE = """
     {% set e = report.estimates %}{% set ind = report.indicators %}
     {% macro pct(v) %}{{ '-' if v is none else '%.1f%%' % (100 * v) }}{% endmacro %}
     <h2>Audit results &mdash; snapshot {{ report.snapshot }}</h2>
-    <p>{{ e.audit.answered }} of {{ e.audit.sampled }} sampled bees answered ({{ e.totals.audit_unknown }} "Non so"),
+    <p>{{ e.audit.answered }} of {{ e.audit.sampled }} sampled bees answered ({{ e.totals.audit_unknown }} "Scarta ape"),
        out of {{ e.totals.population }} predicted bees; {{ e.totals.human }} more were labeled by hand and count exactly.
        Computed {{ report.created }} with {{ e.n_boot }} bootstrap replicates.</p>
     {% if not e.complete %}<p style="color: var(--btn-yellow);"><b>The audit is not complete: these figures will still move.</b></p>{% endif %}
@@ -326,7 +326,7 @@ _RESULTS_PAGE = """
 
     <h2>Precision per stratum</h2>
     <table>
-        <tr><th>Stratum</th><th>Bees</th><th>Sampled</th><th>Answered</th><th>"Non so"</th><th>Precision</th><th>95% CI</th></tr>
+        <tr><th>Stratum</th><th>Bees</th><th>Sampled</th><th>Answered</th><th>"Scarta ape"</th><th>Precision</th><th>95% CI</th></tr>
         {% for s in e.strata %}
         <tr><td>{{ s.id|replace('__unassigned__', 'Unassigned') }}{% if s.kind == 'reject' %} <span style="color: var(--btn-red); font-size: 12px;">reject</span>{% endif %}</td>
             <td>{{ s.N_h }}</td><td>{{ s.n_sampled }}</td><td>{{ s.n_labeled }}</td><td>{{ s.unknown }}</td>
@@ -451,7 +451,7 @@ _CLUSTERS_PAGE = """
     {% endif %}
     {% for c in clusters %}
     <div class="inspect-cluster">
-        <h3><span>{{ 'Non so (set aside)' if c.unknown else c.label }}
+        <h3><span>{{ 'Scarta ape (set aside)' if c.unknown else c.label }}
             <span style="font-size: 14px; color: #94a3b8; font-weight: normal;">
                 {% if view == 'predicted' %}{{ c.n_predicted }} predicted · {{ c.n_human }} labeled by hand{% if c.mean_confidence is not none %} · mean confidence {{ '%.0f' % (c.mean_confidence * 100) }}%{% endif %}
                 {% else %}{{ c.n_human }} labeled by hand{% endif %}
@@ -485,7 +485,7 @@ _CLUSTERS_PAGE = """
         <div style="display: flex; gap: 10px; align-items: center;">
             <input type="text" id="al_label_input" name="label" autocomplete="off" placeholder="class for the selected bees (existing or new)" style="flex: 3; padding: 12px; font-size: 16px;">
             <button class="btn" type="submit" name="action" value="label" style="flex: 2; margin-top: 0;">Set class</button>
-            <button class="btn" type="submit" name="action" value="unknown" style="flex: 1; margin-top: 0; background: var(--input-bg);">Non so</button>
+            <button class="btn" type="submit" name="action" value="unknown" style="flex: 1; margin-top: 0; background: var(--input-bg);">Scarta ape</button>
             {% if view == 'labeled' %}
             <button class="btn" type="submit" name="action" value="remove" style="flex: 1; margin-top: 0; background: var(--btn-red);">Remove label</button>
             {% endif %}
@@ -593,7 +593,7 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
                 previous_label = engine.audit_label_of(image_id, user)
             else:
                 previous_label = engine.val_labels.get(image_id) if mode == "validation" else engine.bank.label_of(image_id)
-            previous_label = "Non so" if previous_label == UNKNOWN_LABEL else (previous_label or "")
+            previous_label = "Scarta ape" if previous_label == UNKNOWN_LABEL else (previous_label or "")
         else:
             item = engine.next_image(user, mode=mode)
             if item is None:

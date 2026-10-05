@@ -231,7 +231,7 @@ def test_clusters_page_edits_labels(client, synth):
     client.post("/al-clusters?view=labeled", data={"selected_images": done[2:3], "action": "remove"})
     client.post("/al-clusters?view=labeled", data={"selected_images": done[3:4], "action": "unknown"})
     assert client.engine.bank.label_of(done[2]) is None
-    assert "Non so (set aside)" in client.get("/al-clusters?view=labeled").get_data(as_text=True)
+    assert "Scarta ape (set aside)" in client.get("/al-clusters?view=labeled").get_data(as_text=True)
 
     # errori: nessuna selezione, etichetta vuota
     for data in ({"label": "X", "action": "label"}, {"selected_images": done[4:5], "label": " ", "action": "label"}):

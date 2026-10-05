@@ -19,7 +19,8 @@ FIELDS = [
 QUERY_TYPES = ("random", "diversity", "uncertainty", "novelty", "manual", "validation", "audit", "legacy")
 HELD_OUT_TYPES = ("validation", "audit")  # eventi che non entrano mai nella memory bank
 SENTINELS = (UNKNOWN_LABEL, REMOVED_LABEL)
-UNKNOWN_TEXTS = ("non so",)  # scritto a mano nel campo libero vale come il pulsante "Non so"
+# Scritto a mano nel campo libero vale come il pulsante "Scarta ape" ("non so" era il vecchio nome).
+UNKNOWN_TEXTS = ("scarta ape", "non so")
 
 
 @dataclass(frozen=True)

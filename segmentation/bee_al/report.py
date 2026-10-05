@@ -110,7 +110,7 @@ def markdown(estimates: dict[str, Any], indicators: dict[str, Any]) -> str:
     lines = [
         f"# Audit report — snapshot `{estimates.get('snapshot', '')}`", "",
         f"- Audit: {audit.get('answered', 0)} of {audit.get('sampled', 0)} sampled bees answered "
-        f"({t['audit_unknown']} 'Non so'), {audit.get('double', 0)} to be labeled twice.",
+        f"({t['audit_unknown']} 'Scarta ape'), {audit.get('double', 0)} to be labeled twice.",
         f"- Population audited: {t['population']} predicted bees; {t['human']} more were labeled by hand (exact counts).",
         f"- Estimated valid bees: {t['valid_hat']:.0f}; estimated reject share: {_pct(t['reject_share'])} "
         f"(95% CI {_pct(t['reject_share_ci'][0])} – {_pct(t['reject_share_ci'][1])}).",

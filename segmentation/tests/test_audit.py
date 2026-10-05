@@ -363,7 +363,7 @@ def test_hub_creates_activates_and_labels_an_audit(hub, colony):
     page = hub.get("/al-labeling?mode=audit").get_data(as_text=True)
     image_id = re.search(r'name="image_id" value="([^"]+)"', page).group(1)
     assert image_id == engine.audit["order"][0] and "Audit Labeling" in page and f"Audit: 0 / {total} labeled" in page
-    assert "Non so" in page and 'href="/al-labeling?mode=audit"' in page
+    assert "Scarta ape" in page and 'href="/al-labeling?mode=audit"' in page
     # alla cieca: né suggerimento, né classe predetta, né strato
     stratum = next(b["stratum"] for b in engine.audit["bees"] if b["image_id"] == image_id)
     assert "kNN suggestion" not in page and stratum not in page and "stratum" not in page.lower()
@@ -377,7 +377,7 @@ def test_hub_creates_activates_and_labels_an_audit(hub, colony):
     hub.post("/al-labeling?mode=audit", data={"image_id": engine.audit["order"][1], "action": "unknown"})
     assert engine.audit_labels[engine.audit["order"][1]] == {"t@x.it": UNKNOWN_LABEL}
     redo = hub.get("/al-labeling?mode=audit&redo=1").get_data(as_text=True)
-    assert "Fixing your previous label" in redo and "Non so" in redo
+    assert "Fixing your previous label" in redo and "Scarta ape" in redo
 
     bad = hub.post("/al-labeling", data={"image_id": image_id, "label": "Sana", "action": "label"})
     assert bad.status_code == 200 and "audit" in bad.get_data(as_text=True)
