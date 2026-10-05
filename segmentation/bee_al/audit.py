@@ -76,9 +76,7 @@ def assign_strata(
     - non assegnate: un solo strato ``__unassigned__``;
     - se ci sono gli anomaly score, gli strati di ``split_class`` si dividono ancora in
       score sopra/sotto il quantile ``anomaly_quantile`` (calcolato sulle api di quella classe;
-      un'ape senza score sta sotto);
-    - con ``audit.stratify_by`` ogni strato è diviso anche per sessione, alveare o cartella:
-      gli errori del modello vengono così misurati separatamente in ogni gruppo.
+      un'ape senza score sta sotto).
     """
     population = [r for r in rows if in_population(r)]
     threshold: Optional[float] = None
@@ -102,12 +100,9 @@ def assign_strata(
             if threshold is not None and label == split_class:
                 anomaly_bin = "high" if anomaly_scores.get(r["image_id"], -np.inf) >= threshold else "low"
                 sid += f"|anomaly_{anomaly_bin}"
-        group = r.get(audit.stratify_by, "") if audit.stratify_by else ""
-        if group:
-            sid += f"|{group}"
         of[r["image_id"]] = sid
         info = strata.setdefault(sid, {"id": sid, "kind": kind, "label": label, "conf_bin": conf_bin,
-                                       "anomaly_bin": anomaly_bin, "group": group, "N_h": 0})
+                                       "anomaly_bin": anomaly_bin, "N_h": 0})
         info["N_h"] += 1
     if threshold is not None:
         for info in strata.values():

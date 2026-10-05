@@ -147,4 +147,4 @@ def test_default_config_maps_batch_3_and_batch_4():
 
     cfg = load_config()
     assert list(cfg.frames.session_dirs) == ["batch_3", "batch_4"]
-    assert cfg.colony.time_order == {"*": ["batch_3", "batch_4"]} and cfg.audit.stratify_by == ""
+    assert cfg.colony.time_order == {"*": ["batch_3", "batch_4"]}

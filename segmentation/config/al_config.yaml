@@ -128,10 +128,6 @@ audit:
   anomaly_split_class: ""   # es. "Healthy": i suoi strati si dividono anche per anomaly score, se viene fornito
   anomaly_quantile: 0.9
   seed: 7
-  # Vuoto, oppure session | colony | dataset: divide ogni strato anche per quel gruppo, così gli errori del
-  # modello sono misurati gruppo per gruppo. Consigliato "session" quando le sessioni hanno luce o zoom
-  # diversi; il campione da etichettare cresce (circa il doppio con due sessioni).
-  stratify_by: ""
 
 colony:
   # Indicatori di colonia, calcolati sulle stime corrette dall'audit (scripts/audit_report.py).
