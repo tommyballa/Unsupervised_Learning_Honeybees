@@ -90,6 +90,12 @@ retrain:
   num_workers: 8
   device: auto
 
+stopping:
+  # Criteri di stop mostrati in /al-status. Contano solo i round in cui sono arrivate etichette nuove.
+  window: 3               # numero di round consecutivi su cui valutare i tre criteri
+  max_pred_change: 0.01   # predizioni stabili: meno dell'1% delle api cambia classe da un round all'altro
+  f1_min_delta: 0.01      # plateau: la macro-F1 di validazione non migliora più di così
+
 simulation:
   seeds: [0, 1, 2, 3, 4]
   max_labels: 400

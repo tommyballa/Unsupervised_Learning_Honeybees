@@ -188,6 +188,20 @@ _STATUS_PAGE = """
     </form>
     {% endif %}
 
+    <h2>Stopping criteria</h2>
+    <table>
+        {% for key, name in (('f1_plateau', 'Validation macro-F1 has stopped improving'), ('predictions_stable', 'Predictions are stable'), ('no_new_classes', 'No new classes are appearing')) %}
+        {% set c = s.stopping[key] %}
+        <tr><th>{{ name }}</th>
+            <td style="width: 110px;">{% if c.ok is none %}<b style="color: #94a3b8;">not yet known</b>{% elif c.ok %}<b style="color: var(--btn-green);">met</b>{% else %}<b style="color: var(--btn-yellow);">not met</b>{% endif %}</td>
+            <td>{{ c.detail }}</td></tr>
+        {% endfor %}
+    </table>
+    <p style="color: #94a3b8; font-size: 14px;">
+        {% if s.stopping.all_ok %}<b style="color: var(--btn-green);">All three criteria are met.</b>{% endif %}
+        This is only an indication, evaluated over the last {{ s.stopping.window }} rounds that received new labels: nothing stops by itself.
+    </p>
+
     <h2>Validation metrics</h2>
     {% if s.metrics.accuracy is not none %}
     <table>
@@ -212,13 +226,19 @@ _STATUS_PAGE = """
 
     <h2>Rounds</h2>
     <table>
-        <tr><th>Round</th><th>Labels</th><th>Classes</th><th>Val. labels</th><th>Accuracy</th><th>Macro-F1</th><th>Model</th></tr>
+        <tr><th>Round</th><th>Labels</th><th>Classes</th><th>Val. labels</th><th>Accuracy</th><th>Macro-F1</th>
+            <th>&Delta;pred %</th><th>New classes</th><th>Novelty &rarr; new class</th><th>Model</th></tr>
         {% for h in s.history[-15:]|reverse %}
         <tr><td>{{ h.round }}</td><td>{{ h.n_labels }}</td><td>{{ h.n_classes }}</td><td>{{ h.n_validation }}</td>
             <td>{{ '%.3f' % h.accuracy if h.accuracy is not none else '-' }}</td>
-            <td>{{ '%.3f' % h.macro_f1 if h.macro_f1 is not none else '-' }}</td><td>{{ h.model_version }}</td></tr>
+            <td>{{ '%.3f' % h.macro_f1 if h.macro_f1 is not none else '-' }}</td>
+            <td>{{ '%.2f' % (100 * h.pred_change) if h.get('pred_change') is not none else '-' }}</td>
+            <td>{{ h.get('new_classes', [])|join(', ') or '-' }}</td>
+            <td>{% if h.get('novelty_queries') %}{{ h.novelty_queries }} &rarr; {{ h.novelty_new_class }}{% else %}-{% endif %}</td>
+            <td>{{ h.model_version }}{% if h.get('model_changed') %} <b style="color: var(--btn-yellow);" title="The extractor changed: this round is not comparable with the previous one">new model</b>{% endif %}</td></tr>
         {% endfor %}
     </table>
+    <p style="color: #94a3b8; font-size: 14px;">&Delta;pred % is the share of bees whose final class changed since the previous round.</p>
 </div>
 """
 

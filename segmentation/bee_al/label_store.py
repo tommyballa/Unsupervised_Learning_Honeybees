@@ -17,6 +17,7 @@ FIELDS = [
     "query_type", "config_id", "model_version", "batch_id",
 ]
 QUERY_TYPES = ("random", "diversity", "uncertainty", "novelty", "manual", "validation", "legacy")
+HELD_OUT_TYPES = ("validation",)  # eventi che non entrano mai nella memory bank
 SENTINELS = (UNKNOWN_LABEL, REMOVED_LABEL)
 UNKNOWN_TEXTS = ("non so",)  # scritto a mano nel campo libero vale come il pulsante "Non so"
 
@@ -32,6 +33,11 @@ class LabelEvent:
     config_id: str = ""
     model_version: str = ""
     batch_id: str = ""
+
+
+def is_training_event(event: LabelEvent) -> bool:
+    """Vero per gli eventi che alimentano la memory bank (tutti tranne quelli tenuti da parte)."""
+    return event.query_type not in HELD_OUT_TYPES
 
 
 class LabelStore:

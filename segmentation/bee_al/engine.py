@@ -14,7 +14,7 @@ from . import REMOVED_LABEL, UNKNOWN_LABEL
 from .config import DEFAULT_CONFIG_PATH, ALConfig, load_config
 from .embeddings import Embeddings, load_embeddings
 from .knn import Prediction, knn_predict, nearest_labeled_similarity
-from .label_store import LabelStore
+from .label_store import LabelStore, is_training_event
 from .memory_bank import MemoryBank
 from .propagation import LabelSpreader
 from .query import is_cold_start, select_batch
@@ -87,6 +87,7 @@ class ALEngine:
             cfg.validation_path, embeddings.ids, cfg.validation.size, cfg.validation.seed
         )
         self._val_set = set(self.validation_ids)
+        self._round_final: Optional[np.ndarray] = None  # etichette finali al round precedente (criteri di stop)
         self._install_embeddings(embeddings, model_version)
         self.refresh(reload_config=False)
 
@@ -151,6 +152,7 @@ class ALEngine:
             self._reload_labels()
             self.recompute()
             entry = self._evaluate()
+            entry.update(self._round_dynamics())
             self.round += 1
             entry["round"] = self.round
             self.history.append(entry)
@@ -208,6 +210,140 @@ class ALEngine:
             entry.update(final)
             entry.update({"knn_accuracy": knn["accuracy"], "knn_macro_f1": knn["macro_f1"]})
         return entry
+
+    def _final_labels(self) -> np.ndarray:
+        """Etichetta finale di ogni ape: umana se c'è, altrimenti predetta.
+
+        ``None`` per le api di validazione, i "Non so", le non assegnate e quelle senza predizione.
+        """
+        out = np.empty(len(self.bank), dtype=object)
+        pred = self.final_pred
+        if pred.classes:
+            reached = pred.probs.sum(axis=1) > 0
+            out[reached] = np.asarray(pred.classes, dtype=object)[pred.probs.argmax(axis=1)[reached]]
+        out[self.unassigned] = None
+        labeled = self.bank.labeled_indices()
+        out[labeled] = np.asarray(self.bank.labels_at(labeled), dtype=object)
+        out[self.bank.unknown_indices()] = None
+        out[~self._not_validation()] = None
+        return out
+
+    def _round_dynamics(self) -> dict[str, Any]:
+        """Campi del round usati dai criteri di stop: stabilità delle predizioni e scoperta di classi.
+
+        - ``pred_change``: frazione di api la cui etichetta finale è cambiata rispetto al round
+          precedente (solo api che hanno un'etichetta finale in entrambi i round).
+        - ``model_changed``: l'extractor è cambiato, quindi ``pred_change`` non è confrontabile.
+        - ``effective``: dal round precedente sono arrivati eventi di etichettatura. Un riavvio
+          dell'hub o un ricalcolo a vuoto creano un round ma non dicono nulla sulla convergenza,
+          quindi i criteri di stop li ignorano.
+        - ``novelty_queries`` / ``novelty_new_class``: query ``novelty`` del batch appena chiuso
+          che sono state etichettate, e quante hanno portato una classe che prima non c'era.
+        """
+        prev = self.history[-1] if self.history else None
+        now = self._final_labels()
+        pred_change: Optional[float] = None
+        if self._round_final is not None and len(self._round_final) == len(now):
+            both = np.not_equal(self._round_final, None) & np.not_equal(now, None)
+            if both.any():
+                pred_change = float(np.mean(self._round_final[both] != now[both]))
+        self._round_final = now
+
+        events = [e for e in self.store.events() if is_training_event(e)]
+        classes = self.bank.classes
+        prev_classes = prev.get("classes") if prev else None
+        if prev is None:
+            effective, new_classes, since = bool(events), list(classes), 0
+        else:
+            if prev.get("n_events") is not None:
+                effective = len(events) != prev["n_events"]
+            else:  # riga scritta da una versione precedente: si confronta il numero di etichette
+                effective = self.bank.n_labeled != prev.get("n_labels")
+            if prev_classes is None:
+                new_classes, since = [], 0
+            else:
+                new_classes = sorted(set(classes) - set(prev_classes))
+                since = prev.get("rounds_since_new_class") or 0
+                if new_classes:
+                    since = 0
+                elif effective:
+                    since += 1
+
+        # Ultimo evento per immagine tra le query novelty del batch che si sta chiudendo.
+        novelty: dict[str, str] = {}
+        if self.batch_id:
+            for e in events:
+                if e.batch_id == self.batch_id and e.query_type == "novelty":
+                    novelty[e.image_id] = self.store.resolve(e.label)
+        answered = [lbl for lbl in novelty.values() if lbl not in (REMOVED_LABEL, UNKNOWN_LABEL)]
+        known = set(prev_classes or [])
+        return {
+            "pred_change": pred_change,
+            "model_changed": bool(prev is not None and prev.get("model_version") != self.model_version),
+            "effective": effective,
+            "n_events": len(events),
+            "classes": list(classes),
+            "new_classes": new_classes,
+            "rounds_since_new_class": since,
+            "novelty_queries": len(answered),
+            "novelty_new_class": sum(lbl not in known for lbl in answered) if prev_classes is not None else 0,
+        }
+
+    def stopping_status(self) -> dict[str, Any]:
+        """Criteri di stop: per ciascuno ``{"ok": True | False | None, "detail": testo}``.
+
+        ``None`` = non ci sono ancora abbastanza round per dirlo. Si guardano solo i round
+        ``effective`` (con etichette nuove). I criteri sono un'indicazione, non fermano nulla.
+
+        - ``f1_plateau``: la macro-F1 di validazione degli ultimi ``window`` round non supera
+          di più di ``f1_min_delta`` il massimo dei round precedenti.
+        - ``predictions_stable``: ``pred_change < max_pred_change`` negli ultimi ``window`` round
+          con lo stesso extractor del round prima.
+        - ``no_new_classes``: nessuna classe nuova da almeno ``window`` round.
+        """
+        with self.lock:
+            cfg = self.cfg.stopping
+            w = cfg.window
+            rounds = [h for h in self.history if h.get("effective")]
+
+            f1 = [h["macro_f1"] for h in rounds if h.get("macro_f1") is not None]
+            if len(f1) <= w:
+                plateau = {"ok": None, "detail": f"needs {w + 1} rounds with validation metrics, {len(f1)} so far"}
+            else:
+                best_before, best_recent = max(f1[:-w]), max(f1[-w:])
+                plateau = {
+                    "ok": bool(best_recent <= best_before + cfg.f1_min_delta),
+                    "detail": f"best macro-F1 in the last {w} rounds {best_recent:.3f} vs {best_before:.3f} before "
+                              f"(gain {best_recent - best_before:+.3f}, threshold {cfg.f1_min_delta:.3f})",
+                }
+
+            changes = [h["pred_change"] for h in rounds
+                       if h.get("pred_change") is not None and not h.get("model_changed")]
+            if len(changes) < w:
+                stable = {"ok": None, "detail": f"needs {w} comparable rounds, {len(changes)} so far"}
+            else:
+                recent = changes[-w:]
+                stable = {
+                    "ok": bool(max(recent) < cfg.max_pred_change),
+                    "detail": f"labels changed for {', '.join(f'{100 * c:.2f}%' for c in recent)} of the bees "
+                              f"in the last {w} rounds (threshold {100 * cfg.max_pred_change:.2f}%)",
+                }
+
+            last = self.history[-1] if self.history else {}
+            since = last.get("rounds_since_new_class")
+            if since is None or len(rounds) < w:
+                discovery = {"ok": None, "detail": f"needs {w} rounds with new labels, {len(rounds)} so far"}
+            else:
+                discovery = {"ok": bool(since >= w),
+                             "detail": f"{since} round(s) since the last new class (threshold {w})"}
+
+            return {
+                "window": w,
+                "f1_plateau": plateau,
+                "predictions_stable": stable,
+                "no_new_classes": discovery,
+                "all_ok": all(c["ok"] is True for c in (plateau, stable, discovery)),
+            }
 
     def _new_batch(self) -> None:
         now = self.clock()
@@ -515,6 +651,7 @@ class ALEngine:
                 "n_unassigned": int(self.unassigned.sum()),
                 "class_counts": self.bank.class_counts(),
                 "reject_classes": sorted(self.reject_classes()),
+                "stopping": self.stopping_status(),
                 "cold_start": is_cold_start(self.bank.n_labeled, len(self.bank.classes), q),
                 "cold_start_threshold": q.cold_start_threshold,
                 "batch_id": self.batch_id,

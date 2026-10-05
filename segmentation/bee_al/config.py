@@ -149,6 +149,20 @@ class RetrainConfig:
 
 
 @dataclass
+class StoppingConfig:
+    """Criteri di stop mostrati nell'hub: sono un'indicazione, non fermano nulla."""
+
+    window: int = 3
+    max_pred_change: float = 0.01
+    f1_min_delta: float = 0.01
+
+    def __post_init__(self) -> None:
+        _check(self.window >= 1, "stopping.window >= 1")
+        _check(0 <= self.max_pred_change <= 1, "stopping.max_pred_change in [0, 1]")
+        _check(self.f1_min_delta >= 0, "stopping.f1_min_delta >= 0")
+
+
+@dataclass
 class SimulationConfig:
     seeds: list[int] = field(default_factory=lambda: [0, 1, 2, 3, 4])
     max_labels: int = 400
@@ -173,6 +187,7 @@ class ALConfig:
     validation: ValidationConfig = field(default_factory=ValidationConfig)
     hub: HubConfig = field(default_factory=HubConfig)
     retrain: RetrainConfig = field(default_factory=RetrainConfig)
+    stopping: StoppingConfig = field(default_factory=StoppingConfig)
     simulation: SimulationConfig = field(default_factory=SimulationConfig)
     root: str = str(REPO_ROOT)  # base dei percorsi relativi; non va nel file YAML
 
