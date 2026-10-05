@@ -116,6 +116,21 @@ audit:
   anomaly_quantile: 0.9
   seed: 7
 
+colony:
+  # Indicatori di colonia, calcolati sulle stime corrette dall'audit (scripts/audit_report.py).
+  group_by: session           # frame | session | colony | dataset
+  demographic_classes: []     # I1: classi del profilo demografico, es. ["Nurse", "Forager", "Drone"]
+  disease_classes: []         # I2: classi che sono segni di malattia, es. ["Varroa", "Deformed Wing"]
+  min_detected: 3             # I2: api confermate da un umano perché un segno sia "detected"
+  reference_groups: []        # I3: gruppi sani di riferimento; vuoto = media di tutti i gruppi
+  time_order: {}              # I5: {alveare: [sessione1, sessione2, ...]}; "*" = tutti gli alveari insieme
+  anomaly_threshold: 0.0      # quota di api con anomaly score sopra soglia (0 = spento)
+  n_boot: 1000
+  seed: 11
+  light_rules: [disease_detected, profile_divergent]   # anche: unexplained_high
+  red_min_rules: 2            # regole scattate insieme per il rosso (una sola = giallo)
+  max_unexplained: 0.0        # soglia di I4 per la regola unexplained_high (0 = spenta)
+
 simulation:
   seeds: [0, 1, 2, 3, 4]
   max_labels: 400

@@ -12,7 +12,9 @@ from flask import Blueprint, abort, redirect, render_template_string, request, s
 from . import REMOVED_LABEL, UNKNOWN_LABEL
 from .audit import parse_scores
 from .engine import ALEngine, ALError
+from .report import REPORT_DIR, REPORT_FILES, build_report
 from .retrain import RetrainManager
+from .snapshot import snapshot_path
 
 
 class EngineLoading(Exception):
@@ -221,7 +223,9 @@ _STATUS_PAGE = """
             <td>
             {% if s.audit and s.audit.snapshot == snap.name %}
                 <b style="color: var(--btn-green);">active</b>: {{ s.audit.done }} / {{ s.audit.total }} labeled
+                &middot; <a href="{{ url_for('al.audit_results', snapshot=snap.name) }}">results</a>
             {% elif snap.has_audit %}
+                <a href="{{ url_for('al.audit_results', snapshot=snap.name) }}">results</a>
                 <form method="POST" action="{{ url_for('al.audit_activate') }}" style="margin: 0;">
                     <input type="hidden" name="snapshot" value="{{ snap.name }}">
                     <button class="quick-label-btn" type="submit">Make this audit active</button>
@@ -240,7 +244,8 @@ _STATUS_PAGE = """
     {% if s.audit %}
     <h2>Audit of snapshot {{ s.audit.snapshot }}</h2>
     <p>{{ s.audit.done }} of {{ s.audit.total }} sampled bees labeled ({{ s.audit.double }} need two different annotators), out of {{ s.audit.population }} predicted bees.
-       <a href="{{ url_for('al.labeling', mode='audit') }}">Label the audit &rarr;</a></p>
+       <a href="{{ url_for('al.labeling', mode='audit') }}">Label the audit &rarr;</a> &middot;
+       <a href="{{ url_for('al.audit_results', snapshot=s.audit.snapshot) }}">See the estimates &rarr;</a></p>
     <p style="color: #94a3b8; font-size: 14px;">Audit bees are labeled blind and never enter the model. They are no longer proposed in normal labeling.
         {% if s.audit.annotators %}Answers so far: {% for a, n in s.audit.annotators.items() %}{{ a }} {{ n }}{{ ', ' if not loop.last }}{% endfor %}.{% endif %}</p>
     <table>
@@ -288,6 +293,95 @@ _STATUS_PAGE = """
         {% endfor %}
     </table>
     <p style="color: #94a3b8; font-size: 14px;">&Delta;pred % is the share of bees whose final class changed since the previous round.</p>
+</div>
+"""
+
+
+_RESULTS_PAGE = """
+{{ css|safe }}
+<div class="container" style="max-width: 1100px;">
+    """ + _NAV + """
+    {% set e = report.estimates %}{% set ind = report.indicators %}
+    {% macro pct(v) %}{{ '-' if v is none else '%.1f%%' % (100 * v) }}{% endmacro %}
+    <h2>Audit results &mdash; snapshot {{ report.snapshot }}</h2>
+    <p>{{ e.audit.answered }} of {{ e.audit.sampled }} sampled bees answered ({{ e.totals.audit_unknown }} "Non so"),
+       out of {{ e.totals.population }} predicted bees; {{ e.totals.human }} more were labeled by hand and count exactly.
+       Computed {{ report.created }} with {{ e.n_boot }} bootstrap replicates.</p>
+    {% if not e.complete %}<p style="color: var(--btn-yellow);"><b>The audit is not complete: these figures will still move.</b></p>{% endif %}
+    {% if e.strata_without_audit %}<p style="color: var(--btn-yellow);">Strata without any audit answer (the predicted class is used as is): {{ e.strata_without_audit|join(', ') }}.</p>{% endif %}
+    {% if not e.frame_resampling %}<p style="color: #94a3b8; font-size: 14px;">Frames could not be resampled (bee-to-frame map missing or unreliable): intervals reflect the audit sample only.</p>{% endif %}
+    <p style="font-size: 14px;">Download:
+        {% for name in files %}<a href="{{ url_for('al.audit_file', snapshot=report.snapshot, filename=name) }}">{{ name }}</a>{{ ' · ' if not loop.last }}{% endfor %}</p>
+
+    <h2>Precision per stratum</h2>
+    <table>
+        <tr><th>Stratum</th><th>Bees</th><th>Sampled</th><th>Answered</th><th>"Non so"</th><th>Precision</th><th>95% CI</th></tr>
+        {% for s in e.strata %}
+        <tr><td>{{ 'Unassigned' if s.id == '__unassigned__' else s.id }}{% if s.kind == 'reject' %} <span style="color: var(--btn-red); font-size: 12px;">reject</span>{% endif %}</td>
+            <td>{{ s.N_h }}</td><td>{{ s.n_sampled }}</td><td>{{ s.n_labeled }}</td><td>{{ s.unknown }}</td>
+            <td>{{ pct(s.precision) }}</td><td>{% if s.ci_low is not none %}{{ pct(s.ci_low) }} &ndash; {{ pct(s.ci_high) }}{% else %}-{% endif %}</td></tr>
+        {% endfor %}
+    </table>
+    <p style="color: #94a3b8; font-size: 14px;">Precision = share of audited bees that really are the class of the stratum (for reject strata: that really are a reject).</p>
+
+    <h2>Prevalence</h2>
+    <table>
+        <tr><th>Class</th><th>Classify and count</th><th>Stratified estimate</th><th>95% CI (bootstrap)</th><th>95% CI (analytic)</th><th>Labeled by hand</th><th>Seen in audit</th></tr>
+        {% for p in e.prevalence if not p.reject %}
+        <tr><td>{{ p.class }}</td><td>{{ pct(p.cc_share) }}</td><td><b>{{ pct(p.share) }}</b></td>
+            <td>{{ pct(p.ci_boot_low) }} &ndash; {{ pct(p.ci_boot_high) }}</td><td>{{ pct(p.ci_analytic_low) }} &ndash; {{ pct(p.ci_analytic_high) }}</td>
+            <td>{{ p.human }}</td><td>{{ p.audit_observed }}{% if p.upper_limit is not none %} <span style="color: #94a3b8;">(at most {{ pct(p.upper_limit) }})</span>{% endif %}</td></tr>
+        {% endfor %}
+    </table>
+    <p style="color: #94a3b8; font-size: 14px;">Shares of valid bees. Estimated reject share: {{ pct(e.totals.reject_share) }} ({{ pct(e.totals.reject_share_ci[0]) }} &ndash; {{ pct(e.totals.reject_share_ci[1]) }}){% for p in e.prevalence if p.reject %}{{ ': ' if loop.first else ', ' }}{{ p.class }} &asymp; {{ '%.0f' % p.n_hat }} bees{% endfor %}.</p>
+
+    <h2>Agreement between annotators</h2>
+    {% if e.agreement.n_pairs %}
+    <p>{{ e.agreement.n_pairs }} bees labeled twice: raw agreement {{ pct(e.agreement.agreement) }}, Cohen's kappa {{ '%.2f' % e.agreement.kappa if e.agreement.kappa is not none else 'not defined' }}.</p>
+    {% else %}<p>No bee has been labeled by two annotators yet.</p>{% endif %}
+
+    <h2>Colony indicators by {{ ind.group_by }}</h2>
+    {% for note in ind.notes %}<p style="color: var(--btn-yellow);">{{ note }}</p>{% endfor %}
+    {% if ind.groups %}
+    <table>
+        <tr><th>Group</th><th>Light</th><th>Rules fired</th><th>JSD (I3)</th><th>Unexplained (I4)</th><th>Reject share</th><th>Raw bees / frame</th></tr>
+        {% for g in ind.groups %}
+        <tr><td>{{ g.group }}</td>
+            <td><b style="color: var(--btn-{{ {'green': 'green', 'yellow': 'yellow', 'red': 'red'}[g.light.color] }});">{{ g.light.color }}</b></td>
+            <td>{% for r in g.light.rules %}{{ r.rule }}: {{ r.detail }}{{ '; ' if not loop.last }}{% else %}-{% endfor %}</td>
+            <td>{{ '%.3f' % g.I3_jsd.value }} ({{ '%.3f' % g.I3_jsd.ci_low }} &ndash; {{ '%.3f' % g.I3_jsd.ci_high }})</td>
+            <td>{{ pct(g.I4_unexplained.share) }}</td><td>{{ pct(g.quality.reject_share) }}</td>
+            <td>{{ '%.0f' % g.strength.raw_bees_per_frame if g.strength.raw_bees_per_frame is not none else '-' }}</td></tr>
+        {% endfor %}
+    </table>
+    <p style="color: #94a3b8; font-size: 14px;">JSD threshold {{ '%.3f' % ind.reference.jsd_threshold }}, reference profile: {{ 'given explicitly' if ind.reference.explicit else 'mean of ' ~ ind.reference.groups|join(', ') }}.
+       Group estimates assume that the model's errors inside a stratum are the same in every group.</p>
+    {% for title, key in (('Demographic profile (I1)', 'I1_demographics'), ('Disease signs (I2)', 'I2_disease')) %}
+    {% if ind.groups[0][key] %}
+    <h3>{{ title }}</h3>
+    <table>
+        <tr><th>Group</th><th>Class</th><th>Share</th><th>95% CI</th><th>Status</th></tr>
+        {% for g in ind.groups %}{% for name, x in g[key].items() %}
+        <tr><td>{{ g.group }}</td><td>{{ name }}</td><td>{{ pct(x.share) }}</td>
+            <td>{% if x.share is not none %}{{ pct(x.ci_low) }} &ndash; {{ pct(x.ci_high) }}{% else %}-{% endif %}</td>
+            <td>{{ x.get('status', x.get('note', '')) }}{% if x.get('upper_limit') is not none %} (at most {{ pct(x.upper_limit) }}){% endif %}</td></tr>
+        {% endfor %}{% endfor %}
+    </table>
+    {% endif %}
+    {% endfor %}
+    {% if ind.trend %}
+    <h3>Trend between sessions (I5)</h3>
+    <table>
+        <tr><th>Colony</th><th>From &rarr; to</th><th>Quantity</th><th>Change</th><th>95% CI</th><th></th></tr>
+        {% for t in ind.trend %}
+        {% if t.get('missing') %}<tr><td>{{ t.colony }}</td><td>{{ t.from }} &rarr; {{ t.to }}</td><td colspan="4">no data for {{ t.missing|join(', ') }}</td></tr>{% endif %}
+        {% for name, d in t.deltas.items() %}
+        <tr><td>{{ t.colony }}</td><td>{{ t.from }} &rarr; {{ t.to }}</td><td>{{ name }}</td><td>{{ '%+.3f' % d.delta }}</td>
+            <td>{{ '%+.3f' % d.ci_low }} &ndash; {{ '%+.3f' % d.ci_high }}</td><td>{{ 'significant' if d.significant else '' }}</td></tr>
+        {% endfor %}{% endfor %}
+    </table>
+    {% endif %}
+    {% else %}<p>No groups to report.</p>{% endif %}
 </div>
 """
 
@@ -574,6 +668,41 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
         except ALError as e:
             return redirect(url_for("al.status", snapshot_error=f"Audit not activated: {e}"))
         return redirect(url_for("al.status", snapshot_message=f"The audit of '{name}' is now active."))
+
+    def _audit_folder(engine: ALEngine, name: str) -> Optional[Path]:
+        try:
+            folder = snapshot_path(engine.cfg, name)
+        except ValueError:
+            return None
+        return folder if (folder / "audit_set.json").exists() else None
+
+    @bp.route("/al-audit-results")
+    def audit_results():
+        """Stime corrette e indicatori di colonia di uno snapshot con audit (in cache finché non arrivano risposte nuove)."""
+        user = session.get("user_email")
+        if not user:
+            return redirect(url_for("index"))
+        engine, page = engine_or_message()
+        if engine is None:
+            return page
+        progress = engine.audit_progress()
+        name = request.args.get("snapshot") or (progress["snapshot"] if progress else "")
+        folder = _audit_folder(engine, name)
+        if folder is None:
+            return message("No audit results", "This snapshot does not exist or has no audit set yet. Create one from the Status page.", 404)
+        report = build_report(folder, engine.cfg, store=engine.store)
+        return render_template_string(_RESULTS_PAGE, css=base_css, user=user, report=report,
+                                      files=[f for f in REPORT_FILES if (folder / REPORT_DIR / f).exists()])
+
+    @bp.route("/al-audit-file/<snapshot>/<filename>")
+    def audit_file(snapshot: str, filename: str):
+        if not session.get("user_email"):
+            abort(403)
+        engine, _ = engine_or_message()
+        folder = _audit_folder(engine, snapshot) if engine is not None else None
+        if folder is None or filename not in REPORT_FILES or not (folder / REPORT_DIR / filename).exists():
+            abort(404)
+        return send_file(folder / REPORT_DIR / filename, as_attachment=True, download_name=f"{snapshot}_{filename}")
 
     @bp.route("/al-retrain", methods=["POST"])
     def retrain():

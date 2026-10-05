@@ -205,6 +205,38 @@ class AuditConfig:
         _check(0 < self.anomaly_quantile < 1, "audit.anomaly_quantile in (0, 1)")
 
 
+GROUP_BY = ("frame", "session", "colony", "dataset")
+LIGHT_RULES = ("disease_detected", "profile_divergent", "unexplained_high")
+
+
+@dataclass
+class ColonyConfig:
+    """Indicatori di colonia sulle stime corrette dall'audit (vedi ``bee_al/colony.py``)."""
+
+    group_by: str = "session"               # frame | session | colony | dataset
+    demographic_classes: list[str] = field(default_factory=list)
+    disease_classes: list[str] = field(default_factory=list)
+    min_detected: int = 3
+    reference_groups: list[str] = field(default_factory=list)
+    time_order: dict[str, list[str]] = field(default_factory=dict)  # {colony: [session1, session2, ...]}
+    anomaly_threshold: float = 0.0          # 0 = indicatore AD disattivato
+    n_boot: int = 1000
+    seed: int = 11
+    # Semaforo: giallo se scatta almeno una regola, rosso da red_min_rules in su.
+    light_rules: list[str] = field(default_factory=lambda: ["disease_detected", "profile_divergent"])
+    red_min_rules: int = 2
+    max_unexplained: float = 0.0            # soglia della regola unexplained_high (0 = spenta)
+
+    def __post_init__(self) -> None:
+        _check(self.group_by in GROUP_BY, f"colony.group_by in {GROUP_BY}")
+        _check(self.min_detected >= 1, "colony.min_detected >= 1")
+        _check(self.n_boot >= 1, "colony.n_boot >= 1")
+        _check(self.anomaly_threshold >= 0, "colony.anomaly_threshold >= 0")
+        _check(all(r in LIGHT_RULES for r in self.light_rules), f"colony.light_rules in {LIGHT_RULES}")
+        _check(self.red_min_rules >= 1, "colony.red_min_rules >= 1")
+        _check(0 <= self.max_unexplained <= 1, "colony.max_unexplained in [0, 1]")
+
+
 @dataclass
 class SimulationConfig:
     seeds: list[int] = field(default_factory=lambda: [0, 1, 2, 3, 4])
@@ -233,6 +265,7 @@ class ALConfig:
     stopping: StoppingConfig = field(default_factory=StoppingConfig)
     frames: FramesConfig = field(default_factory=FramesConfig)
     audit: AuditConfig = field(default_factory=AuditConfig)
+    colony: ColonyConfig = field(default_factory=ColonyConfig)
     simulation: SimulationConfig = field(default_factory=SimulationConfig)
     root: str = str(REPO_ROOT)  # base dei percorsi relativi; non va nel file YAML
 
@@ -299,7 +332,8 @@ def _coerce(value: Any, tp: Any, where: str) -> Any:
     if origin is dict:
         value = {} if value is None else value
         _check(isinstance(value, dict), f"{where} deve essere una mappa")
-        return {str(k): str(v) for k, v in value.items()}
+        _, value_tp = typing.get_args(tp)
+        return {str(k): _coerce(v, value_tp, f"{where}.{k}") for k, v in value.items()}
     if tp is bool:
         _check(isinstance(value, bool), f"{where} deve essere true/false")
         return value
