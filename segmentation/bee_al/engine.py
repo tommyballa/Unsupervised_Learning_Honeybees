@@ -815,6 +815,17 @@ class ALEngine:
         with self.lock:
             return snapshot.list_snapshots(self.cfg)
 
+    def reject_counts(self) -> dict[str, dict[str, int]]:
+        """Per ogni classe di scarto: api etichettate a mano e api che il modello vi ha assegnato."""
+        with self.lock:
+            reject = self.reject_classes()
+            human = self.bank.class_counts()
+            final = self._final_labels()
+            labeled = np.zeros(len(self.bank), dtype=bool)
+            labeled[self.bank.labeled_indices()] = True
+            predicted = final[~labeled & np.not_equal(final, None)]
+            return {name: {"labeled": human.get(name, 0), "predicted": int(np.sum(predicted == name))} for name in sorted(reject)}
+
     def status(self) -> dict[str, Any]:
         with self.lock:
             q = self.cfg.query
@@ -829,6 +840,7 @@ class ALEngine:
                 "n_unassigned": int(self.unassigned.sum()),
                 "class_counts": self.bank.class_counts(),
                 "reject_classes": sorted(self.reject_classes()),
+                "reject_counts": self.reject_counts(),
                 "stopping": self.stopping_status(),
                 "snapshots": snapshot.list_snapshots(self.cfg),
                 "audit": self.audit_progress(),

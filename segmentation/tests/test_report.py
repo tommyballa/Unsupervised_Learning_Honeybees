@@ -82,6 +82,7 @@ def test_end_to_end_estimates_are_close_to_the_truth(flow):
     assert strata[f"{REJECT}|reject"]["kind"] == "reject" and strata[f"{REJECT}|reject"]["n_labeled"] > 0
     assert "__unassigned__" in strata and all(s["n_labeled"] == s["n_sampled"] for s in est["strata"])
     assert REJECT not in flow.engine.final_clusters()
+    assert REJECT in flow.engine.status()["reject_counts"]
 
     # accordo: due annotatori che rispondono con lo stesso oracolo
     assert est["agreement"]["n_pairs"] == est["audit"]["double"] > 0 and est["agreement"]["kappa"] == pytest.approx(1.0)

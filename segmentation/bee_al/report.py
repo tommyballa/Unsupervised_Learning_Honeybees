@@ -149,12 +149,14 @@ def markdown(estimates: dict[str, Any], indicators: dict[str, Any]) -> str:
         ref = indicators["reference"]
         lines += [f"Reference profile: {'given explicitly' if ref['explicit'] else 'mean of ' + ', '.join(ref['groups'])}; "
                   f"JSD threshold {ref['jsd_threshold']:.3f}.", "",
-                  "| Group | Light | Rules fired | JSD (I3) | Unexplained (I4) | Reject share | Raw bees / frame |", "|---|---|---|---|---|---|---|"]
+                  "| Group | Light | Rules fired | JSD (I3) | Unexplained (I4) | Estimated reject share | Discarded by cleaning | Raw bees / frame |",
+                  "|---|---|---|---|---|---|---|---|"]
         for g in indicators["groups"]:
             rules = "; ".join(f"{r['rule']}: {r['detail']}" for r in g["light"]["rules"]) or "-"
             per_frame = g["strength"]["raw_bees_per_frame"]
             lines.append(f"| {g['group']} | {g['light']['color']} | {rules} | {g['I3_jsd']['value']:.3f} | {_pct(g['I4_unexplained']['share'])} | "
-                         f"{_pct(g['quality']['reject_share'])} | {'-' if per_frame is None else f'{per_frame:.0f}'} |")
+                         f"{_pct(g['quality']['reject_share'])} | {_pct(g['quality']['cleaning_discard_rate'])} | "
+                         f"{'-' if per_frame is None else f'{per_frame:.0f}'} |")
         for title, key in (("Demographic profile (I1)", "I1_demographics"), ("Disease signs (I2)", "I2_disease")):
             if any(g[key] for g in indicators["groups"]):
                 lines += ["", f"### {title}", ""]

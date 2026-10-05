@@ -20,7 +20,14 @@ labels:
   # Le classi NON sono definite qui: nascono dalle etichette inserite nell'hub.
   classes: []            # solo suggerimenti, mostrati come quick label
   label_aliases: {}      # es. {"Bad Seg": "Bad_Seg"}: applicati in lettura, lo storico non cambia
-  reject_classes: []     # es. ["Bad_Seg", "Blurry"]: restano nel kNN, escluse dai cluster finali
+  # Classi di scarto: crop che non si possono giudicare. Restano nel kNN (così il modello impara a
+  # riconoscerle) ma sono escluse dai cluster finali e dal denominatore delle prevalenze; nello
+  # snapshot hanno stato "rejected" e nell'audit uno strato per classe, per stimare quante api
+  # valide vengono scartate per errore.
+  # Esempio: ["Blurry", "Bad Seg", "Multiple Bees", "No Bee"]
+  # Regola per gli annotatori: se il difetto impedisce di giudicare il fenotipo è scarto;
+  # se il fenotipo si riconosce comunque si etichetta il fenotipo.
+  reject_classes: []
 
 extractor:
   model: dinov2_vits14   # oppure dinov2_vitb14

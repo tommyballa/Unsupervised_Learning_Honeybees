@@ -277,6 +277,17 @@ _STATUS_PAGE = """
         {% endfor %}
     </table>
     {% else %}<p>No labels yet.</p>{% endif %}
+    {% if s.reject_counts %}
+    <h3>Reject classes</h3>
+    <table>
+        <tr><th>Reject class</th><th>Labeled by hand</th><th>Assigned by the model</th></tr>
+        {% for name, c in s.reject_counts.items() %}
+        <tr><td>{{ name }}</td><td>{{ c.labeled }}</td><td>{{ c.predicted }}</td></tr>
+        {% endfor %}
+    </table>
+    <p style="color: #94a3b8; font-size: 14px;">Reject bees stay in the model (so that similar ones are recognised) but are left out of the final clusters and of the prevalence denominators.
+       Rule for annotators: if the defect makes it impossible to judge the bee it is a reject; if you can still tell what the bee is, label what it is.</p>
+    {% endif %}
 
     <h2>Rounds</h2>
     <table>
@@ -344,13 +355,13 @@ _RESULTS_PAGE = """
     {% for note in ind.notes %}<p style="color: var(--btn-yellow);">{{ note }}</p>{% endfor %}
     {% if ind.groups %}
     <table>
-        <tr><th>Group</th><th>Light</th><th>Rules fired</th><th>JSD (I3)</th><th>Unexplained (I4)</th><th>Reject share</th><th>Raw bees / frame</th></tr>
+        <tr><th>Group</th><th>Light</th><th>Rules fired</th><th>JSD (I3)</th><th>Unexplained (I4)</th><th>Estimated reject share</th><th>Discarded by cleaning</th><th>Raw bees / frame</th></tr>
         {% for g in ind.groups %}
         <tr><td>{{ g.group }}</td>
             <td><b style="color: var(--btn-{{ {'green': 'green', 'yellow': 'yellow', 'red': 'red'}[g.light.color] }});">{{ g.light.color }}</b></td>
             <td>{% for r in g.light.rules %}{{ r.rule }}: {{ r.detail }}{{ '; ' if not loop.last }}{% else %}-{% endfor %}</td>
             <td>{{ '%.3f' % g.I3_jsd.value }} ({{ '%.3f' % g.I3_jsd.ci_low }} &ndash; {{ '%.3f' % g.I3_jsd.ci_high }})</td>
-            <td>{{ pct(g.I4_unexplained.share) }}</td><td>{{ pct(g.quality.reject_share) }}</td>
+            <td>{{ pct(g.I4_unexplained.share) }}</td><td>{{ pct(g.quality.reject_share) }}</td><td>{{ pct(g.quality.cleaning_discard_rate) }}</td>
             <td>{{ '%.0f' % g.strength.raw_bees_per_frame if g.strength.raw_bees_per_frame is not none else '-' }}</td></tr>
         {% endfor %}
     </table>
