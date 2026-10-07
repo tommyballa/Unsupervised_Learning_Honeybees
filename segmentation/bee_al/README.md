@@ -43,7 +43,8 @@ validation set.
 
 ## 1. Etichettatura e criteri di stop
 
-Si etichetta come sempre da `/al-labeling`. La pagina `/al-status` mostra tre criteri di stop,
+Si etichetta come sempre da `/al-labeling`. Per le api su cui si è in dubbio conviene dichiarare la
+confidenza *Low*: sono le prime a finire nella revisione delle etichette sospette (vedi sotto). La pagina `/al-status` mostra tre criteri di stop,
 valutati sugli ultimi `stopping.window` round che hanno ricevuto etichette nuove:
 
 | Criterio | Significato |
@@ -227,6 +228,56 @@ colony:
   max_unexplained: 0.0
 ```
 
+## Revisione delle etichette sospette
+
+Un'etichetta sbagliata pesa molto: le etichette sono poche, le query per incertezza scelgono proprio
+le api ambigue, e nella propagazione le etichette umane sono bloccate, quindi un errore si diffonde alle
+api simili senza che il grafo lo corregga. La pagina **Review** (`/al-review`) mostra le etichette che
+vale la pena riguardare. Niente viene corretto in automatico.
+
+**Come vengono trovate.** Per ogni ape etichettata a mano si fa votare il k-NN sulle *altre* api
+etichettate (l'ape non vota per sé), con gli stessi pesi dell'hub. L'etichetta è sospetta se la classe
+più votata è un'altra e raccoglie almeno `review.min_disagreement` del voto (default 80%). È l'idea del
+*confident learning* (Northcutt et al., 2021). La coda si ricalcola a ogni ricalcolo delle predizioni;
+prima vengono le etichette date con confidenza *Low*, poi *Medium*, poi le altre.
+
+**Perché validation set e audit sono esclusi.** Servono a misurare il modello. Correggerli guardando
+l'opinione del modello li avvicinerebbe alle sue predizioni e lo farebbe sembrare migliore di quanto è.
+Per loro l'unico controllo ammesso è l'accordo tra annotatori, già previsto nell'audit. Restano fuori
+anche le api messe da parte con "Scarta ape".
+
+**Le tre decisioni.** Accanto all'ape si vedono l'etichetta attuale, chi l'ha data e con che
+confidenza, la classe suggerita e le api etichettate più simili, che sono l'evidenza.
+
+| Decisione | Effetto |
+|---|---|
+| Keep (*confirm*) | l'etichetta è giusta: nessun evento nuovo; l'ape non torna in coda finché restano uguali la sua etichetta e la classe suggerita |
+| Change (*correct*) | la classe giusta è un'altra, quella suggerita o una a scelta: è una normale correzione in `al_labels.csv`, e le predizioni si ricalcolano |
+| Scarta ape (*set aside*) | l'ape non è giudicabile: viene messa da parte |
+
+Ogni decisione è una riga di `review_log.jsonl`, in sola aggiunta; al riavvio le conferme si
+ricostruiscono da lì.
+
+**Classi rare.** Una classe con meno di `review.min_class_size` etichette (default 5) ha vicini quasi
+tutti di altre classi anche quando l'etichetta è giusta: è proprio come appare un fenotipo raro appena
+scoperto. Queste api stanno in una sezione separata, in fondo alla pagina: vanno guardate, ma ci si
+aspetta che siano in gran parte corrette. Il segnale diventa utile quando la classe ha più esempi.
+
+**Numeri da riportare.** In `/al-status`, riquadro *Label review* (e in `review_report.csv`, una riga per
+decisione): etichette controllate, sospette trovate, quante confermate, corrette e scartate, le
+correzioni per coppia di classi (vecchia → nuova), e la quota di sospette per confidenza dichiarata. Se
+le *Low* sono sospette molto più spesso delle *High*, la confidenza dichiarata è informativa. Ogni riga
+di `al_rounds.jsonl` ha anche `n_suspects`.
+
+```yaml
+review:
+  enabled: true
+  k: 0                    # 0 = knn.k
+  min_disagreement: 0.8
+  min_class_size: 5
+  show_neighbors: 6
+```
+
 ## Classi di scarto
 
 `labels.reject_classes` elenca le classi dei crop che non si possono giudicare (sfocati,
@@ -253,6 +304,8 @@ giudicare il fenotipo è scarto; se il fenotipo si riconosce comunque si etichet
 | `audit.py` | campionamento stratificato e stime corrette |
 | `colony.py` | indicatori di colonia |
 | `report.py` | file del report e cache |
+| `review.py` | coda delle etichette sospette |
+| `export.py` | chiusura di una fase: cluster su disco |
 | `hub.py` | pagine Flask |
 
 I test si lanciano con `venv/bin/python -m pytest tests`.

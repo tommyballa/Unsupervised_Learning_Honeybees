@@ -10,7 +10,7 @@ from typing import Any, Callable, Optional, Sequence, Union
 
 import numpy as np
 
-from . import REMOVED_LABEL, UNKNOWN_LABEL, audit, snapshot
+from . import REMOVED_LABEL, UNKNOWN_LABEL, audit, review, snapshot
 from .config import DEFAULT_CONFIG_PATH, ALConfig, load_config
 from .export import ClusterExporter
 from .embeddings import Embeddings, load_embeddings, restrict_embeddings, restrict_to_datasets
@@ -85,6 +85,11 @@ class ALEngine:
         self.batch_id = ""
         self.retrain: Any = None  # RetrainManager opzionale, vedi bee_al/retrain.py
         self.exporter = ClusterExporter(self)
+        # Revisione delle etichette sospette: coda in cache, conferme ricostruite dal log.
+        self.review_log_path = cfg.results_dir / "review_log.jsonl"
+        self._suspects: list[review.Suspect] = []
+        self._n_checked = 0
+        self._confirmed = review.confirmations(review.read_log(self.review_log_path))
         self._val_assigned: dict[str, tuple[str, float]] = {}
         self.val_labels: dict[str, str] = {}
         self.validation_ids = load_or_create_validation_set(
@@ -170,6 +175,7 @@ class ALEngine:
             self.recompute()
             entry = self._evaluate()
             entry.update(self._round_dynamics())
+            entry["n_suspects"] = len(self.suspects()["main"])
             self.round += 1
             entry["round"] = self.round
             self.history.append(entry)
@@ -187,6 +193,122 @@ class ALEngine:
         with self.lock:
             self.knn_pred, self.final_pred = predict_all(self.bank, self.spreader, self.cfg)
             self._update_novelty()
+            self._update_suspects()
+
+    def _update_suspects(self) -> None:
+        """Ricalcola la coda delle etichette sospette (mai validation set né audit)."""
+        self._suspects, self._n_checked = [], 0
+        if not self.cfg.review.enabled:
+            return
+        held_out = self._val_set | self._audit_ids
+        self._n_checked = sum(1 for i in self.bank.labeled_indices() if self.bank.ids[i] not in held_out)
+        self._suspects = review.find_suspects(self.bank, self.store, self.cfg, held_out)
+
+    def _is_confirmed(self, s: review.Suspect) -> bool:
+        """Già confermata da un umano, e da allora non sono cambiate né l'etichetta né la classe suggerita."""
+        return self._confirmed.get(s.image_id) == (s.label, s.suggested)
+
+    def suspects(self) -> dict[str, Any]:
+        """Coda di revisione dalla cache: ``main``, ``rare`` (classi con poche etichette), conteggi."""
+        with self.lock:
+            visible = [s for s in self._suspects if not self._is_confirmed(s)]
+            return {
+                "main": [review.as_dict(s) for s in visible if not s.rare_class],
+                "rare": [review.as_dict(s) for s in visible if s.rare_class],
+                "n_checked": self._n_checked,
+                "n_confirmed_hidden": len(self._suspects) - len(visible),
+            }
+
+    def review(self, annotator: str, image_id: str, decision: str, new_label: Optional[str] = None) -> None:
+        """Applica la decisione di un umano su un'etichetta sospetta e la scrive in ``review_log.jsonl``.
+
+        - ``confirmed``: l'etichetta è giusta. Nessun evento nuovo tra le etichette; l'ape non
+          torna in coda finché restano uguali la sua etichetta e la classe suggerita.
+        - ``corrected``: la classe giusta è ``new_label`` (quella suggerita o un'altra). Passa
+          dal percorso delle correzioni manuali, quindi l'evento finisce in ``al_labels.csv``
+          e le predizioni si ricalcolano.
+        - ``set_aside``: l'ape diventa "Scarta ape".
+
+        Validation set e audit non si rivedono mai: ``ALError``.
+        """
+        with self.lock:
+            if decision not in review.DECISIONS:
+                raise ALError(f"decisione sconosciuta: {decision}")
+            if image_id not in self.bank:
+                raise ALError(f"immagine sconosciuta: {image_id}")
+            if image_id in self._val_set:
+                raise ALError(f"{image_id} è nel validation set: le sue etichette non si rivedono con il modello")
+            if image_id in self._audit_ids:
+                raise ALError(f"{image_id} è nel campione di audit: le sue etichette non si rivedono con il modello")
+            suspect = next((s for s in self._suspects if s.image_id == image_id), None)
+            if suspect is None or suspect.label != self.bank.label_of(image_id):
+                raise ALError(f"{image_id} non è più tra le etichette sospette")
+            row = {
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"), "annotator": annotator, "image_id": image_id,
+                "decision": decision, "old_label": suspect.label, "new_label": suspect.label,
+                "suggested": suspect.suggested, "p_suggested": round(suspect.p_suggested, 4),
+                "annotator_confidence": suspect.confidence, "model_version": self.model_version,
+                "round": self.round, "rare_class": suspect.rare_class,
+            }
+            if decision == "confirmed":
+                self._confirmed[image_id] = (suspect.label, suspect.suggested)
+            else:
+                label = UNKNOWN_LABEL if decision == "set_aside" else self.store.normalize_label(new_label or "")
+                if not label or label == REMOVED_LABEL:
+                    raise ALError("etichetta vuota")
+                if decision == "corrected" and self.store.resolve(label) == suspect.label:
+                    raise ALError("la classe scelta è quella che l'ape ha già: per tenerla usa la conferma")
+                if decision == "corrected" and label == UNKNOWN_LABEL:
+                    row["decision"] = "set_aside"
+                self.assign_many(annotator, [image_id], label)
+                row["new_label"] = self.store.resolve(label)
+                self._confirmed.pop(image_id, None)
+            review.append_log(self.review_log_path, row)
+
+    def review_stats(self) -> dict[str, Any]:
+        """Numeri della revisione: etichette controllate, sospette, decisioni, correzioni per coppia di classi."""
+        with self.lock:
+            log = review.read_log(self.review_log_path)
+            queue = self.suspects()
+            decisions = {d: sum(r.get("decision") == d for r in log) for d in review.DECISIONS}
+            pairs: dict[str, int] = {}
+            for r in log:
+                if r.get("decision") == "corrected":
+                    key = f"{r.get('old_label')} -> {r.get('new_label')}"
+                    pairs[key] = pairs.get(key, 0) + 1
+            # Quota di etichette oggi segnalate, per confidenza dichiarata da chi le ha date.
+            held_out = self._val_set | self._audit_ids
+            events = self.store.current(is_training_event)
+            flagged = {s.image_id for s in self._suspects if not s.rare_class}
+            by_confidence: dict[str, dict[str, Any]] = {}
+            for i in self.bank.labeled_indices():
+                image_id = self.bank.ids[i]
+                if image_id in held_out:
+                    continue
+                level = (events[image_id].confidence if image_id in events else "") or "not given"
+                cell = by_confidence.setdefault(level, {"labels": 0, "suspects": 0})
+                cell["labels"] += 1
+                cell["suspects"] += image_id in flagged
+            for cell in by_confidence.values():
+                cell["share"] = cell["suspects"] / cell["labels"] if cell["labels"] else None
+            by_decision_confidence: dict[str, dict[str, int]] = {}
+            for r in log:
+                level = r.get("annotator_confidence") or "not given"
+                cell = by_decision_confidence.setdefault(level, {d: 0 for d in review.DECISIONS})
+                if r.get("decision") in cell:
+                    cell[r["decision"]] += 1
+            return {
+                "enabled": self.cfg.review.enabled,
+                "n_checked": queue["n_checked"],
+                "n_suspects": len(queue["main"]),
+                "n_rare": len(queue["rare"]),
+                "n_confirmed_hidden": queue["n_confirmed_hidden"],
+                "n_reviewed": len(log),
+                "decisions": decisions,
+                "corrections": dict(sorted(pairs.items(), key=lambda kv: (-kv[1], kv[0]))),
+                "suspects_by_confidence": dict(sorted(by_confidence.items())),
+                "decisions_by_confidence": dict(sorted(by_decision_confidence.items())),
+            }
 
     def _update_novelty(self) -> None:
         """Distanza di ogni ape dalle etichettate e gruppo delle "non assegnate".
@@ -880,6 +1002,8 @@ class ALEngine:
                 "audit": self.audit_progress(),
                 "stage": {"name": self.cfg.stage.name, "title": self.cfg.stage.title, "description": self.cfg.stage.description},
                 "export": self.exporter.status(),
+                "n_suspects": len(self.suspects()["main"]),
+                "review": self.review_stats(),
                 "cold_start": is_cold_start(self.bank.n_labeled, len(self.bank.classes), q),
                 "cold_start_threshold": q.cold_start_threshold,
                 "batch_id": self.batch_id,

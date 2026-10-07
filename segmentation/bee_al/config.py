@@ -266,6 +266,23 @@ class ExportConfig:
 
 
 @dataclass
+class ReviewConfig:
+    """Coda di revisione delle etichette sospette (vedi ``bee_al/review.py``)."""
+
+    enabled: bool = True
+    k: int = 0                    # 0 = usa knn.k
+    min_disagreement: float = 0.8 # probabilità minima della classe suggerita
+    min_class_size: int = 5       # sotto questa soglia la classe è "rara": sezione a parte
+    show_neighbors: int = 6
+
+    def __post_init__(self) -> None:
+        _check(self.k >= 0, "review.k >= 0")
+        _check(0 < self.min_disagreement <= 1, "review.min_disagreement in (0, 1]")
+        _check(self.min_class_size >= 1, "review.min_class_size >= 1")
+        _check(self.show_neighbors >= 1, "review.show_neighbors >= 1")
+
+
+@dataclass
 class SimulationConfig:
     seeds: list[int] = field(default_factory=lambda: [0, 1, 2, 3, 4])
     max_labels: int = 400
@@ -296,6 +313,7 @@ class ALConfig:
     colony: ColonyConfig = field(default_factory=ColonyConfig)
     stage: StageConfig = field(default_factory=StageConfig)
     export: ExportConfig = field(default_factory=ExportConfig)
+    review: ReviewConfig = field(default_factory=ReviewConfig)
     simulation: SimulationConfig = field(default_factory=SimulationConfig)
     root: str = str(REPO_ROOT)  # base dei percorsi relativi; non va nel file YAML
 

@@ -262,3 +262,19 @@ def test_retrain_button(client, synth):
     html = client.get("/al-status").get_data(as_text=True)
     assert "v001" in html and "In use." in html and "button, t@x.it" not in html
     assert "/al-retrain" in hub_app_rules(client)
+
+
+def test_review_page_and_menu_entry(client):
+    """La pagina di revisione risponde anche senza sospette; i dettagli sono in test_review.py."""
+    r = client.get("/al-review")
+    html = r.get_data(as_text=True)
+    assert r.status_code == 200 and "Label review" in html and "No suspicious labels to review" in html
+    for url in ("/al-status", "/al-clusters", "/al-labeling", "/al-grid"):
+        page = client.get(url).get_data(as_text=True)
+        assert 'href="/al-review"' in page and "Review (" not in page          # voce di menu, senza conteggio a coda vuota
+    assert page.index('href="/al-clusters"') < page.index('href="/al-review"') < page.index('href="/al-status"')
+    assert "Label review" in client.get("/al-status").get_data(as_text=True)
+    assert client.get("/al-review-file/review_log.jsonl").get_data(as_text=True) == ""
+    assert client.post("/al-review", data={"image_id": "boh.png", "decision": "confirmed"}).status_code == 200
+    c2 = client.application.test_client()
+    assert c2.get("/al-review").status_code == 302 and c2.get("/al-review-file/review_log.jsonl").status_code == 403

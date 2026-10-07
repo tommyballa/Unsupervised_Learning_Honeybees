@@ -163,6 +163,16 @@ colony:
   red_min_rules: 2            # regole scattate insieme per il rosso (una sola = giallo)
   max_unexplained: 0.0        # soglia di I4 per la regola unexplained_high (0 = spenta)
 
+review:
+  # Coda delle etichette sospette (pagina Review): api etichettate a mano a cui i vicini etichettati
+  # più simili assegnano con forza un'altra classe. Un umano conferma o corregge, niente è automatico.
+  # Validation set e audit non vengono mai controllati: servono a misurare il modello.
+  enabled: true
+  k: 0                    # vicini che votano; 0 = knn.k
+  min_disagreement: 0.8   # probabilità minima della classe suggerita perché l'etichetta sia sospetta
+  min_class_size: 5       # classi con meno etichette: mostrate a parte, il segnale lì è debole
+  show_neighbors: 6       # vicini mostrati come evidenza
+
 simulation:
   seeds: [0, 1, 2, 3, 4]
   max_labels: 400

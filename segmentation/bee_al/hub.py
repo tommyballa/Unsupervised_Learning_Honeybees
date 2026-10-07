@@ -1,19 +1,23 @@
 """Pagine Flask dell'active learning, registrate dall'hub come blueprint."""
 from __future__ import annotations
 
+import csv
+import io
+import json
 import os
 import threading
 import time
 from pathlib import Path
 from typing import Optional, Union
 
-from flask import Blueprint, abort, redirect, render_template_string, request, send_file, session, url_for
+from flask import Blueprint, Response, abort, redirect, render_template_string, request, send_file, session, url_for
 
 from . import REMOVED_LABEL, UNKNOWN_LABEL
 from .audit import parse_scores
 from .engine import ALEngine, ALError
 from .export import list_exports
 from .report import REPORT_DIR, REPORT_FILES, build_report
+from .review import read_log
 from .retrain import RetrainManager
 from .snapshot import snapshot_path
 
@@ -90,6 +94,7 @@ _NAV = _STAGE_BANNER + """
         <a href="{{ url_for('al.labeling', mode='validation') }}">Validation set</a> &nbsp;|&nbsp;
         <a href="{{ url_for('al.labeling', mode='audit') }}">Audit</a> &nbsp;|&nbsp;
         <a href="{{ url_for('al.clusters') }}">Clusters</a> &nbsp;|&nbsp;
+        <a href="{{ url_for('al.review_page') }}">Review{% if al_review_count %} ({{ al_review_count }}){% endif %}</a> &nbsp;|&nbsp;
         <a href="{{ url_for('al.status') }}">Status</a></span>
     <span style="font-size: 14px; color: #94a3b8;">User: {{ user }}</span>
 </div>
@@ -194,7 +199,8 @@ _GRID_PAGE = """
         <div style="font-size: 14px; margin-bottom: 8px;">
             <a href="/">&larr; Dashboard</a> &nbsp;|&nbsp; <a href="{{ url_for('al.grid') }}">Grid</a> &nbsp;|&nbsp;
             <a href="{{ url_for('al.grid', mode='validation') }}">Validation grid</a> &nbsp;|&nbsp;
-            <a href="{{ url_for('al.clusters') }}">Clusters</a> &nbsp;|&nbsp; <a href="{{ url_for('al.status') }}">Status</a>
+            <a href="{{ url_for('al.clusters') }}">Clusters</a> &nbsp;|&nbsp; <a href="{{ url_for('al.review_page') }}">Review{% if al_review_count %} ({{ al_review_count }}){% endif %}</a> &nbsp;|&nbsp;
+            <a href="{{ url_for('al.status') }}">Status</a>
         </div>
         <h2 style="margin: 4px 0;">{{ 'Validation grid' if mode == 'validation' else 'Grid labeling' }}</h2>
         <p style="color: #94a3b8; font-size: 13px; margin: 4px 0 8px;">{{ progress }}</p>
@@ -322,6 +328,23 @@ _STATUS_PAGE = """
         <button class="btn" type="submit" {% if r.blocked_by %}disabled style="opacity: 0.5; cursor: not-allowed;"{% endif %}>Start re-train now</button>
         {% if r.blocked_by and r.state != 'running' %}<p style="color: #94a3b8; font-size: 14px;">Not available: {{ r.blocked_by }}.</p>{% endif %}
     </form>
+    {% endif %}
+
+    {% set rv = s.review %}
+    <h2>Label review</h2>
+    {% if not rv.enabled %}<p style="color: #94a3b8;">Switched off in the config (review.enabled).</p>
+    {% else %}
+    <table>
+        <tr><th>Hand labels checked</th><td>{{ rv.n_checked }}</td></tr>
+        <tr><th>Suspicious now</th><td>{{ rv.n_suspects }} to review{% if rv.n_rare %} + {{ rv.n_rare }} in rare classes{% endif %}{% if rv.n_confirmed_hidden %} ({{ rv.n_confirmed_hidden }} kept as they are){% endif %}
+            {% if rv.n_suspects or rv.n_rare %}&middot; <a href="{{ url_for('al.review_page') }}">review &rarr;</a>{% endif %}</td></tr>
+        <tr><th>Decisions so far</th><td>{{ rv.n_reviewed }}: {{ rv.decisions.confirmed }} kept, {{ rv.decisions.corrected }} corrected, {{ rv.decisions.set_aside }} set aside</td></tr>
+        {% if rv.corrections %}<tr><th>Corrections</th><td>{% for pair, n in rv.corrections.items() %}{{ pair }}: {{ n }}{{ '; ' if not loop.last }}{% endfor %}</td></tr>{% endif %}
+        {% if rv.suspects_by_confidence %}<tr><th>Suspicious by declared confidence</th>
+            <td>{% for level, c in rv.suspects_by_confidence.items() %}{{ level }}: {{ c.suspects }} of {{ c.labels }}{% if c.share is not none %} ({{ '%.0f' % (100 * c.share) }}%){% endif %}{{ '; ' if not loop.last }}{% endfor %}</td></tr>{% endif %}
+    </table>
+    <p style="font-size: 14px;">Download: <a href="{{ url_for('al.review_file', filename='review_log.jsonl') }}">review_log.jsonl</a> &middot;
+        <a href="{{ url_for('al.review_file', filename='review_report.csv') }}">review_report.csv</a></p>
     {% endif %}
 
     <h2>Stopping criteria</h2>
@@ -559,6 +582,85 @@ _RESULTS_PAGE = """
 """
 
 
+_REVIEW_PAGE = """
+{{ css|safe }}
+<div class="container" style="max-width: 1000px;">
+    """ + _NAV + """
+    <h2>Label review</h2>
+    <p style="color: #94a3b8; font-size: 14px;">{{ q.main|length }} suspects left, {{ stats.n_reviewed }} reviewed.
+        A label is suspicious when the most similar labeled bees say, with at least {{ '%.0f' % (100 * threshold) }}% of the vote, that it is another class.
+        Nothing is changed automatically: you decide. Validation and audit labels are never shown here.</p>
+    {% if message %}<p style="color: var(--btn-green);"><b>{{ message }}</b></p>{% endif %}
+    {% if error %}<p style="color: var(--btn-red);"><b>{{ error }}</b></p>{% endif %}
+
+    {% if s %}
+    <div style="display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap;">
+        <div style="flex: 0 0 360px; text-align: center;">
+            <img src="{{ url_for('al.image', image_id=s.image_id) }}" style="max-width: 360px; max-height: 360px; border-radius: 8px;">
+        </div>
+        <div style="flex: 1 1 380px;">
+            <table>
+                <tr><th>Current label</th><td><b>{{ s.label }}</b> <span style="color: #94a3b8;">({{ '%.0f' % (100 * s.p_label) }}% of the neighbours' vote)</span></td></tr>
+                <tr><th>Neighbours suggest</th><td><b style="color: var(--btn-yellow);">{{ s.suggested }}</b> <span style="color: #94a3b8;">({{ '%.0f' % (100 * s.p_suggested) }}%)</span></td></tr>
+                <tr><th>Labeled by</th><td>{{ s.annotator or '-' }}{% if s.timestamp %} on {{ s.timestamp }}{% endif %}</td></tr>
+                <tr><th>Declared confidence</th><td>{{ s.confidence or 'not given' }}{% if s.query_type %} <span style="color: #94a3b8;">({{ s.query_type }} query)</span>{% endif %}</td></tr>
+            </table>
+            {% if s.rare_class %}
+            <p style="color: var(--btn-yellow); font-size: 14px;">"{{ s.label }}" has fewer than {{ min_class_size }} labels: its neighbours are almost always from other classes even when the label is right. Weak signal.</p>
+            {% endif %}
+            <form method="POST" action="{{ url_for('al.review_page') }}">
+                <input type="hidden" name="image_id" value="{{ s.image_id }}">
+                <button class="btn" type="submit" name="decision" value="confirmed" style="background: var(--btn-green);">Keep "{{ s.label }}"</button>
+                <button class="btn" type="submit" name="decision" value="suggested" style="background: var(--btn-yellow); color: #0f172a;">Change to "{{ s.suggested }}"</button>
+                <div style="margin: 12px 0 4px;">
+                    {% for lbl in quick_labels %}<button type="button" class="quick-label-btn" data-label="{{ lbl }}">{{ lbl }}</button>{% endfor %}
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" id="al_label_input" name="new_label" autocomplete="off" placeholder="another class" style="flex: 3; padding: 12px; font-size: 16px;">
+                    <button class="btn" type="submit" name="decision" value="corrected" style="flex: 2; margin-top: 0;">Change to this class</button>
+                </div>
+                <button class="btn" type="submit" name="decision" value="set_aside" style="background: var(--input-bg);">Scarta ape</button>
+            </form>
+        </div>
+    </div>
+    <h3>Most similar labeled bees</h3>
+    <div class="inspect-images">
+        {% for n in s.neighbors %}
+        <div style="text-align: center; font-size: 12px; color: #94a3b8; width: 130px;">
+            <img src="{{ url_for('al.image', image_id=n.image_id) }}" title="{{ n.image_id }}"
+                 style="border: 3px solid {{ 'var(--btn-green)' if n.label == s.label else ('var(--btn-yellow)' if n.label == s.suggested else 'var(--border-color)') }};"><br>
+            <b style="color: var(--text-color);">{{ n.label }}</b><br>sim {{ '%.2f' % n.similarity }}
+        </div>
+        {% endfor %}
+    </div>
+    <p style="color: #94a3b8; font-size: 13px;">Green border: same class as the current label. Yellow border: the suggested class.</p>
+    {% else %}
+    <p>No suspicious labels to review{% if not enabled %}: the review queue is switched off in the config{% elif not q.n_checked %} yet: there are no hand labels{% else %} among the {{ q.n_checked }} hand labels checked{% endif %}.
+       {% if q.n_confirmed_hidden %}{{ q.n_confirmed_hidden }} suspicious label(s) were kept as they are and are hidden.{% endif %}</p>
+    {% endif %}
+
+    {% if q.rare %}
+    <h2>Rare classes</h2>
+    <p style="color: #94a3b8; font-size: 14px;">Labels of classes with fewer than {{ min_class_size }} examples. Their neighbours are nearly always from other classes,
+        even when the label is right &mdash; a newly found rare phenotype looks exactly like this. Check them, but expect most to be correct.</p>
+    <div class="inspect-images">
+        {% for r in q.rare %}
+        <div style="text-align: center; font-size: 12px; color: #94a3b8; width: 130px;">
+            <a href="{{ url_for('al.review_page', image=r.image_id) }}"><img src="{{ url_for('al.image', image_id=r.image_id) }}" title="{{ r.image_id }}"></a><br>
+            <b style="color: var(--text-color);">{{ r.label }}</b><br>&rarr; {{ r.suggested }} {{ '%.0f' % (100 * r.p_suggested) }}%
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+<script>
+document.querySelectorAll('.quick-label-btn[data-label]').forEach(function (b) {
+    b.addEventListener('click', function () { document.getElementById('al_label_input').value = b.dataset.label; });
+});
+</script>
+"""
+
+
 _BEE_TILE = """
 <label class="grid-item-container" style="width: 120px; text-align: center; font-size: 12px; color: #94a3b8;">
     <input type="checkbox" name="selected_images" value="{{ b.image_id }}">
@@ -690,11 +792,12 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
         """Fase corrente, mostrata in cima a ogni pagina di active learning."""
         engine = STATE.engine
         if engine is None:
-            return {"al_stage": None}
+            return {"al_stage": None, "al_review_count": 0}
         stage = engine.cfg.stage
         done = [e["name"] for e in list_exports(engine.cfg) if e.get("stage") == stage.name and e.get("config_id")]
         return {"al_stage": {"name": stage.name, "title": stage.title, "description": stage.description,
-                             "exported": done[0] if done else ""}}
+                             "exported": done[0] if done else ""},
+                "al_review_count": len(engine.suspects()["main"])}
     # La config si può scegliere all'avvio con BEE_AL_CONFIG=config/al_fase2.yaml (una fase per file).
     STATE.config_path = config_path or os.environ.get("BEE_AL_CONFIG") or None
 
@@ -986,6 +1089,66 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
         except ValueError as e:
             return redirect(url_for("al.status", retrain_error=f"Re-train not started: {e}."))
         return redirect(url_for("al.status"))
+
+    @bp.route("/al-review", methods=["GET", "POST"])
+    def review_page():
+        """Revisione delle etichette sospette, una alla volta: si conferma, si corregge o si scarta."""
+        user = session.get("user_email")
+        if not user:
+            return redirect(url_for("index"))
+        engine, page = engine_or_message()
+        if engine is None:
+            return page
+        error = None
+        if request.method == "POST":
+            image_id = request.form.get("image_id", "")
+            decision = request.form.get("decision", "")
+            new_label = request.form.get("new_label", "")
+            try:
+                if decision == "suggested":   # "Change to <classe suggerita>": la classe la sa il server
+                    current = next((x for x in engine.suspects()["main"] + engine.suspects()["rare"] if x["image_id"] == image_id), None)
+                    if current is None:
+                        raise ALError(f"{image_id} is no longer in the review queue")
+                    decision, new_label = "corrected", current["suggested"]
+                engine.review(user, image_id, decision, new_label)
+            except ALError as e:
+                error = str(e)
+            else:
+                return redirect(url_for("al.review_page", done=decision))
+
+        queue = engine.suspects()
+        wanted = request.args.get("image")
+        everything = queue["main"] + queue["rare"]
+        suspect = next((x for x in everything if x["image_id"] == wanted), None) if wanted else None
+        if suspect is None:
+            suspect = queue["main"][0] if queue["main"] else None
+        done = {"confirmed": "Label kept.", "corrected": "Label changed.", "set_aside": "Bee set aside."}.get(request.args.get("done", ""))
+        return render_template_string(
+            _REVIEW_PAGE, css=base_css, user=user, q=queue, s=suspect, stats=engine.review_stats(),
+            quick_labels=engine.quick_labels(), error=error, message=done, enabled=engine.cfg.review.enabled,
+            threshold=engine.cfg.review.min_disagreement, min_class_size=engine.cfg.review.min_class_size,
+        )
+
+    @bp.route("/al-review-file/<filename>")
+    def review_file(filename: str):
+        """Scarica il log delle decisioni (jsonl) o lo stesso contenuto come CSV, una riga per decisione."""
+        if not session.get("user_email"):
+            abort(403)
+        engine, _ = engine_or_message()
+        if engine is None or filename not in ("review_log.jsonl", "review_report.csv"):
+            abort(404)
+        log = read_log(engine.review_log_path)
+        if filename == "review_log.jsonl":
+            body, mime = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in log), "application/x-ndjson"
+        else:
+            fields = ["timestamp", "annotator", "image_id", "decision", "old_label", "new_label", "suggested", "p_suggested",
+                      "annotator_confidence", "model_version", "round", "rare_class"]
+            buffer = io.StringIO()
+            writer = csv.DictWriter(buffer, fieldnames=fields, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(log)
+            body, mime = buffer.getvalue(), "text/csv"
+        return Response(body, mimetype=mime, headers={"Content-Disposition": f"attachment; filename={filename}"})
 
     @bp.route("/al-clusters", methods=["GET", "POST"])
     def clusters():
