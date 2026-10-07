@@ -12,7 +12,8 @@ def test_default_yaml_loads_with_spec_defaults():
     assert cfg.query.random_fraction == pytest.approx(0.1)
     assert cfg.validation.size == 100
     assert cfg.hub.show_suggestion is False
-    assert cfg.labels.classes == []  # nessuna classe scritta nel codice o nella config
+    assert config_from_dict({}).labels.classes == []     # nessuna classe scritta nel codice
+    assert cfg.labels.reject_classes == []               # nel file ci sono solo suggerimenti per le quick label
 
 
 def test_relative_paths_resolve_against_root(tmp_path):

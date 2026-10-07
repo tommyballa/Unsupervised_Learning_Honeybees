@@ -76,6 +76,7 @@ STATE = HubState()
 _NAV = """
 <div class="nav">
     <span><a href="/">&larr; Dashboard</a> &nbsp;|&nbsp;
+        <a href="{{ url_for('al.grid') }}">Grid</a> &nbsp;|&nbsp;
         <a href="{{ url_for('al.labeling') }}">Labeling</a> &nbsp;|&nbsp;
         <a href="{{ url_for('al.labeling', mode='validation') }}">Validation set</a> &nbsp;|&nbsp;
         <a href="{{ url_for('al.labeling', mode='audit') }}">Audit</a> &nbsp;|&nbsp;
@@ -144,6 +145,126 @@ document.querySelectorAll('.quick-label-btn').forEach(function (b) {
 </script>
 """
 
+GRID_COLORS = (("Azure", "#38bdf8"), ("Red", "#ef4444"), ("Green", "#22c55e"), ("Yellow", "#eab308"),
+               ("Violet", "#a78bfa"), ("Pink", "#f472b6"))
+GRID_SIZE = 12  # 4 colonne x 3 righe
+
+_GRID_PAGE = """
+{{ css|safe }}
+<style>
+    body { margin: 12px; }
+    .grid-page { display: flex; gap: 18px; align-items: flex-start; }
+    .grid-left { flex: 0 0 auto; width: min(calc(100vw - 440px), calc((100vh - 70px) * 4 / 3)); min-width: 420px; }
+    .grid-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .grid-tile { position: relative; cursor: pointer; border: 5px solid var(--border-color); border-radius: 8px; background: #000; aspect-ratio: 1 / 1; overflow: hidden; }
+    .grid-tile img { width: 100%; height: 100%; object-fit: contain; display: block; }
+    .grid-tile .badge { position: absolute; left: 0; top: 0; padding: 3px 8px; font-size: 13px; font-weight: bold; color: #0f172a; border-bottom-right-radius: 6px; display: none; }
+    .grid-right { flex: 1 1 340px; max-width: 420px; background: var(--container-bg); padding: 14px 16px; border-radius: 10px; }
+    .group-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; padding: 5px; border-radius: 8px; border: 2px solid transparent; cursor: pointer; }
+    .group-row.active { border-color: var(--text-color); background: var(--bg-color); }
+    .group-row .swatch { flex: 0 0 34px; height: 34px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #0f172a; }
+    .group-row input[type="text"] { flex: 1; min-width: 0; padding: 8px; font-size: 15px; }
+    .group-row .count { flex: 0 0 26px; text-align: right; color: #94a3b8; }
+</style>
+<form method="POST" action="{{ url_for('al.grid', mode=mode) }}" id="grid_form">
+<div class="grid-page">
+    <div class="grid-left">
+        <div class="grid-tiles">
+            {% for item in items %}
+            <div class="grid-tile" data-index="{{ loop.index0 }}">
+                <img src="{{ url_for('al.image', image_id=item.image_id) }}" title="{{ item.image_id }}">
+                <span class="badge"></span>
+                <input type="hidden" name="image_{{ loop.index0 }}" value="{{ item.image_id }}">
+                <input type="hidden" name="group_{{ loop.index0 }}" value="">
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    <div class="grid-right">
+        <div style="font-size: 14px; margin-bottom: 8px;">
+            <a href="/">&larr; Dashboard</a> &nbsp;|&nbsp; <a href="{{ url_for('al.grid') }}">Grid</a> &nbsp;|&nbsp;
+            <a href="{{ url_for('al.grid', mode='validation') }}">Validation grid</a> &nbsp;|&nbsp;
+            <a href="{{ url_for('al.clusters') }}">Clusters</a> &nbsp;|&nbsp; <a href="{{ url_for('al.status') }}">Status</a>
+        </div>
+        <h2 style="margin: 4px 0;">{{ 'Validation grid' if mode == 'validation' else 'Grid labeling' }}</h2>
+        <p style="color: #94a3b8; font-size: 13px; margin: 4px 0 8px;">{{ progress }}</p>
+        {% if message %}<p style="color: var(--btn-green); margin: 4px 0;"><b>{{ message }}</b></p>{% endif %}
+        {% if error %}<p style="color: var(--btn-red); margin: 4px 0;"><b>{{ error }}</b></p>{% endif %}
+        <p style="font-size: 13px; margin: 4px 0;">1. Pick a colour and give it a class. 2. Click the bees of that class. 3. Repeat with another colour, then save.</p>
+        {% for g in groups %}
+        <div class="group-row" data-group="{{ loop.index0 }}" data-color="{{ g.color }}">
+            <span class="swatch" style="background: {{ g.color }};">{{ loop.index }}</span>
+            <input type="text" name="label_{{ loop.index0 }}" value="{{ g.label }}" list="al_classes" autocomplete="off" placeholder="class for {{ g.name|lower }}">
+            <span class="count">0</span>
+        </div>
+        {% endfor %}
+        <div class="group-row" data-group="discard" data-color="#94a3b8">
+            <span class="swatch" style="background: #94a3b8;">0</span>
+            <span style="flex: 1; padding: 8px 0;"><b>Scarta ape</b> <span style="color: #94a3b8; font-size: 13px;">&mdash; set aside, never shown again</span></span>
+            <span class="count">0</span>
+        </div>
+        <datalist id="al_classes">{% for lbl in quick_labels %}<option value="{{ lbl }}">{% endfor %}</datalist>
+        <button class="btn" type="submit">Save <span id="grid_marked">0</span> bees &amp; next grid</button>
+        <button class="btn" type="button" id="grid_clear" style="background: var(--input-bg);">Clear selection</button>
+        <p style="color: #94a3b8; font-size: 12px; margin-top: 10px;">Bees you leave without a colour stay in your grid for the next round. Keys 1&ndash;{{ groups|length }} pick a colour, 0 picks "Scarta ape".</p>
+    </div>
+</div>
+</form>
+<script>
+(function () {
+    var rows = Array.prototype.slice.call(document.querySelectorAll('.group-row'));
+    var tiles = Array.prototype.slice.call(document.querySelectorAll('.grid-tile'));
+    var active = rows[0];
+    function pick(row) { active = row; rows.forEach(function (r) { r.classList.toggle('active', r === row); }); }
+    function labelOf(row) {
+        if (row.dataset.group === 'discard') return 'Scarta ape';
+        return row.querySelector('input[type="text"]').value.trim() || ('group ' + (parseInt(row.dataset.group, 10) + 1));
+    }
+    function paint(tile, row) {
+        var input = tile.querySelector('input[name^="group_"]');
+        var badge = tile.querySelector('.badge');
+        input.value = row ? row.dataset.group : '';
+        tile.style.borderColor = row ? row.dataset.color : '';
+        badge.style.display = row ? 'block' : 'none';
+        if (row) { badge.style.background = row.dataset.color; badge.textContent = labelOf(row); }
+    }
+    function refresh() {
+        var total = 0;
+        rows.forEach(function (row) {
+            var n = tiles.filter(function (t) { return t.querySelector('input[name^="group_"]').value === row.dataset.group; }).length;
+            row.querySelector('.count').textContent = n;
+            total += n;
+            tiles.forEach(function (t) {
+                if (t.querySelector('input[name^="group_"]').value === row.dataset.group) t.querySelector('.badge').textContent = labelOf(row);
+            });
+        });
+        document.getElementById('grid_marked').textContent = total;
+    }
+    rows.forEach(function (row) {
+        row.addEventListener('click', function () { pick(row); });
+        var text = row.querySelector('input[type="text"]');
+        if (text) { text.addEventListener('focus', function () { pick(row); }); text.addEventListener('input', refresh); }
+    });
+    tiles.forEach(function (tile) {
+        tile.addEventListener('click', function () {
+            var current = tile.querySelector('input[name^="group_"]').value;
+            paint(tile, current === active.dataset.group ? null : active);
+            refresh();
+        });
+    });
+    document.getElementById('grid_clear').addEventListener('click', function () { tiles.forEach(function (t) { paint(t, null); }); refresh(); });
+    document.addEventListener('keydown', function (e) {
+        if (e.target.tagName === 'INPUT' && e.target.type === 'text') return;
+        if (e.key === '0') pick(rows[rows.length - 1]);
+        var n = parseInt(e.key, 10);
+        if (n >= 1 && n < rows.length) pick(rows[n - 1]);
+    });
+    pick(rows[0]);
+    refresh();
+})();
+</script>
+"""
+
 _STATUS_PAGE = """
 {% if s.retrain and s.retrain.state == 'running' %}<meta http-equiv="refresh" content="5">{% endif %}
 {{ css|safe }}
@@ -159,7 +280,8 @@ _STATUS_PAGE = """
             {% if s.cold_start %}<span style="color:#94a3b8;">&mdash; until {{ s.cold_start_threshold }} labels and 2 classes</span>{% endif %}</td></tr>
         <tr><th>Current batch</th><td>{{ s.batch_id }}: {{ s.batch_done }} / {{ s.batch_size }} done</td></tr>
         <tr><th>Validation set</th><td>{{ s.validation_labeled }} / {{ s.validation_size }} labeled</td></tr>
-        <tr><th>Model version / config</th><td>{{ s.model_version }} / {{ s.config_id }}</td></tr>
+        <tr><th>Model version / config</th><td>{{ s.model_version }} / {{ s.config_id }}{% if s.config_file %} ({{ s.config_file }}){% endif %}</td></tr>
+        {% if s.subset_file %}<tr><th>Working on a subset</th><td>{{ s.n_images }} bees listed in {{ s.subset_file }}</td></tr>{% endif %}
     </table>
     <form method="POST" action="{{ url_for('al.refresh') }}">
         <button class="btn" type="submit">Recompute propagation &amp; start next batch</button>
@@ -517,12 +639,13 @@ _CLUSTERS_PAGE = """
 
 
 def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) -> Blueprint:
-    """Blueprint con ``/al-labeling``, ``/al-clusters``, ``/al-status``, ``/al-refresh`` e ``/al-retrain``.
+    """Blueprint con ``/al-grid``, ``/al-labeling``, ``/al-clusters``, ``/al-status``, ``/al-refresh`` e ``/al-retrain``.
 
     ``base_css`` è il CSS dell'hub, così le pagine nuove hanno lo stesso aspetto.
     """
     bp = Blueprint("al", __name__)
-    STATE.config_path = config_path
+    # La config si può scegliere all'avvio con BEE_AL_CONFIG=config/al_fase2.yaml (una fase per file).
+    STATE.config_path = config_path or os.environ.get("BEE_AL_CONFIG") or None
 
     def message(title: str, text: str, code: int = 200, reload: int = 0):
         html = render_template_string(
@@ -617,6 +740,74 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
             quick_labels=engine.quick_labels(), error=error,
             suggestion=None if mode == "audit" else engine.suggestion(image_id),  # l'audit è alla cieca
             redo=redo, previous_label=previous_label, has_previous=previous is not None,
+        )
+
+    @bp.route("/al-grid", methods=["GET", "POST"])
+    def grid():
+        """Etichettatura a griglia: 12 api per volta, più classi in un colpo solo.
+
+        Ogni colore è un gruppo con la sua classe: si sceglie un colore, si cliccano le api,
+        si passa al colore successivo e si salva tutto insieme. Le classi dei colori restano
+        nella sessione dell'annotatore tra una griglia e l'altra.
+        """
+        user = session.get("user_email")
+        if not user:
+            return redirect(url_for("index"))
+        engine, page = engine_or_message()
+        if engine is None:
+            return page
+        mode = "validation" if request.args.get("mode") == "validation" else "train"
+        labels = list(session.get("al_grid_labels") or [])
+        if not labels:  # prima volta: le classi suggerite in config, poi quelle già viste
+            suggested = [engine.store.normalize_label(c) for c in engine.cfg.labels.classes]
+            labels = list(dict.fromkeys(suggested + engine.quick_labels()))
+        labels = (labels + [""] * len(GRID_COLORS))[:len(GRID_COLORS)]
+        error = None
+
+        if request.method == "POST":
+            labels = [request.form.get(f"label_{g}", "").strip() for g in range(len(GRID_COLORS))]
+            session["al_grid_labels"] = labels
+            chosen: list[tuple[str, str]] = []
+            for k in range(GRID_SIZE):
+                image_id, group = request.form.get(f"image_{k}"), request.form.get(f"group_{k}", "")
+                if not image_id or not group:
+                    continue
+                if group == "discard":
+                    chosen.append((image_id, UNKNOWN_LABEL))
+                elif group.isdigit() and int(group) < len(labels) and labels[int(group)]:
+                    chosen.append((image_id, labels[int(group)]))
+                else:
+                    error = "A colour is used on some bees but has no class: type its class and save again."
+            if error is None and not chosen:
+                error = "No bee has a colour yet: pick a colour and click the bees."
+            if error is None:
+                try:  # tutto o niente: si controlla prima di scrivere
+                    for image_id, label in chosen:
+                        if image_id not in engine.bank or not engine.store.normalize_label(label):
+                            raise ALError(f"cannot label {image_id}")
+                    for image_id, label in chosen:
+                        engine.submit(user, image_id, label, "", mode=mode)
+                except ALError as e:
+                    error = str(e)
+                else:
+                    return redirect(url_for("al.grid", mode=mode, saved=len(chosen)))
+
+        items = engine.next_images(user, GRID_SIZE, mode=mode)
+        if not items:
+            if mode == "validation":
+                return message("Validation set complete", "Every validation image has been labeled (or is assigned to another annotator).")
+            return message("Nothing to label right now", "The rest of the batch is assigned to other annotators, or no unlabeled images are left. Try again in a moment.")
+        st = engine.status()
+        if mode == "validation":
+            progress = f"Validation set: {st['validation_labeled']} / {st['validation_size']} labeled. Used only for evaluation."
+        else:
+            progress = f"Batch {st['batch_id']}: {st['batch_done']} / {st['batch_size']} done. {st['n_labels']} labels in total."
+        saved = request.args.get("saved", type=int)
+        return render_template_string(
+            _GRID_PAGE, css=base_css, mode=mode, items=items, progress=progress, error=error,
+            message=None if saved is None else f"{saved} bees saved.",
+            groups=[{"name": name, "color": color, "label": labels[g]} for g, (name, color) in enumerate(GRID_COLORS)],
+            quick_labels=engine.quick_labels(),
         )
 
     @bp.route("/al-status")

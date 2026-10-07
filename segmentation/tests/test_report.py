@@ -195,7 +195,7 @@ def test_anomaly_scores_feed_the_anomaly_indicator(flow, tmp_path):
 def test_audit_report_script(flow, tmp_path):
     config_path = tmp_path / "cfg.yaml"
     data = flow.cfg.to_dict()
-    data["paths"] = {k: str(flow.cfg.resolve(v)) if isinstance(v, str) else {n: str(flow.cfg.resolve(d)) for n, d in v.items()}
+    data["paths"] = {k: (str(flow.cfg.resolve(v)) if v else "") if isinstance(v, str) else {n: str(flow.cfg.resolve(d)) for n, d in v.items()}
                      for k, v in data["paths"].items()}
     config_path.write_text(yaml.safe_dump(data))
     script = REPO_ROOT / "scripts" / "audit_report.py"

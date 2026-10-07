@@ -264,6 +264,7 @@ def index():
                 <a href="/al-labeling" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px; border-left: 4px solid var(--btn-green);">7. Active Learning Labeling</a>
                 <a href="/al-status" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px; border-left: 4px solid var(--btn-green);">8. Active Learning Status</a>
                 <a href="/al-clusters" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px; border-left: 4px solid var(--btn-green);">9. Active Learning Clusters</a>
+                <a href="/al-grid" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px; border-left: 4px solid var(--btn-green);">10. Active Learning Grid (12 bees, several classes at once)</a>
             </div>
         </div>
         """

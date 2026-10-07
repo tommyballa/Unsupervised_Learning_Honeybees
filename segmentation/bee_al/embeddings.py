@@ -189,6 +189,20 @@ def load_embeddings(emb_dir: Union[str, Path]) -> Embeddings:
     return Embeddings(ids=ids, paths=paths, X=X, meta=manifest["meta"])
 
 
+def restrict_embeddings(emb: Embeddings, subset_path: Union[str, Path]) -> Embeddings:
+    """Tiene solo le api elencate in un file ``{"image_ids": [...]}``, nell'ordine degli embedding."""
+    path = Path(subset_path)
+    if not path.exists():
+        raise FileNotFoundError(f"File del sottoinsieme non trovato: {path}")
+    with open(path, "r", encoding="utf-8") as f:
+        wanted = set(json.load(f)["image_ids"])
+    keep = [i for i, image_id in enumerate(emb.ids) if image_id in wanted]
+    if not keep:
+        raise ValueError(f"{path} non elenca nessuna delle api di questo dataset")
+    return Embeddings([emb.ids[i] for i in keep], [emb.paths[i] for i in keep],
+                      np.ascontiguousarray(emb.X[keep]), {**emb.meta, "subset": str(path), "subset_of": len(emb)})
+
+
 # --------------------------------------------------------------------------- #
 # Encoder torch (importato solo da chi estrae: l'hub non ne ha bisogno)
 # --------------------------------------------------------------------------- #

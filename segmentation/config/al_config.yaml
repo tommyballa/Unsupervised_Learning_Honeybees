@@ -15,10 +15,14 @@ paths:
   results_dir: /mnt/disk1/tommaso_ballarin/bee_al/results_batch3+4   # al_labels.csv, validation_set.json, al_rounds.jsonl
   embeddings_dir: data/embeddings_batch3+4             # embedding dell'extractor congelato (v000)
   models_dir: /mnt/disk1/tommaso_ballarin/bee_al/models_batch3+4     # vNNN/ prodotti dai re-train
+  subset_file: ""        # JSON {"image_ids": [...]}: se indicato l'hub lavora solo su quelle api (fasi successive)
 
 labels:
   # Le classi NON sono definite qui: nascono dalle etichette inserite nell'hub.
-  classes: []            # solo suggerimenti, mostrati come quick label
+  # Fase 1 della pipeline: separare le api segmentate bene da quelle segmentate male. Le due classi
+  # qui sotto sono solo suggerimenti (quick label e colori della griglia): se ne possono usare altre.
+  # La fase 2 (profilo demografico, anomaly detection) si prepara con scripts/new_stage.py.
+  classes: ["Segmentata Bene", "Segmentata Male"]   # solo suggerimenti, mostrati come quick label
   label_aliases: {}      # es. {"Bad Seg": "Bad_Seg"}: applicati in lettura, lo storico non cambia
   # Classi di scarto: crop che non si possono giudicare. Restano nel kNN (così il modello impara a
   # riconoscerle) ma sono escluse dai cluster finali e dal denominatore delle prevalenze; nello

@@ -158,7 +158,7 @@ def test_export_script_does_not_add_a_round(colony, tmp_path):
     save_embeddings(colony.cfg.embeddings_dir, colony.emb.ids, colony.emb.paths, colony.emb.X)
     config_path = tmp_path / "cfg.yaml"
     data = colony.cfg.to_dict()
-    data["paths"] = {k: str(colony.cfg.resolve(v)) if isinstance(v, str) else {n: str(colony.cfg.resolve(d)) for n, d in v.items()}
+    data["paths"] = {k: (str(colony.cfg.resolve(v)) if v else "") if isinstance(v, str) else {n: str(colony.cfg.resolve(d)) for n, d in v.items()}
                      for k, v in data["paths"].items()}
     config_path.write_text(yaml.safe_dump(data))
 

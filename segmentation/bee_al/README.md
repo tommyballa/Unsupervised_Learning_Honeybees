@@ -14,6 +14,33 @@ numeri distorti, soprattutto per le classi rare. Se il 5% delle api sane viene s
 malato e le malate vere sono il 2%, il conteggio grezzo dice 5,6%. L'audit misura gli errori
 del modello su un campione mai visto e li usa per correggere il conteggio.
 
+## Pipeline a fasi
+
+L'etichettatura si fa in più fasi, ognuna con la propria config, le proprie etichette e i propri modelli:
+
+1. **Fase 1 – qualità della segmentazione.** Su tutte le api si separano quelle segmentate bene da
+   quelle segmentate male (`labels.classes` suggerisce `Segmentata Bene` e `Segmentata Male`).
+2. **Fase 2 – profilo demografico e anomaly detection.** Si lavora solo sulle api che la fase 1 ha
+   tenuto. Si prepara da uno snapshot della fase 1:
+
+```
+python scripts/new_stage.py --snapshot fase1_finale --keep "Segmentata Bene" --name fase2
+cd active_learning_tool && BEE_AL_CONFIG=config/al_fase2.yaml ../venv/bin/python -u app.py
+```
+
+Lo script scrive l'elenco delle api tenute (`results_fase2/subset.json`) e `config/al_fase2.yaml`, con
+`paths.subset_file` che punta all'elenco. La fase 1 resta intatta: per tornarci basta avviare l'hub
+senza `BEE_AL_CONFIG`. Con `--min-confidence` si lasciano fuori le api assegnate dal modello con poca
+sicurezza.
+
+## Etichettatura a griglia
+
+`/al-grid` mostra 12 api alla volta (4 × 3, a sinistra) e i comandi a destra. Ogni colore è un
+gruppo con la sua classe: si sceglie un colore, si cliccano le api di quella classe, si passa a un
+altro colore e si salva tutto insieme. I tasti 1–6 scelgono il colore, 0 sceglie "Scarta ape". Le api
+lasciate senza colore tornano nella griglia successiva. `/al-grid?mode=validation` fa lo stesso sul
+validation set.
+
 ## 1. Etichettatura e criteri di stop
 
 Si etichetta come sempre da `/al-labeling`. La pagina `/al-status` mostra tre criteri di stop,

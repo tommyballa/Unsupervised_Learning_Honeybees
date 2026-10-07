@@ -12,7 +12,7 @@ import numpy as np
 
 from . import REMOVED_LABEL, UNKNOWN_LABEL, audit, snapshot
 from .config import DEFAULT_CONFIG_PATH, ALConfig, load_config
-from .embeddings import Embeddings, load_embeddings
+from .embeddings import Embeddings, load_embeddings, restrict_embeddings
 from .knn import Prediction, knn_predict, nearest_labeled_similarity
 from .label_store import LabelStore, is_training_event
 from .memory_bank import MemoryBank
@@ -106,8 +106,10 @@ class ALEngine:
         version, emb_dir = latest_embeddings(cfg)
         store = LabelStore(cfg.al_labels_path, cfg.labels.label_aliases)
         store.import_legacy(cfg.results_dir, config_id=cfg.config_id)
-        return cls(cfg, load_embeddings(emb_dir), store, version, config_path or DEFAULT_CONFIG_PATH,
-                   persist_rounds=persist_rounds)
+        embeddings = load_embeddings(emb_dir)
+        if cfg.subset_path is not None:
+            embeddings = restrict_embeddings(embeddings, cfg.subset_path)
+        return cls(cfg, embeddings, store, version, config_path or DEFAULT_CONFIG_PATH, persist_rounds=persist_rounds)
 
     # ------------------------------ stato base ------------------------------ #
 
@@ -404,6 +406,32 @@ class ALEngine:
                     item.assigned_to, item.assigned_at = annotator, now
                     return item
             return None  # il resto del batch è in mano ad altri annotatori, o non resta nulla
+
+    def next_images(self, annotator: str, n: int = 12, mode: str = "train") -> list[BatchItem]:
+        """Fino a ``n`` immagini per l'annotatore, per etichettarne molte insieme (pagina a griglia).
+
+        Prima quelle che ha già in mano, poi quelle libere: nessun'altra persona le riceve
+        finché l'assegnazione non scade. Le immagini non etichettate tornano alla griglia successiva.
+        """
+        with self.lock:
+            now = self.clock()
+            timeout = self.cfg.hub.assignment_timeout_s
+            if mode == "validation":
+                pending = [i for i in self.validation_ids if i not in self.val_labels and i in self.bank]
+                mine = [i for i in pending if self._val_assigned.get(i, ("", 0.0))[0] == annotator]
+                free = [i for i in pending
+                        if i not in mine and (i not in self._val_assigned or now - self._val_assigned[i][1] >= timeout)]
+                chosen = (mine + free)[:n]
+                for image_id in chosen:
+                    self._val_assigned[image_id] = (annotator, now)
+                return [BatchItem(i, self.bank.index_of(i), "validation", "validation", annotator, now) for i in chosen]
+            pending = [b for b in self.batch if not b.done]
+            mine = [b for b in pending if b.assigned_to == annotator]
+            free = [b for b in pending if b.assigned_to != annotator and not self._is_assigned(b, now)]
+            chosen = (mine + free)[:n]
+            for item in chosen:
+                item.assigned_to, item.assigned_at = annotator, now
+            return chosen
 
     def _next_validation(self, annotator: str, now: float) -> Optional[BatchItem]:
         timeout = self.cfg.hub.assignment_timeout_s
@@ -834,6 +862,8 @@ class ALEngine:
                 "round": self.round,
                 "model_version": self.model_version,
                 "config_id": self.cfg.config_id,
+                "config_file": self.config_path.name if self.config_path else "",
+                "subset_file": self.cfg.paths.subset_file,
                 "n_images": len(self.bank),
                 "n_labels": self.bank.n_labeled,
                 "n_unknown": int(self.bank.unknown_indices().size),

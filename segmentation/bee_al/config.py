@@ -33,6 +33,9 @@ class PathsConfig:
     results_dir: str = "active_learning_tool/results"
     embeddings_dir: str = "data/embeddings"
     models_dir: str = "models"
+    # JSON {"image_ids": [...]}: se indicato, l'hub lavora solo su queste api (fase successiva
+    # di una pipeline, es. solo le api segmentate bene). Vuoto = tutte quelle con un embedding.
+    subset_file: str = ""
 
 
 @dataclass
@@ -302,6 +305,10 @@ class ALConfig:
     @property
     def models_dir(self) -> Path:
         return self.resolve(self.paths.models_dir)
+
+    @property
+    def subset_path(self) -> Optional[Path]:
+        return self.resolve(self.paths.subset_file) if self.paths.subset_file else None
 
     @property
     def al_labels_path(self) -> Path:
