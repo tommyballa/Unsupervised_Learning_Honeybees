@@ -189,6 +189,22 @@ def load_embeddings(emb_dir: Union[str, Path]) -> Embeddings:
     return Embeddings(ids=ids, paths=paths, X=X, meta=manifest["meta"])
 
 
+def restrict_to_datasets(emb: Embeddings, dataset_names: Sequence[str], separator: str = "__") -> Embeddings:
+    """Tiene solo le api delle cartelle di dataset indicate (il prefisso dell'image_id).
+
+    Gli embedding possono essere stati estratti per più cartelle di quelle che si vogliono
+    usare: basta togliere una cartella da ``paths.dataset_dirs`` per escluderne le api.
+    """
+    prefixes = tuple(f"{name}{separator}" for name in dataset_names)
+    keep = [i for i, image_id in enumerate(emb.ids) if image_id.startswith(prefixes)]
+    if len(keep) == len(emb.ids):
+        return emb
+    if not keep:
+        raise ValueError(f"Nessun embedding per le cartelle {list(dataset_names)}: esegui scripts/extract_embeddings.py")
+    return Embeddings([emb.ids[i] for i in keep], [emb.paths[i] for i in keep],
+                      np.ascontiguousarray(emb.X[keep]), {**emb.meta, "datasets": list(dataset_names)})
+
+
 def restrict_embeddings(emb: Embeddings, subset_path: Union[str, Path]) -> Embeddings:
     """Tiene solo le api elencate in un file ``{"image_ids": [...]}``, nell'ordine degli embedding."""
     path = Path(subset_path)

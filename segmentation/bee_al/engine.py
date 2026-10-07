@@ -12,7 +12,8 @@ import numpy as np
 
 from . import REMOVED_LABEL, UNKNOWN_LABEL, audit, snapshot
 from .config import DEFAULT_CONFIG_PATH, ALConfig, load_config
-from .embeddings import Embeddings, load_embeddings, restrict_embeddings
+from .export import ClusterExporter
+from .embeddings import Embeddings, load_embeddings, restrict_embeddings, restrict_to_datasets
 from .knn import Prediction, knn_predict, nearest_labeled_similarity
 from .label_store import LabelStore, is_training_event
 from .memory_bank import MemoryBank
@@ -83,6 +84,7 @@ class ALEngine:
         self.batch: list[BatchItem] = []
         self.batch_id = ""
         self.retrain: Any = None  # RetrainManager opzionale, vedi bee_al/retrain.py
+        self.exporter = ClusterExporter(self)
         self._val_assigned: dict[str, tuple[str, float]] = {}
         self.val_labels: dict[str, str] = {}
         self.validation_ids = load_or_create_validation_set(
@@ -107,6 +109,8 @@ class ALEngine:
         store = LabelStore(cfg.al_labels_path, cfg.labels.label_aliases)
         store.import_legacy(cfg.results_dir, config_id=cfg.config_id)
         embeddings = load_embeddings(emb_dir)
+        if cfg.paths.dataset_dirs:  # solo le cartelle elencate in config, anche se ci sono embedding di altre
+            embeddings = restrict_to_datasets(embeddings, list(cfg.paths.dataset_dirs))
         if cfg.subset_path is not None:
             embeddings = restrict_embeddings(embeddings, cfg.subset_path)
         return cls(cfg, embeddings, store, version, config_path or DEFAULT_CONFIG_PATH, persist_rounds=persist_rounds)
@@ -874,6 +878,8 @@ class ALEngine:
                 "stopping": self.stopping_status(),
                 "snapshots": snapshot.list_snapshots(self.cfg),
                 "audit": self.audit_progress(),
+                "stage": {"name": self.cfg.stage.name, "title": self.cfg.stage.title, "description": self.cfg.stage.description},
+                "export": self.exporter.status(),
                 "cold_start": is_cold_start(self.bank.n_labeled, len(self.bank.classes), q),
                 "cold_start_threshold": q.cold_start_threshold,
                 "batch_id": self.batch_id,

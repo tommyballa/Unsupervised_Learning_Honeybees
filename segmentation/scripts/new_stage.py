@@ -76,6 +76,8 @@ def main() -> None:
     data["paths"]["dataset_dirs"] = {k: str(cfg.resolve(v)) for k, v in cfg.paths.dataset_dirs.items()}
     data["paths"]["dataset_dir"] = str(cfg.resolve(cfg.paths.dataset_dir))
     data["labels"] = {"classes": [], "label_aliases": {}, "reject_classes": []}   # la fase nuova ha classi sue
+    data["stage"] = {"name": args.name, "title": f"Phase '{args.name}'",
+                     "description": f"Only the bees of {sorted(keep)} from '{args.snapshot}'."}
     header = (f"# Fase '{args.name}': {len(chosen)} api con classe {sorted(keep)} nello snapshot '{args.snapshot}'\n"
               f"# di {config_path.name}. Scritta da scripts/new_stage.py; etichette e modelli sono separati.\n\n")
     out_config.write_text(header + yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")

@@ -256,3 +256,26 @@ giudicare il fenotipo è scarto; se il fenotipo si riconosce comunque si etichet
 | `hub.py` | pagine Flask |
 
 I test si lanciano con `venv/bin/python -m pytest tests`.
+
+## Fase corrente e chiusura della fase
+
+La sezione `stage` della config dice in che fase si è (`name`, `title`, `description`): l'hub la mostra
+in una fascia blu in cima a ogni pagina, così chi etichetta sa che cosa deve giudicare.
+
+A fase finita, in `/al-status` il pulsante **Save configuration & export clusters** congela uno
+snapshot e scrive i cluster su disco in `export.clusters_dir/<nome>/`:
+
+| Contenuto | Descrizione |
+|---|---|
+| una cartella per classe | le immagini delle api di quella classe, etichettate a mano o assegnate dal modello |
+| `clusters.csv` | tutte le api: cluster, stato, origine, confidenza, frame, sessione, percorso originale |
+| `config.yaml` | la configurazione con cui la fase è stata fatta |
+| `meta.json` | fase, data, chi ha esportato, api per cluster, snapshot di partenza |
+
+Le api scartate ("Scarta ape"), quelle non assegnate e quelle di validazione restano solo nel CSV.
+`export.mode` sceglie tra copia dei file (`copy`), `hardlink` e `symlink`. L'esportazione gira in
+background e non ferma l'etichettatura. Quali cluster portare nella fase successiva si decide dopo,
+con `scripts/new_stage.py --keep ...`.
+
+L'hub lavora solo sulle cartelle elencate in `paths.dataset_dirs`: togliere una cartella (per esempio
+il test set) esclude le sue api anche se i loro embedding sono già stati estratti.

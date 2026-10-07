@@ -246,6 +246,26 @@ class ColonyConfig:
 
 
 @dataclass
+class StageConfig:
+    """Fase della pipeline su cui lavora questa config: l'hub la mostra in ogni pagina."""
+
+    name: str = ""          # es. "fase1": finisce anche nei file esportati
+    title: str = ""         # riga in evidenza, es. "Phase 1 of 2 - segmentation quality"
+    description: str = ""   # cosa deve fare l'annotatore in questa fase
+
+
+@dataclass
+class ExportConfig:
+    """Dove finiscono i cluster quando si chiude una fase (vedi ``bee_al/export.py``)."""
+
+    clusters_dir: str = ""  # una sottocartella per esportazione; vuoto = pulsante disattivato
+    mode: str = "copy"      # copy | hardlink | symlink
+
+    def __post_init__(self) -> None:
+        _check(self.mode in ("copy", "hardlink", "symlink"), "export.mode in (copy, hardlink, symlink)")
+
+
+@dataclass
 class SimulationConfig:
     seeds: list[int] = field(default_factory=lambda: [0, 1, 2, 3, 4])
     max_labels: int = 400
@@ -274,6 +294,8 @@ class ALConfig:
     frames: FramesConfig = field(default_factory=FramesConfig)
     audit: AuditConfig = field(default_factory=AuditConfig)
     colony: ColonyConfig = field(default_factory=ColonyConfig)
+    stage: StageConfig = field(default_factory=StageConfig)
+    export: ExportConfig = field(default_factory=ExportConfig)
     simulation: SimulationConfig = field(default_factory=SimulationConfig)
     root: str = str(REPO_ROOT)  # base dei percorsi relativi; non va nel file YAML
 
@@ -305,6 +327,10 @@ class ALConfig:
     @property
     def models_dir(self) -> Path:
         return self.resolve(self.paths.models_dir)
+
+    @property
+    def clusters_dir(self) -> Optional[Path]:
+        return self.resolve(self.export.clusters_dir) if self.export.clusters_dir else None
 
     @property
     def subset_path(self) -> Optional[Path]:

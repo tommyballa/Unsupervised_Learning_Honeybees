@@ -12,6 +12,7 @@ from flask import Blueprint, abort, redirect, render_template_string, request, s
 from . import REMOVED_LABEL, UNKNOWN_LABEL
 from .audit import parse_scores
 from .engine import ALEngine, ALError
+from .export import list_exports
 from .report import REPORT_DIR, REPORT_FILES, build_report
 from .retrain import RetrainManager
 from .snapshot import snapshot_path
@@ -73,7 +74,15 @@ class HubState:
 
 STATE = HubState()
 
-_NAV = """
+_STAGE_BANNER = """{% if al_stage and al_stage.title %}
+<div style="background: #1d4ed8; color: white; padding: 8px 14px; border-radius: 8px; margin-bottom: 10px; font-size: 15px;">
+    <b>{{ al_stage.title }}</b>{% if al_stage.description %} &mdash; {{ al_stage.description }}{% endif %}
+    {% if al_stage.exported %}<span style="background: #16a34a; padding: 2px 8px; border-radius: 10px; margin-left: 8px; font-size: 13px;">clusters saved as {{ al_stage.exported }}</span>{% endif %}
+</div>
+{% endif %}
+"""
+
+_NAV = _STAGE_BANNER + """
 <div class="nav">
     <span><a href="/">&larr; Dashboard</a> &nbsp;|&nbsp;
         <a href="{{ url_for('al.grid') }}">Grid</a> &nbsp;|&nbsp;
@@ -181,6 +190,7 @@ _GRID_PAGE = """
         </div>
     </div>
     <div class="grid-right">
+        """ + _STAGE_BANNER + """
         <div style="font-size: 14px; margin-bottom: 8px;">
             <a href="/">&larr; Dashboard</a> &nbsp;|&nbsp; <a href="{{ url_for('al.grid') }}">Grid</a> &nbsp;|&nbsp;
             <a href="{{ url_for('al.grid', mode='validation') }}">Validation grid</a> &nbsp;|&nbsp;
@@ -266,7 +276,7 @@ _GRID_PAGE = """
 """
 
 _STATUS_PAGE = """
-{% if s.retrain and s.retrain.state == 'running' %}<meta http-equiv="refresh" content="5">{% endif %}
+{% if (s.retrain and s.retrain.state == 'running') or s.export.state == 'running' %}<meta http-equiv="refresh" content="5">{% endif %}
 {{ css|safe }}
 <div class="container">
     """ + _NAV + """
@@ -327,6 +337,36 @@ _STATUS_PAGE = """
         {% if s.stopping.all_ok %}<b style="color: var(--btn-green);">All three criteria are met.</b>{% endif %}
         This is only an indication, evaluated over the last {{ s.stopping.window }} rounds that received new labels: nothing stops by itself.
     </p>
+
+    <h2>Finish this phase: save configuration and clusters</h2>
+    {% set x = s.export %}
+    {% if not x.clusters_dir %}
+    <p style="color: #94a3b8;">Disabled: export.clusters_dir is not set in the config.</p>
+    {% else %}
+    <p style="color: #94a3b8; font-size: 14px;">When the labeling of this phase is done, this freezes a snapshot and writes the clusters to disk as a dataset:
+        one folder per class with the bee images ({{ x.mode }}), plus clusters.csv, config.yaml and meta.json, in
+        <code>{{ x.clusters_dir }}/&lt;name&gt;/</code>. Labeling can go on meanwhile; which clusters feed the next phase is decided later.</p>
+    {% if export_error %}<p style="color: var(--btn-red);"><b>{{ export_error }}</b></p>{% endif %}
+    {% if x.state == 'running' %}
+    <p><b style="color: var(--btn-yellow);">Export running</b>: {{ x.progress.copied }} / {{ x.progress.total }} images written for '{{ x.progress.name }}'. This page reloads by itself.</p>
+    {% elif x.state == 'failed' %}
+    <p><b style="color: var(--btn-red);">Last export failed</b>: {{ x.error }}</p>
+    {% endif %}
+    <form method="POST" action="{{ url_for('al.export_clusters') }}" style="display: flex; gap: 10px; align-items: center;">
+        <input type="text" name="name" required maxlength="80" placeholder="name, e.g. {{ s.stage.name or 'phase1' }}_final" style="flex: 3; padding: 12px; font-size: 16px;">
+        <button class="btn" type="submit" style="flex: 2; margin-top: 0; background: var(--btn-green);" {% if x.state == 'running' or not s.n_labels %}disabled{% endif %}>Save configuration &amp; export clusters</button>
+    </form>
+    {% if x.exports %}
+    <table>
+        <tr><th>Export</th><th>Created</th><th>Phase</th><th>Clusters (bees: by hand + by the model)</th><th>Folder</th></tr>
+        {% for e in x.exports %}
+        <tr><td>{{ e.name }}</td><td>{{ e.created }}</td><td>{{ e.stage or '-' }}</td>
+            <td>{% for label, c in e.clusters.items() %}{{ label }}: {{ c.total }} ({{ c.human }} + {{ c.predicted }}){{ '; ' if not loop.last }}{% endfor %}</td>
+            <td style="font-size: 12px;">{{ e.path }}</td></tr>
+        {% endfor %}
+    </table>
+    {% endif %}
+    {% endif %}
 
     <h2>Snapshots</h2>
     <p style="color: #94a3b8; font-size: 14px;">A snapshot freezes the current predictions of every bee, with its source frame. It never changes afterwards: audits and estimates are computed on it.</p>
@@ -644,6 +684,17 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
     ``base_css`` è il CSS dell'hub, così le pagine nuove hanno lo stesso aspetto.
     """
     bp = Blueprint("al", __name__)
+
+    @bp.app_context_processor
+    def stage_banner():
+        """Fase corrente, mostrata in cima a ogni pagina di active learning."""
+        engine = STATE.engine
+        if engine is None:
+            return {"al_stage": None}
+        stage = engine.cfg.stage
+        done = [e["name"] for e in list_exports(engine.cfg) if e.get("stage") == stage.name and e.get("config_id")]
+        return {"al_stage": {"name": stage.name, "title": stage.title, "description": stage.description,
+                             "exported": done[0] if done else ""}}
     # La config si può scegliere all'avvio con BEE_AL_CONFIG=config/al_fase2.yaml (una fase per file).
     STATE.config_path = config_path or os.environ.get("BEE_AL_CONFIG") or None
 
@@ -821,7 +872,23 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
             _STATUS_PAGE, css=base_css, user=session.get("user_email"), s=engine.status(),
             retrain_error=request.args.get("retrain_error"),
             snapshot_error=request.args.get("snapshot_error"), snapshot_message=request.args.get("snapshot_message"),
+            export_error=request.args.get("export_error"),
         )
+
+    @bp.route("/al-export", methods=["POST"])
+    def export_clusters():
+        """Chiude la fase: congela uno snapshot e scrive su disco configurazione e cluster (in background)."""
+        user = session.get("user_email")
+        if not user:
+            return redirect(url_for("index"))
+        engine, page = engine_or_message()
+        if engine is None:
+            return page
+        try:
+            engine.exporter.start(request.form.get("name", "").strip(), user)
+        except ValueError as e:
+            return redirect(url_for("al.status", export_error=f"Export not started: {e}"))
+        return redirect(url_for("al.status"))
 
     @bp.route("/al-snapshot", methods=["POST"])
     def snapshot():
