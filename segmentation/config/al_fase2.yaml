@@ -1,11 +1,13 @@
 # Fase 'fase2': 59291 api con classe ['Ape Incompleta', 'Crop Utilizzabile'] nello snapshot 'Prova1'
 # di al_config.yaml. Scritta da scripts/new_stage.py; etichette e modelli sono separati.
+# Aggiunte 22436 api di 'test_b34_novarroa' filtrate con il modello v002 della fase precedente.
 
 seed: 42
 paths:
   dataset_dir: /home/tommaso_ballarin/bee_segmentation/bee_segmentation/data/images
   dataset_dirs:
     train_b34: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_batch3+4/cleaned_bees
+    test_b34_novarroa: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee_batch3+4_novarroa/cleaned_bees
   results_dir: /mnt/disk1/tommaso_ballarin/bee_al/results_fase2
   embeddings_dir: /home/tommaso_ballarin/bee_segmentation/bee_segmentation/data/embeddings_batch3+4
   models_dir: /mnt/disk1/tommaso_ballarin/bee_al/models_fase2
