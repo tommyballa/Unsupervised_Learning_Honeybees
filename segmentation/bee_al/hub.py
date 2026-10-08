@@ -144,6 +144,9 @@ _LABELING_PAGE = """
         </div>
         <button class="btn" type="submit" name="action" value="label">Submit & Next</button>
         <button class="btn" type="submit" name="action" value="unknown" formnovalidate style="background: var(--input-bg);">Scarta ape</button>
+        {% if mode == 'train' and not redo %}
+        <button class="btn" type="submit" formaction="{{ url_for('al.reshuffle', next='labeling') }}" formnovalidate style="background: var(--input-bg);" title="Replace the unlabeled bees of this batch with other ones">Shuffle: propose other bees</button>
+        {% endif %}
         {% if redo %}
         <button class="btn" type="submit" name="action" value="remove" formnovalidate style="background: var(--btn-red);">Remove label</button>
         {% endif %}
@@ -222,6 +225,9 @@ _GRID_PAGE = """
         <datalist id="al_classes">{% for lbl in quick_labels %}<option value="{{ lbl }}">{% endfor %}</datalist>
         <button class="btn" type="submit">Save <span id="grid_marked">0</span> bees &amp; next grid</button>
         <button class="btn" type="button" id="grid_clear" style="background: var(--input-bg);">Clear selection</button>
+        {% if mode == 'train' %}
+        <button class="btn" type="submit" formaction="{{ url_for('al.reshuffle', next='grid') }}" formnovalidate style="background: var(--input-bg);" title="Replace the unlabeled bees of this batch with other ones; colours not saved yet are lost">Shuffle: propose other bees</button>
+        {% endif %}
         <p style="color: #94a3b8; font-size: 12px; margin-top: 10px;">Bees you leave without a colour stay in your grid for the next round. Keys 1&ndash;{{ groups|length }} pick a colour, 0 picks "Scarta ape".</p>
     </div>
 </div>
@@ -831,6 +837,22 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
             abort(404)
         return send_file(path, max_age=3600)
 
+    @bp.route("/al-reshuffle", methods=["POST"])
+    def reshuffle():
+        """Pulsante "Shuffle": le api del batch non ancora etichettate vengono sostituite con altre."""
+        user = session.get("user_email")
+        if not user:
+            return redirect(url_for("index"))
+        engine, page = engine_or_message()
+        if engine is None:
+            return page
+        target = "al.grid" if request.args.get("next") == "grid" else "al.labeling"
+        try:
+            n = engine.reshuffle_batch(user)
+        except ALError as e:
+            return redirect(url_for(target, shuffle_error=f"Not shuffled: {e}."))
+        return redirect(url_for(target, shuffled=n))
+
     @bp.route("/al-labeling", methods=["GET", "POST"])
     def labeling():
         user = session.get("user_email")
@@ -891,7 +913,7 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
             progress = f"Batch {st['batch_id']}: {st['batch_done']} / {st['batch_size']} done. {st['n_labels']} labels in total."
         return render_template_string(
             _LABELING_PAGE, css=base_css, user=user, mode=mode, image_id=image_id, progress=progress,
-            quick_labels=engine.quick_labels(), error=error,
+            quick_labels=engine.quick_labels(), error=error or request.args.get("shuffle_error"),
             suggestion=None if mode == "audit" else engine.suggestion(image_id),  # l'audit è alla cieca
             redo=redo, previous_label=previous_label, has_previous=previous is not None,
         )
@@ -958,10 +980,13 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
             progress = f"Validation set: {st['validation_labeled']} / {st['validation_size']} labeled. Used only for evaluation."
         else:
             progress = f"Batch {st['batch_id']}: {st['batch_done']} / {st['batch_size']} done. {st['n_labels']} labels in total."
-        saved = request.args.get("saved", type=int)
+        saved, shuffled = request.args.get("saved", type=int), request.args.get("shuffled", type=int)
+        note = None if saved is None else f"{saved} bees saved."
+        if shuffled is not None:
+            note = f"{shuffled} bees of the batch replaced with other ones."
         return render_template_string(
-            _GRID_PAGE, css=base_css, mode=mode, items=items, progress=progress, error=error,
-            message=None if saved is None else f"{saved} bees saved.",
+            _GRID_PAGE, css=base_css, mode=mode, items=items, progress=progress,
+            error=error or request.args.get("shuffle_error"), message=note,
             groups=[{"name": name, "color": color, "label": labels[g]} for g, (name, color) in enumerate(GRID_COLORS)],
             quick_labels=engine.quick_labels(),
         )

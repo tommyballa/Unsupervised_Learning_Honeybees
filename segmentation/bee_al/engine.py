@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence, Union
 
@@ -83,6 +83,8 @@ class ALEngine:
         self.round = len(self.history)
         self.batch: list[BatchItem] = []
         self.batch_id = ""
+        self._shuffled_out: set[int] = set()   # api tolte dal batch con "rimescola": fuori fino al round successivo
+        self._n_shuffles = 0
         self.retrain: Any = None  # RetrainManager opzionale, vedi bee_al/retrain.py
         self.exporter = ClusterExporter(self)
         # Revisione delle etichette sospette: coda in cache, conferme ricostruite dal log.
@@ -490,21 +492,48 @@ class ALEngine:
         # Le immagini che qualcuno sta guardando in questo momento restano sue.
         carried = [b for b in self.batch if not b.done and self._is_assigned(b, now)]
         self.batch_id = f"r{self.round:04d}"
+        self._shuffled_out, self._n_shuffles = set(), 0
+        rng = np.random.default_rng([self.cfg.seed, self.round])
+        self.batch = carried + self._select_items({b.index for b in carried}, self.cfg.query.batch_size, rng)
+
+    def _select_items(self, taken: set[int], n: int, rng: np.random.Generator) -> list[BatchItem]:
+        """``n`` api da proporre, scelte dalla strategia di query tra quelle libere e non in ``taken``."""
         excluded = set(self.bank.labeled_indices().tolist())
         excluded.update(self.bank.unknown_indices().tolist())
         excluded.update(self.bank.index_of(i) for i in self._val_set if i in self.bank)
         excluded.update(self.bank.index_of(i) for i in self._audit_ids if i in self.bank)
-        excluded.update(b.index for b in carried)
+        excluded.update(taken)
         source = self.knn_pred if self.cfg.query.uncertainty_source == "knn" else self.final_pred
-        rng = np.random.default_rng([self.cfg.seed, self.round])
         queries = select_batch(
             self.bank.X, excluded, source.probs if source.classes else None,
-            self.bank.n_labeled, len(self.bank.classes), self.cfg.query, rng,
+            self.bank.n_labeled, len(self.bank.classes), replace(self.cfg.query, batch_size=n), rng,
             novelty=None if self.nearest_sim is None else 1.0 - self.nearest_sim,
         )
-        self.batch = carried + [
-            BatchItem(self.bank.ids[q.index], q.index, q.query_type, self.batch_id) for q in queries
-        ]
+        return [BatchItem(self.bank.ids[q.index], q.index, q.query_type, self.batch_id) for q in queries]
+
+    def reshuffle_batch(self, annotator: str) -> int:
+        """Sostituisce le api del batch non ancora etichettate con altre. Restituisce quante ne ha cambiate.
+
+        Stessa strategia di query e stesso modello: non parte un round nuovo. Le api già etichettate
+        restano nel batch, quelle che un altro annotatore sta guardando restano sue. Le api tolte non
+        vengono riproposte fino al round successivo.
+        """
+        with self.lock:
+            now = self.clock()
+            kept = [b for b in self.batch
+                    if b.done or (b.assigned_to not in (None, annotator) and self._is_assigned(b, now))]
+            dropped = [b.index for b in self.batch if not any(b is k for k in kept)]
+            if not dropped:
+                raise ALError("there are no unlabeled bees in the batch to replace")
+            rng = np.random.default_rng([self.cfg.seed, self.round, 2, self._n_shuffles + 1])
+            taken = self._shuffled_out | set(dropped) | {b.index for b in kept}
+            fresh = self._select_items(taken, len(dropped), rng)
+            if not fresh:
+                raise ALError("there are no other bees left to propose in this round")
+            self._shuffled_out.update(dropped)
+            self._n_shuffles += 1
+            self.batch = kept + fresh
+            return len(fresh)
 
     def _is_assigned(self, item: BatchItem, now: float) -> bool:
         return item.assigned_to is not None and now - item.assigned_at < self.cfg.hub.assignment_timeout_s

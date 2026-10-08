@@ -204,3 +204,63 @@ def test_colour_classes_are_remembered_per_phase(client):
     html = client.get("/al-grid").get_data(as_text=True)
     assert 'value="Solo Fase Uno"' not in html.split("<datalist")[0].split('name="label_2"')[1][:40]
     assert 'name="label_2" value=""' in html or 'name="label_2" value="Solo Fase Uno"' not in html
+
+
+def test_reshuffle_replaces_only_the_unlabeled_bees_of_the_batch(cfg, synth):
+    clock = Clock()
+    engine = make_engine(cfg, synth, clock=clock)                    # batch di 10
+    mine = engine.next_images("a@x.it", 4)
+    theirs = engine.next_images("b@x.it", 3)                         # b ne sta guardando 3
+    engine.submit("a@x.it", mine[0].image_id, "Bene")
+    before = {b.image_id for b in engine.batch}
+    round_before, labels_before = engine.round, engine.bank.n_labeled
+
+    assert engine.reshuffle_batch("a@x.it") == 6                     # 10 - 1 etichettata - 3 di b
+    after = {b.image_id for b in engine.batch}
+    assert len(engine.batch) == 10 and engine.round == round_before and engine.bank.n_labeled == labels_before
+    assert mine[0].image_id in after and {i.image_id for i in theirs} <= after
+    replaced = before - after
+    assert len(replaced) == 6 and not replaced & {i.image_id for i in theirs}
+    forbidden = set(engine.validation_ids) | {mine[0].image_id}
+    assert not (after - before) & forbidden
+    assert [i.image_id for i in engine.next_images("b@x.it", 3)] == [i.image_id for i in theirs]
+
+    engine.reshuffle_batch("a@x.it")                                 # le api tolte non tornano nello stesso round
+    assert not {b.image_id for b in engine.batch} & replaced
+
+    engine.refresh()                                                 # round nuovo: tornano candidabili
+    assert engine._shuffled_out == set()
+
+
+def test_reshuffle_is_deterministic_and_refuses_an_empty_batch(cfg, synth):
+    def run():
+        (cfg.results_dir / "al_rounds.jsonl").unlink(missing_ok=True)   # stesso round a ogni avvio
+        engine = make_engine(cfg, synth)
+        engine.reshuffle_batch("a@x.it")
+        return engine
+    a, b = run(), run()
+    assert [i.image_id for i in a.batch] == [i.image_id for i in b.batch]
+    for item in list(a.batch)[:-1]:
+        a.submit("a@x.it", item.image_id, "Bene")
+    last = a.next_images("b@x.it", 1)                                # l'ultima è in mano a un altro
+    assert len(last) == 1
+    with pytest.raises(Exception, match="no unlabeled bees"):
+        a.reshuffle_batch("a@x.it")
+
+
+def test_shuffle_button_on_grid_and_single_page(client):
+    html = client.get("/al-grid").get_data(as_text=True)
+    assert "Shuffle: propose other bees" in html and "/al-reshuffle?next=grid" in html
+    assert "Shuffle: propose other bees" not in client.get("/al-grid?mode=validation").get_data(as_text=True)
+    first = [i for _, i in _tiles(html)]
+    r = client.post("/al-reshuffle?next=grid")
+    assert r.status_code == 302 and "/al-grid" in r.headers["Location"] and "shuffled=30" in r.headers["Location"]
+    html = client.get(r.headers["Location"]).get_data(as_text=True)
+    assert "30 bees of the batch replaced" in html and not set(first) & {i for _, i in _tiles(html)}
+    assert client.engine.bank.n_labeled == 0
+
+    single = client.get("/al-labeling").get_data(as_text=True)
+    assert "/al-reshuffle?next=labeling" in single
+    assert "/al-reshuffle" not in client.get("/al-labeling?mode=validation").get_data(as_text=True)
+    r = client.post("/al-reshuffle?next=labeling")
+    assert r.status_code == 302 and "/al-labeling" in r.headers["Location"]

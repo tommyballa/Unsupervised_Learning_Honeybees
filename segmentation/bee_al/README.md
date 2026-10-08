@@ -41,6 +41,12 @@ altro colore e si salva tutto insieme. I tasti 1–6 scelgono il colore, 0 scegl
 lasciate senza colore tornano nella griglia successiva. `/al-grid?mode=validation` fa lo stesso sul
 validation set.
 
+Il pulsante **Shuffle: propose other bees** (griglia e pagina singola, non in validation né in audit)
+sostituisce le api del batch non ancora etichettate con altre, scelte dalla stessa strategia di query e
+dallo stesso modello: non parte un round nuovo e le etichette già date restano. Le api tolte non vengono
+riproposte fino al round successivo; quelle che un altro annotatore sta guardando restano sue. Va usato
+con parsimonia: saltare di proposito le api difficili toglie al modello proprio gli esempi più utili.
+
 ## 1. Etichettatura e criteri di stop
 
 Si etichetta come sempre da `/al-labeling`. Per le api su cui si è in dubbio conviene dichiarare la
