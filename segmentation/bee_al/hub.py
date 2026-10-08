@@ -911,7 +911,9 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
         if engine is None:
             return page
         mode = "validation" if request.args.get("mode") == "validation" else "train"
-        labels = list(session.get("al_grid_labels") or [])
+        # Le classi dei colori si ricordano per fase: quelle della fase 1 non devono ricomparire nella fase 2.
+        labels_key = f"al_grid_labels_{engine.cfg.stage.name}"
+        labels = list(session.get(labels_key) or [])
         if not labels:  # prima volta: le classi suggerite in config, poi quelle già viste
             suggested = [engine.store.normalize_label(c) for c in engine.cfg.labels.classes]
             labels = list(dict.fromkeys(suggested + engine.quick_labels()))
@@ -920,7 +922,7 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
 
         if request.method == "POST":
             labels = [request.form.get(f"label_{g}", "").strip() for g in range(len(GRID_COLORS))]
-            session["al_grid_labels"] = labels
+            session[labels_key] = labels
             chosen: list[tuple[str, str]] = []
             for k in range(GRID_SIZE):
                 image_id, group = request.form.get(f"image_{k}"), request.form.get(f"group_{k}", "")

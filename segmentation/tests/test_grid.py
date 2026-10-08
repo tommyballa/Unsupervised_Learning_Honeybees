@@ -193,3 +193,14 @@ def test_hub_config_can_be_chosen_with_an_environment_variable(monkeypatch):
     monkeypatch.delenv("BEE_AL_CONFIG")
     al_hub.create_blueprint("")
     assert al_hub.STATE.config_path is None
+
+
+def test_colour_classes_are_remembered_per_phase(client):
+    tiles = _tiles(client.get("/al-grid").get_data(as_text=True))
+    client.post("/al-grid", data=_form(tiles, {0: "2"}, ["Segmentata Bene", "Segmentata Male", "Solo Fase Uno", "", "", ""]))
+    assert 'name="label_2" value="Solo Fase Uno"' in client.get("/al-grid").get_data(as_text=True)
+    client.engine.cfg.stage.name = "fase2"                              # stessa sessione del browser, fase diversa
+    client.engine.cfg.labels.classes = []
+    html = client.get("/al-grid").get_data(as_text=True)
+    assert 'value="Solo Fase Uno"' not in html.split("<datalist")[0].split('name="label_2"')[1][:40]
+    assert 'name="label_2" value=""' in html or 'name="label_2" value="Solo Fase Uno"' not in html
