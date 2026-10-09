@@ -11,14 +11,14 @@ A structure that would work (adapt it if a different order reads better):
 1. Task and dataset
 2. Model and training setup
 3. Evaluation protocol
-4. Ablation study: one subsection or paragraph per factor, with tables
+4. Ablation study: one subsection or paragraph per factor, with tables (including the freeze-depth experiment)
 5. Discussion, limitations, and the configuration finally adopted
 
 Things to keep in mind while writing:
 
 - Every number must come from this file. If something you want to say is not supported here, leave it out or mark it as `[AUTHOR TO CONFIRM]`.
 - Items already marked `[AUTHOR TO CONFIRM]` below are facts I could not verify. Keep the marker visible in the text so the author can fill them in.
-- Each configuration was trained once (seed 0) and the test set has 56 images. Differences below roughly 0.01 mAP should be described as within noise, not as improvements or regressions.
+- Each configuration was trained once (seed 0), except the 1440 px reference, which was trained with two seeds. Those two runs differ by 0.010 mask mAP50-95 on the test set at 1440 px and by 0.008 at 2048 px. Differences of about 0.01 mAP or less should therefore be described as within noise, not as improvements or regressions.
 - Use neutral names for the runs in the text (for example "baseline", "1440 px", "1440 px + rotation"). The folder names are listed only so the author can trace results.
 - Tables can be given in Markdown or LaTeX. `[AUTHOR TO CONFIRM: preferred format]`
 - Primary metric: mask mAP50-95 on the test set. Box metrics are secondary.
@@ -102,7 +102,7 @@ The September runs on the 205-image dataset used the same settings except: up to
 | 1440 px + rotation | `bee_model_finetuned_yolo26s_batch3+4_img1440_rot` | 298 img | 1440 | rotation +/-180 degrees, vertical flip 0.5 | 152 | 112 | 2.3 h |
 | 1440 px + rotation + copy-paste | `bee_model_finetuned_yolo26s_batch3+4_img1440_rot_cp` | 298 img | 1440 | as above, plus copy-paste 0.3 | 184 | 144 | 2.9 h |
 
-All "batch 3+4" runs stopped through early stopping, none reached 200 epochs.
+All the "batch 3+4" runs in this table stopped through early stopping, none reached 200 epochs. The freeze-depth runs are listed separately in their own section below.
 
 Configurations that could not be trained (out of GPU memory on 48 GB):
 
@@ -163,6 +163,89 @@ Tested at 2048 px:
 
 Per-model gain from testing at 2048 px (mask mAP50-95): Sept. baseline A +0.046, Sept. frozen +0.061, Sept. baseline B +0.044, Baseline +0.042, 1440 px +0.031, 1440 px + rotation +0.042, 1440 px + rotation + copy-paste +0.038.
 
+## Freeze-depth ablation on the 1440 px model
+
+This is a second, more controlled experiment on layer freezing. All runs use exactly the 1440 px configuration (298-image training set, same hyperparameters, seed 0) and differ only in the `freeze` setting. `freeze = N` means that layers 0 to N-1 are frozen. In Ultralytics, freezing a layer fixes its weights and also keeps its batch-normalisation statistics fixed.
+
+YOLO26s-seg has 24 layers (indices 0 to 23):
+
+| Layers | Role | Share of parameters |
+|---|---|---|
+| 0-10 | backbone | 47.3% |
+| 11-22 | neck (feature pyramid) | 31.1% |
+| 23 | segmentation head | 21.6% |
+
+What each setting freezes:
+
+| Setting | Frozen layers | What stays trainable | Trainable parameters |
+|---|---|---|---|
+| freeze = 0 | none | everything | 100% |
+| freeze = 5 | 0-4 | all but the first backbone stages | 97.4% |
+| freeze = 10 | 0-9 | last backbone block, neck, head | 61.3% |
+| freeze = 20 | 0-19 | last neck stage and head | 42.8% |
+| freeze = 23 | 0-22 | segmentation head only | 21.6% |
+
+The freeze = 0 run with seed 0 is the "1440 px" model of the previous sections. A second freeze = 0 run with seed 1 was added to measure run-to-run variation. freeze = 23 was added as the extreme case (head-only training).
+
+Training outcome:
+
+| Setting | Folder suffix | Epochs run | Stopped by | Training time | Time per epoch | Final train mask loss | Final val mask loss |
+|---|---|---|---|---|---|---|---|
+| freeze = 0, seed 0 | `_img1440` | 119 | early stopping | 1.8 h | 55 s | 1.345 | 1.569 |
+| freeze = 0, seed 1 | `_img1440_seed1` | 149 | early stopping | 2.3 h | 56 s | 1.311 | 1.594 |
+| freeze = 5 | `_img1440_freeze5` | 126 | early stopping | 1.9 h | 55 s | 1.388 | 1.626 |
+| freeze = 10 | `_img1440_freeze10` | 133 | early stopping | 2.0 h | 54 s | 1.409 | 1.613 |
+| freeze = 20 | `_img1440_freeze20` | 200 | epoch limit | 2.8 h | 51 s | 1.776 | 1.795 |
+| freeze = 23 | `_img1440_freeze23` | 200 | epoch limit | 3.3 h | 59 s | 1.967 | 1.883 |
+
+Peak GPU memory was about 42.5 GB for freeze = 5 and freeze = 10, the same as without freezing, and 41 GB for freeze = 20 and freeze = 23.
+
+Validation results (best checkpoint, 1440 px):
+
+| Setting | Box P | Box R | Box mAP50 | Box mAP50-95 | Mask P | Mask R | Mask mAP50 | Mask mAP50-95 |
+|---|---|---|---|---|---|---|---|---|
+| freeze = 0, seed 0 | 0.888 | 0.858 | 0.923 | 0.671 | 0.883 | 0.853 | 0.911 | 0.634 |
+| freeze = 0, seed 1 | 0.906 | 0.868 | 0.928 | 0.680 | 0.899 | 0.860 | 0.912 | 0.632 |
+| freeze = 5 | 0.891 | 0.852 | 0.920 | 0.659 | 0.882 | 0.848 | 0.904 | 0.617 |
+| freeze = 10 | 0.902 | 0.856 | 0.924 | 0.663 | 0.896 | 0.850 | 0.909 | 0.621 |
+| freeze = 20 | 0.764 | 0.726 | 0.802 | 0.489 | 0.760 | 0.723 | 0.790 | 0.499 |
+| freeze = 23 | 0.773 | 0.721 | 0.799 | 0.479 | 0.774 | 0.717 | 0.793 | 0.491 |
+
+Test results at 1440 px (56 images, same protocol as above):
+
+| Setting | Box mAP50-95 | Box mAP50 | Mask mAP50-95 | Mask mAP50 | Mask mAP75 | Mask P | Mask R | Mask F1 |
+|---|---|---|---|---|---|---|---|---|
+| freeze = 0, seed 0 | 0.6408 | 0.8930 | 0.5971 | 0.8870 | 0.6898 | 0.8767 | 0.8460 | 0.8610 |
+| freeze = 0, seed 1 | 0.6382 | 0.8948 | 0.5869 | 0.8809 | 0.6721 | 0.8859 | 0.8477 | 0.8664 |
+| freeze = 5 | 0.6214 | 0.8877 | 0.5731 | 0.8754 | 0.6470 | 0.8723 | 0.8363 | 0.8539 |
+| freeze = 10 | 0.6246 | 0.8903 | 0.5758 | 0.8773 | 0.6578 | 0.8741 | 0.8372 | 0.8553 |
+| freeze = 20 | 0.4202 | 0.7012 | 0.4279 | 0.6974 | 0.4769 | 0.7329 | 0.6834 | 0.7073 |
+| freeze = 23 | 0.4109 | 0.7043 | 0.4189 | 0.6956 | 0.4581 | 0.7463 | 0.6725 | 0.7075 |
+
+Test results at 2048 px:
+
+| Setting | Box mAP50-95 | Box mAP50 | Mask mAP50-95 | Mask mAP50 | Mask mAP75 | Mask P | Mask R | Mask F1 |
+|---|---|---|---|---|---|---|---|---|
+| freeze = 0, seed 0 | 0.6624 | 0.8979 | 0.6280 | 0.8926 | 0.7376 | 0.8949 | 0.8553 | 0.8747 |
+| freeze = 0, seed 1 | 0.6620 | 0.9003 | 0.6205 | 0.8875 | 0.7264 | 0.9049 | 0.8611 | 0.8824 |
+| freeze = 5 | 0.6525 | 0.9035 | 0.6192 | 0.8912 | 0.7238 | 0.8935 | 0.8514 | 0.8719 |
+| freeze = 10 | 0.6581 | 0.9073 | 0.6187 | 0.8944 | 0.7240 | 0.8963 | 0.8644 | 0.8801 |
+| freeze = 20 | 0.5026 | 0.7931 | 0.5112 | 0.7896 | 0.5832 | 0.8062 | 0.7436 | 0.7736 |
+| freeze = 23 | 0.4595 | 0.7613 | 0.4699 | 0.7611 | 0.5279 | 0.7707 | 0.7138 | 0.7411 |
+
+Mean of the two freeze = 0 runs, test mask mAP50-95: 0.592 at 1440 px, 0.624 at 2048 px.
+
+What this experiment shows:
+
+- Run-to-run variation: the two unfrozen runs differ by 0.010 (1440 px) and 0.008 (2048 px) in test mask mAP50-95. This is the noise level against which the other differences should be read.
+- freeze = 5 and freeze = 10 behave alike. At 1440 px they are 0.016 to 0.019 below the mean of the unfrozen runs, slightly more than the seed-to-seed gap. At 2048 px they are within noise of the unfrozen runs (0.619 against 0.621 and 0.628).
+- Freezing 39% of the parameters (freeze = 10) costs almost nothing in accuracy, which indicates that the pretrained backbone features transfer well to this domain.
+- Freezing brings no practical benefit here: time per epoch and peak memory are unchanged for freeze = 5 and freeze = 10, and the runs did not converge in fewer epochs.
+- freeze = 20 and freeze = 23 collapse: against the mean of the unfrozen runs, mask mAP50-95 is 0.11 to 0.15 lower at 2048 px and 0.16 to 0.17 lower at 1440 px.
+- This is underfitting, not overfitting: the training mask loss stays at 1.78 and 1.97 against 1.35 without freezing, and both runs used all 200 epochs without triggering early stopping.
+- The drop happens between freeze = 10 and freeze = 20, that is, when the neck is frozen. The feature-pyramid layers need to adapt to the target domain (small, densely packed objects); retraining the head alone, or the head with the last neck stage, is not enough.
+- The result agrees with the earlier September comparison at 1280 px on the 205-image set (freezing 5 layers: -0.022 at native resolution, -0.006 at 2048 px).
+
 ## What the results show
 
 Inference resolution:
@@ -182,6 +265,7 @@ Training data:
 Layer freezing:
 - Freezing the first 5 layers lowered mask mAP50-95 by 0.022 at native resolution and 0.006 at 2048 px.
 - At 2048 px the frozen model has slightly higher recall and F1 (0.8503 and 0.8648 against 0.8396 and 0.8574), so the honest summary is "no benefit", not "clearly harmful".
+- The controlled freeze-depth experiment on the 1440 px model (previous section) confirms this and extends it: freezing up to the first 10 layers is roughly neutral, freezing the neck as well is clearly harmful.
 
 Stronger augmentation:
 - Full rotation and more vertical flips reduced overfitting during training: the validation mask loss stayed flat until the end (about 1.55), whereas in the 1440 px run without them it rose after the best epoch (1.51 at epoch 80 to 1.57 at epoch 119) while the training loss kept falling.
@@ -198,7 +282,8 @@ YOLO26s-seg fine-tuned on the 298-image set at 1440 px with the baseline augment
 
 ## Limitations to state in the text
 
-- One run per configuration, single seed; no confidence intervals.
+- One run per configuration, except the unfrozen 1440 px model (two seeds); no confidence intervals. The noise estimate rests on that single pair of runs.
+- freeze = 20 and freeze = 23 were still improving slowly when they reached the 200-epoch limit, so their scores are a lower bound for those settings; the gap to the unfrozen model is far larger than what the remaining trend could close.
 - Small evaluation sets (55 validation and 56 test images), although each contains more than 17,000 instances.
 - Ground truth comes from LangSAM. `[AUTHOR TO CONFIRM: extent of manual correction]`
 - The data-size comparison is confounded with schedule changes and a partly different image pool.
