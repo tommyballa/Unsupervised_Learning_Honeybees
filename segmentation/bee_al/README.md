@@ -64,6 +64,10 @@ assegnate" è quella con l'esempio etichettato più vicino. *Other bees* passa a
 seguenti dall'alto, dal basso e accanto alla mediana, senza mai ripetere un'ape. Le correzioni si fanno
 con i colori, come nella griglia; tra le etichette date a mano c'è anche *Remove label*.
 
+Due menù scelgono quante api vedere (12, 24, 48 o 96) e in che ordine: le tre fasce (default), dalla
+più o dalla meno simile, dalla più o dalla meno sicura per il modello (solo per i cluster predetti) o un
+campione casuale. La scelta resta valida cambiando gruppo.
+
 La home dell'hub elenca solo le pagine di active learning; gli strumenti precedenti sono raccolti
 sotto il tasto *Old tools*.
 

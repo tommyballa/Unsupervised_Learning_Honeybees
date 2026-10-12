@@ -14,7 +14,7 @@ from flask import Blueprint, Response, abort, redirect, render_template_string, 
 
 from . import REMOVED_LABEL, UNKNOWN_LABEL
 from .audit import parse_scores
-from .engine import ALEngine, ALError
+from .engine import CLUSTER_ORDERS, ALEngine, ALError
 from .export import list_exports
 from .report import REPORT_DIR, REPORT_FILES, build_report
 from .review import read_log
@@ -698,7 +698,7 @@ _CLUSTERS_PAGE = """
             <div class="grid-tile" data-index="{{ loop.index0 }}">
                 <img src="{{ url_for('al.image', image_id=b.image_id) }}" title="{{ b.image_id }}{{ b.tip }}">
                 <span class="badge"></span>
-                <span class="cap">{{ b.band }} &middot; sim {{ '%.2f' % b.similarity }}</span>
+                <span class="cap">{% if b.band %}{{ b.band }} &middot; {% endif %}sim {{ '%.2f' % b.similarity }}{% if b.confidence %} &middot; conf {{ b.confidence }}{% endif %}</span>
                 <input type="hidden" name="image_{{ loop.index0 }}" value="{{ b.image_id }}">
                 <input type="hidden" name="group_{{ loop.index0 }}" value="">
             </div>
@@ -721,8 +721,18 @@ _CLUSTERS_PAGE = """
             {% endfor %}
         </select>
         <p style="font-size: 13px; margin: 8px 0 4px;">{{ view.summary }}{% if view.reject %} <span style="color: var(--btn-red);">Reject class.</span>{% endif %}</p>
+        <p style="font-size: 13px; margin: 6px 0; display: flex; gap: 8px; align-items: center;">
+            Show
+            <select class="cluster-option" style="padding: 6px; background: var(--input-bg); color: var(--input-text); border: 1px solid var(--border-color); border-radius: 6px;">
+                {% for k in sizes %}<option value="{{ url_for('al.clusters', group=group, n=k) }}" {% if k == n %}selected{% endif %}>{{ k }} bees</option>{% endfor %}
+            </select>
+            <select class="cluster-option" style="flex: 1; min-width: 0; padding: 6px; background: var(--input-bg); color: var(--input-text); border: 1px solid var(--border-color); border-radius: 6px;">
+                {% for key, name in orders %}<option value="{{ url_for('al.clusters', group=group, order=key) }}" {% if key == view.order %}selected{% endif %}>{{ name }}</option>{% endfor %}
+            </select>
+        </p>
         <p style="font-size: 13px; margin: 4px 0;">
-            Row 1: the bees most similar to {{ view.reference }}. Row 2: around the median. Row 3: the least similar.
+            {% if view.order == 'bands' %}First third: the bees most similar to {{ view.reference }}. Second third: around the median. Last third: the least similar.
+            {% else %}"sim" is the similarity to {{ view.reference }}{% if kind == 'predicted' %}, "conf" the model's confidence in this class{% endif %}.{% endif %}
         </p>
         <p style="font-size: 14px; margin: 6px 0;">
             {% if view.n_pages > 1 %}
@@ -744,6 +754,7 @@ _CLUSTERS_PAGE = """
 """ + _GRID_SCRIPT + """
 <script>
 document.getElementById('cluster_select').addEventListener('change', function () { window.location = this.value; });
+document.querySelectorAll('.cluster-option').forEach(function (el) { el.addEventListener('change', function () { window.location = this.value; }); });
 </script>
 {% endif %}
 """
@@ -1177,13 +1188,25 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
             group = next((k for k in filled if k.startswith(wanted)), filled[0] if filled else "")
         page_no = request.args.get("page", default=0, type=int) or 0
         kind = {"p": "predicted", "h": "labeled", "u": "unassigned"}.get(group[:1])
+        # Quante api e in che ordine: la scelta resta nella sessione, anche cambiando gruppo.
+        sizes = (12, 24, 48, 96)
+        n = request.args.get("n", type=int) or session.get("al_clusters_n") or GRID_SIZE
+        n = n if n in sizes else GRID_SIZE
+        order = request.args.get("order") or session.get("al_clusters_order") or "bands"
+        order = order if order in CLUSTER_ORDERS else "bands"
+        session["al_clusters_n"], session["al_clusters_order"] = n, order
+        orders = [("bands", "most similar / median / least similar"), ("similar", "most similar first"),
+                  ("dissimilar", "least similar first")]
+        if kind == "predicted":
+            orders += [("confident", "most confident first"), ("uncertain", "least confident first")]
+        orders.append(("random", "random sample"))
 
         error = None
         if request.method == "POST" and kind:
             labels = [request.form.get(f"label_{g}", "").strip() for g in range(len(GRID_COLORS))]
             session[labels_key] = labels
             chosen: dict[str, list[str]] = {}
-            for k in range(GRID_SIZE):
+            for k in range(max(sizes)):
                 image_id, colour = request.form.get(f"image_{k}"), request.form.get(f"group_{k}", "")
                 if not image_id or not colour:
                     continue
@@ -1208,9 +1231,9 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
                 else:
                     return redirect(url_for("al.clusters", group=group, page=page_no, changed=changed))
 
-        view = engine.cluster_view(kind, group[2:], GRID_SIZE, page_no) if kind else None
+        view = engine.cluster_view(kind, group[2:], n, page_no, order) if kind else None
         if view is not None:
-            bands = {"high": "very similar", "median": "median", "low": "least similar"}
+            bands = {"high": "very similar", "median": "median", "low": "least similar", "": ""}
             for b in view["samples"]:
                 b["band"] = bands[b["band"]]
                 b["tip"] = "".join(f" - {k}: {b[k]}" for k in ("confidence", "nearest_class", "annotator") if b.get(k) not in (None, ""))
@@ -1228,6 +1251,7 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
             _CLUSTERS_PAGE, css=base_css, user=user, s=engine.status(), group=group, menu=menu, view=view,
             groups=[{"name": name, "color": color, "label": labels[g]} for g, (name, color) in enumerate(GRID_COLORS)],
             quick_labels=engine.quick_labels(), can_remove=kind == "labeled", error=error,
+            kind=kind, n=n, sizes=sizes, orders=orders,
             message=None if changed is None else f"{changed} bee(s) updated. Predictions recomputed.",
         )
 

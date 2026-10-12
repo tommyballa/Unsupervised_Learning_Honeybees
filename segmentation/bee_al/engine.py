@@ -25,6 +25,9 @@ from .validation import classification_metrics, load_or_create_validation_set
 CONFIDENCES = ("High", "Medium", "Low")
 
 
+CLUSTER_ORDERS = ("bands", "similar", "dissimilar", "confident", "uncertain", "random")  # ordinamenti della pagina dei cluster
+
+
 def similarity_bands(sims: np.ndarray, n: int = 12, page: int = 0) -> tuple[list[tuple[int, str]], int]:
     """Sceglie ``n`` elementi per fasce di similarità: un terzo i più simili, un terzo intorno alla mediana, un terzo i meno simili.
 
@@ -902,12 +905,17 @@ class ALEngine:
             for image_id, by_annotator in answers.items() if image_id in self._audit_ids
         }
 
-    def cluster_view(self, kind: str, label: str = "", n: int = 12, page: int = 0) -> Optional[dict[str, Any]]:
+    def cluster_view(self, kind: str, label: str = "", n: int = 12, page: int = 0,
+                     order: str = "bands") -> Optional[dict[str, Any]]:
         """Api di un solo gruppo per la pagina dei cluster, scelte per fasce di similarità (``similarity_bands``).
 
         ``kind``: ``predicted`` (api assegnate dal modello alla classe ``label``), ``labeled`` (etichettate a
         mano come ``label``) o ``unassigned``. La similarità è il coseno con il centro del gruppo; per le
         "non assegnate" è quella con l'esempio etichettato più vicino. ``None`` se il gruppo non esiste.
+
+        ``order``: ``bands`` (le tre fasce), ``similar``/``dissimilar``, ``confident``/``uncertain`` (confidenza
+        del modello, solo per ``predicted``) o ``random`` (fisso fino al round successivo). Un ordinamento
+        che il gruppo non ammette ricade su ``bands``; quello usato è nel campo ``order``.
         """
         with self.lock:
             pred = self.final_pred
@@ -938,9 +946,20 @@ class ALEngine:
             else:
                 centre = self.bank.X[members].mean(axis=0)
                 sims = self.bank.X[members] @ (centre / max(float(np.linalg.norm(centre)), 1e-12))
-            picks, n_pages = similarity_bands(sims, n, page)
+            if order not in CLUSTER_ORDERS or (order in ("confident", "uncertain") and kind != "predicted"):
+                order = "bands"
+            if order == "bands":
+                picks, n_pages = similarity_bands(sims, n, page)
+            else:
+                if order == "random":
+                    ranked = np.random.default_rng([self.cfg.seed, self.round, 3]).permutation(len(members))
+                else:
+                    key = pred.confidence[members] if order in ("confident", "uncertain") else sims
+                    ranked = np.argsort(key if order in ("uncertain", "dissimilar") else -key, kind="stable")
+                n_pages = max(1, -(-len(members) // max(n, 1)))
+                picks = [(int(j), "") for j in ranked[(page % n_pages) * n:(page % n_pages + 1) * n]]
             return {
-                "kind": kind, "label": label, "n_members": int(len(members)), "n_pages": n_pages,
+                "kind": kind, "label": label, "n_members": int(len(members)), "n_pages": n_pages, "order": order,
                 "page": page % n_pages, "reject": label in self.reject_classes(),
                 "samples": [{"image_id": self.bank.ids[members[j]], "similarity": float(sims[j]), "band": band,
                              **extra.get(int(members[j]), {})} for j, band in picks],

@@ -206,12 +206,12 @@ def test_clusters_page_shows_one_group_chosen_from_a_dropdown(client, synth):
     _label_first_batch(client, truth)                            # a fine batch si ricalcola
     html = client.get("/al-clusters").get_data(as_text=True)
     classes = client.engine.bank.classes
-    assert html.count("<select") == 1 and 'label="Model predictions"' in html and 'label="Labels given by hand"' in html
+    assert html.count('id="cluster_select"') == 1 and 'label="Model predictions"' in html and 'label="Labels given by hand"' in html
     assert all(f"group=p:{c}" in html and f"group=h:{c}" in html for c in classes)
     n = client.engine.status()["n_unassigned"]
     assert n == round(0.05 * (290 - 20)) and f"Unassigned - possible new class ({n})" in html
     assert 'class="grid-tiles"' in html and 0 < len(_cluster_tiles(html)) <= 12      # un gruppo solo, api grandi
-    assert "very similar" in html and "least similar" in html and "Row 2: around the median" in html
+    assert "very similar" in html and "least similar" in html and "Second third: around the median" in html
     assert "Remove label" not in html
 
     big = max(client.engine.cluster_samples(0), key=lambda c: c["n_predicted"])
@@ -227,6 +227,46 @@ def test_clusters_page_shows_one_group_chosen_from_a_dropdown(client, synth):
     assert client.get("/al-clusters?group=boh&page=abc").status_code == 200
     assert "Unassigned (far from every label)" in client.get("/al-status").get_data(as_text=True)
     assert hub_app_rules(client) >= {"/al-clusters"}
+
+
+def test_clusters_page_lets_you_choose_how_many_bees_and_their_order(client, synth):
+    X, y, ids = synth
+    _label_first_batch(client, dict(zip(ids, y)))
+    big = max(client.engine.cluster_samples(0), key=lambda c: c["n_predicted"])
+    url = f"/al-clusters?group=p:{big['label']}"
+    members = big["n_predicted"]
+
+    def page(extra=""):
+        html = client.get(url + extra).get_data(as_text=True)
+        caps = re.findall(r'class="cap">([^<]*)', html)
+        return html, caps, [float(re.search(r"sim (-?\d\.\d\d)", c).group(1)) for c in caps]
+
+    html, caps, _ = page()
+    assert len(caps) == 12 and all(f"n={k}" in html for k in (12, 24, 48, 96))
+    assert all(f"order={o}" in html for o in ("bands", "similar", "dissimilar", "confident", "uncertain", "random"))
+
+    html, caps, sims = page("&n=24&order=uncertain")
+    conf = [int(re.search(r"conf (\d+)%", c).group(1)) for c in caps]
+    assert len(caps) == min(24, members) and conf == sorted(conf) and "very similar" not in html
+    html, caps, _ = page()                                         # la scelta resta, anche senza parametri
+    assert len(caps) == min(24, members) and 'order=uncertain" selected' in html
+    conf_top = [int(re.search(r"conf (\d+)%", c).group(1)) for c in page("&order=confident")[1]]
+    assert conf_top == sorted(conf_top, reverse=True)
+    assert page("&order=similar")[2] == sorted(page("&order=similar")[2], reverse=True)
+    assert page("&order=dissimilar")[2] == sorted(page("&order=dissimilar")[2])
+    first, second = page("&n=12&order=random")[0], page("&page=1")[0]
+    assert first == page()[0] and not {i for _, i in _cluster_tiles(first)} & {i for _, i in _cluster_tiles(second)}
+
+    # un gruppo senza confidenza ricade sulle fasce; valori strani ignorati
+    hand = client.get(f"/al-clusters?group=h:{big['label']}&order=uncertain").get_data(as_text=True)
+    assert "order=confident" not in hand and "order=bands\" selected" in hand
+    assert len(page("&n=7&order=boh")[1]) == 12
+
+    # con 24 api mostrate si salvano anche quelle oltre la dodicesima
+    tiles = _cluster_tiles(page("&n=24&order=similar")[0])
+    if len(tiles) > 12:
+        client.post(url, data=_cluster_form(tiles, {len(tiles) - 1: "0"}, ["Ultima"]))
+        assert client.engine.bank.label_of(tiles[-1][1]) == "Ultima"
 
 
 def test_clusters_page_edits_labels(client, synth):
