@@ -692,7 +692,8 @@ _CLUSTERS_PAGE = """
 """ + _GRID_STYLE + """
 <style>
     /* Le api scorrono da sole: la pagina resta ferma e i comandi a destra sempre visibili. */
-    .grid-page { height: calc(100vh - 24px); }
+    body { margin-bottom: 0; }
+    .grid-page { height: calc(100vh - 32px); }
     .grid-left { max-height: 100%; overflow-y: auto; overscroll-behavior: contain; padding-right: 6px; }
     .grid-right { max-height: 100%; overflow-y: auto; overscroll-behavior: contain; box-sizing: border-box; }
 </style>
