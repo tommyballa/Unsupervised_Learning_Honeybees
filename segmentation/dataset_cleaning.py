@@ -38,11 +38,10 @@ MAX_BORDER_PIXELS = 15      # Pixel di maschera tollerati in quella fascia
 TARGET_SIZE = 512           # Dimensione finale dell'immagine quadrata
 TARGET_FILL_RATIO = 0.85    # Il lato lungo dell'ape occupa ~85% del frame dopo la normalizzazione
 EDGE_FEATHER_PX = 12        # Pixel di sfumatura graduale ai bordi della maschera
-APPLY_CLAHE = True          # Equalizzazione locale del contrasto, applicata a scala normalizzata
 
 # Da incrementare quando cambia la logica della pipeline (non solo i parametri):
 # insieme ai parametri decide se il manifesto di una run precedente è ancora valido.
-PIPELINE_VERSION = 2
+PIPELINE_VERSION = 3
 
 # Esecuzione: non influenzano l'output, quindi non invalidano il manifesto
 NUM_WORKERS = min(16, os.cpu_count() or 1)   # Processi in parallelo
@@ -83,7 +82,6 @@ def cleaning_params():
         "target_size": TARGET_SIZE,
         "target_fill_ratio": TARGET_FILL_RATIO,
         "edge_feather_px": EDGE_FEATHER_PX,
-        "apply_clahe": APPLY_CLAHE,
     }
 
 
@@ -269,14 +267,6 @@ def normalization_matrix(mask, target_size=TARGET_SIZE, target_fill=TARGET_FILL_
     return M, scale
 
 
-def apply_clahe(img_bgr):
-    """Equalizzazione locale del contrasto sul canale L (LAB)."""
-    lab = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2LAB)
-    l, a, b = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    return cv2.cvtColor(cv2.merge((clahe.apply(l), a, b)), cv2.COLOR_LAB2BGR)
-
-
 def feather_edges(img_bgr, mask, feather_px=12):
     """
     Sfuma gradualmente i bordi della maschera per creare una transizione
@@ -417,13 +407,10 @@ def clean_bee(img_bgr, mask, is_raw_polygon):
     clean_mask = cv2.warpAffine(clean_mask, M, out_size, flags=cv2.INTER_NEAREST, borderValue=0)
     cleaned_img = cv2.bitwise_and(cleaned_img, cleaned_img, mask=clean_mask)
 
-    # 2. CLAHE: a scala normalizzata, così le tile coprono la stessa porzione di ape
-    #    qualunque fosse la risoluzione del crop.
-    if APPLY_CLAHE:
-        cleaned_img = apply_clahe(cleaned_img)
-        cleaned_img = cv2.bitwise_and(cleaned_img, cleaned_img, mask=clean_mask)
+    # Luminosità e contrasto non vengono toccati qui: sono già stati uniformati sull'intera
+    # foto in extract_anomaly_dataset.py, e una correzione per singola ape li annullerebbe.
 
-    # 3. SFUMATURA BORDI: transizione morbida ape → sfondo nero
+    # 2. SFUMATURA BORDI: transizione morbida ape → sfondo nero
     cleaned_img = feather_edges(cleaned_img, clean_mask, feather_px=EDGE_FEATHER_PX)
 
     return CleaningResult(cleaned_img, clean_mask, M, None)
