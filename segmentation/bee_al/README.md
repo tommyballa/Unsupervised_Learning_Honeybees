@@ -47,6 +47,26 @@ dallo stesso modello: non parte un round nuovo e le etichette già date restano.
 riproposte fino al round successivo; quelle che un altro annotatore sta guardando restano sue. Va usato
 con parsimonia: saltare di proposito le api difficili toglie al modello proprio gli esempi più utili.
 
+## Ispezione dei cluster
+
+`/al-clusters` mostra **un gruppo alla volta**, scelto da un menù a tendina: i cluster assegnati dal
+modello, le "non assegnate" e le classi etichettate a mano. Le api sono grandi come nella griglia di
+etichettatura, dodici per volta su tre righe:
+
+| Riga | Api |
+|---|---|
+| 1 | le più simili al centro del gruppo |
+| 2 | quelle intorno alla mediana |
+| 3 | le meno simili |
+
+La similarità è il coseno tra l'embedding dell'ape e il centro (la media) del gruppo; per le "non
+assegnate" è quella con l'esempio etichettato più vicino. *Other bees* passa alle dodici successive: le
+seguenti dall'alto, dal basso e accanto alla mediana, senza mai ripetere un'ape. Le correzioni si fanno
+con i colori, come nella griglia; tra le etichette date a mano c'è anche *Remove label*.
+
+La home dell'hub elenca solo le pagine di active learning; gli strumenti precedenti sono raccolti
+sotto il tasto *Old tools*.
+
 ## 1. Etichettatura e criteri di stop
 
 Si etichetta come sempre da `/al-labeling`. Per le api su cui si è in dubbio conviene dichiarare la

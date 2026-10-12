@@ -166,9 +166,8 @@ GRID_COLORS = (("Azure", "#38bdf8"), ("Red", "#ef4444"), ("Green", "#22c55e"), (
                ("Violet", "#a78bfa"), ("Pink", "#f472b6"))
 GRID_SIZE = 12  # 4 colonne x 3 righe
 
-_GRID_PAGE = """
-{{ css|safe }}
-<style>
+# Stile, menu, righe dei colori e script comuni alle pagine a griglia (etichettatura e ispezione dei cluster).
+_GRID_STYLE = """<style>
     body { margin: 12px; }
     .grid-page { display: flex; gap: 18px; align-items: flex-start; }
     .grid-left { flex: 0 0 auto; width: min(calc(100vw - 440px), calc((100vh - 70px) * 4 / 3)); min-width: 420px; }
@@ -176,40 +175,25 @@ _GRID_PAGE = """
     .grid-tile { position: relative; cursor: pointer; border: 5px solid var(--border-color); border-radius: 8px; background: #000; aspect-ratio: 1 / 1; overflow: hidden; }
     .grid-tile img { width: 100%; height: 100%; object-fit: contain; display: block; }
     .grid-tile .badge { position: absolute; left: 0; top: 0; padding: 3px 8px; font-size: 13px; font-weight: bold; color: #0f172a; border-bottom-right-radius: 6px; display: none; }
+    .grid-tile .cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 7px; font-size: 12px; color: #e2e8f0; background: rgba(0, 0, 0, 0.6); }
     .grid-right { flex: 1 1 340px; max-width: 420px; background: var(--container-bg); padding: 14px 16px; border-radius: 10px; }
     .group-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; padding: 5px; border-radius: 8px; border: 2px solid transparent; cursor: pointer; }
     .group-row.active { border-color: var(--text-color); background: var(--bg-color); }
     .group-row .swatch { flex: 0 0 34px; height: 34px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #0f172a; }
     .group-row input[type="text"] { flex: 1; min-width: 0; padding: 8px; font-size: 15px; }
     .group-row .count { flex: 0 0 26px; text-align: right; color: #94a3b8; }
-</style>
-<form method="POST" action="{{ url_for('al.grid', mode=mode) }}" id="grid_form">
-<div class="grid-page">
-    <div class="grid-left">
-        <div class="grid-tiles">
-            {% for item in items %}
-            <div class="grid-tile" data-index="{{ loop.index0 }}">
-                <img src="{{ url_for('al.image', image_id=item.image_id) }}" title="{{ item.image_id }}">
-                <span class="badge"></span>
-                <input type="hidden" name="image_{{ loop.index0 }}" value="{{ item.image_id }}">
-                <input type="hidden" name="group_{{ loop.index0 }}" value="">
-            </div>
-            {% endfor %}
-        </div>
-    </div>
-    <div class="grid-right">
-        """ + _STAGE_BANNER + """
+</style>"""
+
+_SIDE_NAV = """
         <div style="font-size: 14px; margin-bottom: 8px;">
             <a href="/">&larr; Dashboard</a> &nbsp;|&nbsp; <a href="{{ url_for('al.grid') }}">Grid</a> &nbsp;|&nbsp;
             <a href="{{ url_for('al.grid', mode='validation') }}">Validation grid</a> &nbsp;|&nbsp;
             <a href="{{ url_for('al.clusters') }}">Clusters</a> &nbsp;|&nbsp; <a href="{{ url_for('al.review_page') }}">Review{% if al_review_count %} ({{ al_review_count }}){% endif %}</a> &nbsp;|&nbsp;
             <a href="{{ url_for('al.status') }}">Status</a>
         </div>
-        <h2 style="margin: 4px 0;">{{ 'Validation grid' if mode == 'validation' else 'Grid labeling' }}</h2>
-        <p style="color: #94a3b8; font-size: 13px; margin: 4px 0 8px;">{{ progress }}</p>
-        {% if message %}<p style="color: var(--btn-green); margin: 4px 0;"><b>{{ message }}</b></p>{% endif %}
-        {% if error %}<p style="color: var(--btn-red); margin: 4px 0;"><b>{{ error }}</b></p>{% endif %}
-        <p style="font-size: 13px; margin: 4px 0;">1. Pick a colour and give it a class. 2. Click the bees of that class. 3. Repeat with another colour, then save.</p>
+"""
+
+_GRID_GROUPS = """
         {% for g in groups %}
         <div class="group-row" data-group="{{ loop.index0 }}" data-color="{{ g.color }}">
             <span class="swatch" style="background: {{ g.color }};">{{ loop.index }}</span>
@@ -217,29 +201,29 @@ _GRID_PAGE = """
             <span class="count">0</span>
         </div>
         {% endfor %}
-        <div class="group-row" data-group="discard" data-color="#94a3b8">
+        {% if can_remove %}
+        <div class="group-row" data-group="remove" data-color="#f87171" data-name="Remove label">
+            <span class="swatch" style="background: #f87171;">{{ groups|length + 1 }}</span>
+            <span style="flex: 1; padding: 8px 0;"><b>Remove label</b> <span style="color: #94a3b8; font-size: 13px;">&mdash; back to unlabeled</span></span>
+            <span class="count">0</span>
+        </div>
+        {% endif %}
+        <div class="group-row" data-group="discard" data-color="#94a3b8" data-name="Scarta ape">
             <span class="swatch" style="background: #94a3b8;">0</span>
             <span style="flex: 1; padding: 8px 0;"><b>Scarta ape</b> <span style="color: #94a3b8; font-size: 13px;">&mdash; set aside, never shown again</span></span>
             <span class="count">0</span>
         </div>
         <datalist id="al_classes">{% for lbl in quick_labels %}<option value="{{ lbl }}">{% endfor %}</datalist>
-        <button class="btn" type="submit">Save <span id="grid_marked">0</span> bees &amp; next grid</button>
-        <button class="btn" type="button" id="grid_clear" style="background: var(--input-bg);">Clear selection</button>
-        {% if mode == 'train' %}
-        <button class="btn" type="submit" formaction="{{ url_for('al.reshuffle', next='grid') }}" formnovalidate style="background: var(--input-bg);" title="Replace the unlabeled bees of this batch with other ones; colours not saved yet are lost">Shuffle: propose other bees</button>
-        {% endif %}
-        <p style="color: #94a3b8; font-size: 12px; margin-top: 10px;">Bees you leave without a colour stay in your grid for the next round. Keys 1&ndash;{{ groups|length }} pick a colour, 0 picks "Scarta ape".</p>
-    </div>
-</div>
-</form>
-<script>
+"""
+
+_GRID_SCRIPT = """<script>
 (function () {
     var rows = Array.prototype.slice.call(document.querySelectorAll('.group-row'));
     var tiles = Array.prototype.slice.call(document.querySelectorAll('.grid-tile'));
     var active = rows[0];
     function pick(row) { active = row; rows.forEach(function (r) { r.classList.toggle('active', r === row); }); }
     function labelOf(row) {
-        if (row.dataset.group === 'discard') return 'Scarta ape';
+        if (row.dataset.name) return row.dataset.name;
         return row.querySelector('input[type="text"]').value.trim() || ('group ' + (parseInt(row.dataset.group, 10) + 1));
     }
     function paint(tile, row) {
@@ -277,14 +261,50 @@ _GRID_PAGE = """
     document.getElementById('grid_clear').addEventListener('click', function () { tiles.forEach(function (t) { paint(t, null); }); refresh(); });
     document.addEventListener('keydown', function (e) {
         if (e.target.tagName === 'INPUT' && e.target.type === 'text') return;
-        if (e.key === '0') pick(rows[rows.length - 1]);
+        var discard = rows.filter(function (r) { return r.dataset.group === 'discard'; })[0];
+        if (e.key === '0' && discard) pick(discard);
         var n = parseInt(e.key, 10);
-        if (n >= 1 && n < rows.length) pick(rows[n - 1]);
+        if (n >= 1 && n <= rows.length && rows[n - 1] !== discard) pick(rows[n - 1]);
     });
     pick(rows[0]);
     refresh();
 })();
-</script>
+</script>"""
+
+_GRID_PAGE = """
+{{ css|safe }}
+""" + _GRID_STYLE + """
+<form method="POST" action="{{ url_for('al.grid', mode=mode) }}" id="grid_form">
+<div class="grid-page">
+    <div class="grid-left">
+        <div class="grid-tiles">
+            {% for item in items %}
+            <div class="grid-tile" data-index="{{ loop.index0 }}">
+                <img src="{{ url_for('al.image', image_id=item.image_id) }}" title="{{ item.image_id }}">
+                <span class="badge"></span>
+                <input type="hidden" name="image_{{ loop.index0 }}" value="{{ item.image_id }}">
+                <input type="hidden" name="group_{{ loop.index0 }}" value="">
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    <div class="grid-right">
+        """ + _STAGE_BANNER + """
+""" + _SIDE_NAV + """        <h2 style="margin: 4px 0;">{{ 'Validation grid' if mode == 'validation' else 'Grid labeling' }}</h2>
+        <p style="color: #94a3b8; font-size: 13px; margin: 4px 0 8px;">{{ progress }}</p>
+        {% if message %}<p style="color: var(--btn-green); margin: 4px 0;"><b>{{ message }}</b></p>{% endif %}
+        {% if error %}<p style="color: var(--btn-red); margin: 4px 0;"><b>{{ error }}</b></p>{% endif %}
+        <p style="font-size: 13px; margin: 4px 0;">1. Pick a colour and give it a class. 2. Click the bees of that class. 3. Repeat with another colour, then save.</p>
+""" + _GRID_GROUPS + """        <button class="btn" type="submit">Save <span id="grid_marked">0</span> bees &amp; next grid</button>
+        <button class="btn" type="button" id="grid_clear" style="background: var(--input-bg);">Clear selection</button>
+        {% if mode == 'train' %}
+        <button class="btn" type="submit" formaction="{{ url_for('al.reshuffle', next='grid') }}" formnovalidate style="background: var(--input-bg);" title="Replace the unlabeled bees of this batch with other ones; colours not saved yet are lost">Shuffle: propose other bees</button>
+        {% endif %}
+        <p style="color: #94a3b8; font-size: 12px; margin-top: 10px;">Bees you leave without a colour stay in your grid for the next round. Keys 1&ndash;{{ groups|length }} pick a colour, 0 picks "Scarta ape".</p>
+    </div>
+</div>
+</form>
+""" + _GRID_SCRIPT + """
 """
 
 _STATUS_PAGE = """
@@ -667,122 +687,65 @@ document.querySelectorAll('.quick-label-btn[data-label]').forEach(function (b) {
 """
 
 
-_BEE_TILE = """
-<label class="grid-item-container" style="width: 120px; text-align: center; font-size: 12px; color: #94a3b8;">
-    <input type="checkbox" name="selected_images" value="{{ b.image_id }}">
-    <img src="{{ url_for('al.image', image_id=b.image_id) }}" title="{{ b.image_id }}{{ tip }}">
-    {{ caption }}
-</label>
-"""
-
 _CLUSTERS_PAGE = """
 {{ css|safe }}
-<div class="container" style="max-width: 1100px;">
-    """ + _NAV + """
-    <h2>Clusters so far</h2>
-    <p style="font-size: 14px;">
-        <a href="{{ url_for('al.clusters', view='predicted', n=n, order=order) }}" class="quick-label-btn" {% if view == 'predicted' %}style="background: var(--btn-blue); color: white;"{% endif %}>Model predictions</a>
-        <a href="{{ url_for('al.clusters', view='labeled', n=n) }}" class="quick-label-btn" {% if view == 'labeled' %}style="background: var(--btn-blue); color: white;"{% endif %}>Labels given by hand</a>
-    </p>
-    {% if view == 'predicted' %}
-    <p>Bees the model assigned to each class (round {{ s.round }}, {{ s.n_labels }} labels). Bees labeled by hand are in the other view.</p>
-    {% else %}
-    <p>Bees labeled by hand, most recent first. Select the ones you changed your mind about and give them another class.</p>
-    {% endif %}
-    <p style="color: #94a3b8; font-size: 14px;">
-        Show per cluster:
-        {% for k, name in sizes %}
-        <a href="{{ url_for('al.clusters', view=view, n=k, order=order) }}" {% if k == n %}style="color: var(--text-color); text-decoration: underline;"{% endif %}>{{ name }}</a>{{ ' · ' if not loop.last }}
-        {% endfor %}
-        {% if view == 'predicted' %}
-        &nbsp;|&nbsp; Pick:
-        {% for key, name in orders %}
-        <a href="{{ url_for('al.clusters', view=view, n=n, order=key) }}" {% if key == order %}style="color: var(--text-color); text-decoration: underline;"{% endif %}>{{ name }}</a>{{ ' · ' if not loop.last }}
-        {% endfor %}
+""" + _GRID_STYLE + """
+<form method="POST" action="{{ url_for('al.clusters', group=group, page=view.page if view else 0) }}" id="grid_form">
+<div class="grid-page">
+    <div class="grid-left">
+        <div class="grid-tiles">
+            {% for b in (view.samples if view else []) %}
+            <div class="grid-tile" data-index="{{ loop.index0 }}">
+                <img src="{{ url_for('al.image', image_id=b.image_id) }}" title="{{ b.image_id }}{{ b.tip }}">
+                <span class="badge"></span>
+                <span class="cap">{{ b.band }} &middot; sim {{ '%.2f' % b.similarity }}</span>
+                <input type="hidden" name="image_{{ loop.index0 }}" value="{{ b.image_id }}">
+                <input type="hidden" name="group_{{ loop.index0 }}" value="">
+            </div>
+            {% endfor %}
+        </div>
+        {% if not view %}<p>No clusters yet: label a few bees first.</p>{% endif %}
+    </div>
+    <div class="grid-right">
+        """ + _STAGE_BANNER + _SIDE_NAV + """
+        <h2 style="margin: 4px 0;">Clusters</h2>
+        <p style="color: #94a3b8; font-size: 13px; margin: 4px 0 8px;">Round {{ s.round }}, {{ s.n_labels }} labels.</p>
+        {% if message %}<p style="color: var(--btn-green); margin: 4px 0;"><b>{{ message }}</b></p>{% endif %}
+        {% if error %}<p style="color: var(--btn-red); margin: 4px 0;"><b>{{ error }}</b></p>{% endif %}
+        {% if view %}
+        <select id="cluster_select" style="width: 100%; padding: 10px; font-size: 15px; background: var(--input-bg); color: var(--input-text); border: 1px solid var(--border-color); border-radius: 6px;">
+            {% for title, options in menu %}
+            <optgroup label="{{ title }}">
+                {% for o in options %}<option value="{{ url_for('al.clusters', group=o.key) }}" {% if o.key == group %}selected{% endif %}>{{ o.name }} ({{ o.n }})</option>{% endfor %}
+            </optgroup>
+            {% endfor %}
+        </select>
+        <p style="font-size: 13px; margin: 8px 0 4px;">{{ view.summary }}{% if view.reject %} <span style="color: var(--btn-red);">Reject class.</span>{% endif %}</p>
+        <p style="font-size: 13px; margin: 4px 0;">
+            Row 1: the bees most similar to {{ view.reference }}. Row 2: around the median. Row 3: the least similar.
+        </p>
+        <p style="font-size: 14px; margin: 6px 0;">
+            {% if view.n_pages > 1 %}
+            <a href="{{ url_for('al.clusters', group=group, page=view.page - 1) }}">&larr; previous</a> &nbsp;
+            set {{ view.page + 1 }} of {{ view.n_pages }} &nbsp;
+            <a href="{{ url_for('al.clusters', group=group, page=view.page + 1) }}">other bees &rarr;</a>
+            {% else %}<span style="color: #94a3b8;">All {{ view.n_members }} bees of this group are shown.</span>{% endif %}
+        </p>
+        <p style="font-size: 13px; margin: 4px 0;">To change bees: pick a colour, give it a class, click the bees, then save.</p>
+        """ + _GRID_GROUPS + """
+        <button class="btn" type="submit">Save <span id="grid_marked">0</span> changes</button>
+        <button class="btn" type="button" id="grid_clear" style="background: var(--input-bg);">Clear selection</button>
+        <p style="color: #94a3b8; font-size: 12px; margin-top: 10px;">Keys 1&ndash;{{ groups|length }} pick a colour, 0 picks "Scarta ape". Saving recomputes the predictions.</p>
         {% endif %}
-    </p>
-    {% if message %}<p style="color: var(--btn-green);"><b>{{ message }}</b></p>{% endif %}
-    {% if error %}<p style="color: var(--btn-red);"><b>{{ error }}</b></p>{% endif %}
-
-    <form method="POST" action="{{ url_for('al.clusters', view=view, n=n, order=order) }}">
-    {% if view == 'predicted' and unassigned.n %}
-    <div class="inspect-cluster" style="border-color: var(--btn-yellow);">
-        <h3><span>Unassigned &mdash; possible new class
-            <span style="font-size: 14px; color: #94a3b8; font-weight: normal;">{{ unassigned.n }} bees far from every labeled example, kept out of the clusters below</span></span>
-            <a href="#" class="select-all" style="font-size: 13px;">select all shown</a>
-        </h3>
-        <div class="inspect-images">
-            {% for b in unassigned.samples %}
-            {% with tip = ' - nearest class: ' ~ b.nearest_class, caption = 'sim %.2f' % b.similarity %}""" + _BEE_TILE + """{% endwith %}
-            {% endfor %}
-        </div>
-        <p style="color: #94a3b8; font-size: 13px; margin-bottom: 0;">The number under each bee is its similarity to the closest labeled bee.</p>
     </div>
-    {% endif %}
-    {% for c in clusters %}
-    <div class="inspect-cluster">
-        <h3><span>{{ 'Scarta ape (set aside)' if c.unknown else c.label }}
-            <span style="font-size: 14px; color: #94a3b8; font-weight: normal;">
-                {% if view == 'predicted' %}{{ c.n_predicted }} predicted · {{ c.n_human }} labeled by hand{% if c.mean_confidence is not none %} · mean confidence {{ '%.0f' % (c.mean_confidence * 100) }}%{% endif %}
-                {% else %}{{ c.n_human }} labeled by hand{% endif %}
-            </span>
-            {% if c.reject %}<span style="font-size: 14px; color: var(--btn-red);">reject class</span>{% endif %}</span>
-            {% if c.samples %}<a href="#" class="select-all" style="font-size: 13px;">select all shown</a>{% endif %}
-        </h3>
-        <div class="inspect-images">
-            {% for b in c.samples %}
-            {% if view == 'predicted' %}
-            {% with tip = '', caption = '%.0f%%' % (b.confidence * 100) %}""" + _BEE_TILE + """{% endwith %}
-            {% else %}
-            {% with tip = ' - ' ~ b.annotator ~ ' (' ~ b.query_type ~ ')', caption = b.confidence %}""" + _BEE_TILE + """{% endwith %}
-            {% endif %}
-            {% else %}
-            <p style="color: #94a3b8;">No bee is assigned to this class yet.</p>
-            {% endfor %}
-        </div>
-    </div>
-    {% else %}
-    <p>{{ 'No clusters yet: label a few bees first.' if view == 'predicted' else 'No labels given by hand yet.' }}</p>
-    {% endfor %}
-
-    {% if clusters or (view == 'predicted' and unassigned.n) %}
-    <div style="position: sticky; bottom: 0; background: var(--container-bg); border-top: 1px solid var(--border-color); padding: 12px 0 4px; z-index: 20;">
-        <b><span id="al_selected_count">0</span> selected</b>
-        <span style="color: #94a3b8; font-size: 13px;">&mdash; click bees to select them, then choose what they are</span>
-        <div style="margin: 8px 0;">
-            {% for lbl in quick_labels %}<button type="button" class="quick-label-btn" data-label="{{ lbl }}">{{ lbl }}</button>{% endfor %}
-        </div>
-        <div style="display: flex; gap: 10px; align-items: center;">
-            <input type="text" id="al_label_input" name="label" autocomplete="off" placeholder="class for the selected bees (existing or new)" style="flex: 3; padding: 12px; font-size: 16px;">
-            <button class="btn" type="submit" name="action" value="label" style="flex: 2; margin-top: 0;">Set class</button>
-            <button class="btn" type="submit" name="action" value="unknown" style="flex: 1; margin-top: 0; background: var(--input-bg);">Scarta ape</button>
-            {% if view == 'labeled' %}
-            <button class="btn" type="submit" name="action" value="remove" style="flex: 1; margin-top: 0; background: var(--btn-red);">Remove label</button>
-            {% endif %}
-        </div>
-    </div>
-    {% endif %}
-    </form>
 </div>
+</form>
+{% if view %}
+""" + _GRID_SCRIPT + """
 <script>
-(function () {
-    var count = document.getElementById('al_selected_count');
-    function update() { if (count) count.textContent = document.querySelectorAll('input[name="selected_images"]:checked').length; }
-    document.querySelectorAll('input[name="selected_images"]').forEach(function (c) { c.addEventListener('change', update); });
-    document.querySelectorAll('.select-all').forEach(function (a) {
-        a.addEventListener('click', function (e) {
-            e.preventDefault();
-            var boxes = a.closest('.inspect-cluster').querySelectorAll('input[name="selected_images"]');
-            var all = Array.prototype.every.call(boxes, function (b) { return b.checked; });
-            boxes.forEach(function (b) { b.checked = !all; });
-            update();
-        });
-    });
-    document.querySelectorAll('.quick-label-btn[data-label]').forEach(function (b) {
-        b.addEventListener('click', function () { document.getElementById('al_label_input').value = b.dataset.label; });
-    });
-})();
+document.getElementById('cluster_select').addEventListener('change', function () { window.location = this.value; });
 </script>
+{% endif %}
 """
 
 
@@ -1179,43 +1142,93 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
 
     @bp.route("/al-clusters", methods=["GET", "POST"])
     def clusters():
+        """Ispezione di un gruppo alla volta, scelto da un menù a tendina, con le api grandi come nella griglia.
+
+        Dodici api: le più simili al gruppo, quelle intorno alla mediana e le meno simili. Si correggono
+        con i colori, come nell'etichettatura a griglia.
+        """
         user = session.get("user_email")
         if not user:
             return redirect(url_for("index"))
         engine, page = engine_or_message()
         if engine is None:
             return page
-        sizes = ((6, "6"), (12, "12"), (24, "24"), (48, "48"), (2000, "all"))
-        orders = (("random", "random sample"), ("confident", "most confident"), ("uncertain", "least confident"))
-        view = "labeled" if request.args.get("view") == "labeled" else "predicted"
-        n = request.args.get("n", default=12, type=int)
-        n = min(max(n, 1), 2000)
-        order = request.args.get("order", "random")
-        if order not in dict(orders):
-            order = "random"
+        labels_key = f"al_grid_labels_{engine.cfg.stage.name}"
+        labels = list(session.get(labels_key) or [])
+        if not labels:
+            suggested = [engine.store.normalize_label(c) for c in engine.cfg.labels.classes]
+            labels = list(dict.fromkeys(suggested + engine.quick_labels()))
+        labels = (labels + [""] * len(GRID_COLORS))[:len(GRID_COLORS)]
+
+        def shown(name: str) -> str:
+            return "Scarta ape (set aside)" if name == UNKNOWN_LABEL else name
+
+        predicted = [{"key": f"p:{c['label']}", "name": c["label"], "n": c["n_predicted"]} for c in engine.cluster_samples(0)]
+        n_unassigned = engine.unassigned_samples(0)["n"]
+        if n_unassigned:
+            predicted.append({"key": "u", "name": "Unassigned - possible new class", "n": n_unassigned})
+        by_hand = [{"key": f"h:{c['label']}", "name": shown(c["label"]), "n": c["n_human"]} for c in engine.labeled_samples(0)]
+        menu = [(title, options) for title, options in (("Model predictions", predicted), ("Labels given by hand", by_hand)) if options]
+        sizes = {o["key"]: o["n"] for _, options in menu for o in options}
+        group = request.args.get("group", "")
+        if not sizes.get(group):  # pagina aperta senza scelta, o gruppo svuotato da una correzione
+            wanted = "h:" if request.args.get("view") == "labeled" else "p:"
+            filled = [k for k, size in sizes.items() if size]
+            group = next((k for k in filled if k.startswith(wanted)), filled[0] if filled else "")
+        page_no = request.args.get("page", default=0, type=int) or 0
+        kind = {"p": "predicted", "h": "labeled", "u": "unassigned"}.get(group[:1])
 
         error = None
-        if request.method == "POST":
-            selected = request.form.getlist("selected_images")
-            action = request.form.get("action", "label")
-            label = {"unknown": UNKNOWN_LABEL, "remove": REMOVED_LABEL}.get(action, request.form.get("label", ""))
-            try:
-                if not selected:
-                    raise ALError("Select at least one bee first.")
-                changed = engine.assign_many(user, selected, label)
-            except ALError as e:
-                error = str(e)
-            else:
-                return redirect(url_for("al.clusters", view=view, n=n, order=order, changed=changed))
+        if request.method == "POST" and kind:
+            labels = [request.form.get(f"label_{g}", "").strip() for g in range(len(GRID_COLORS))]
+            session[labels_key] = labels
+            chosen: dict[str, list[str]] = {}
+            for k in range(GRID_SIZE):
+                image_id, colour = request.form.get(f"image_{k}"), request.form.get(f"group_{k}", "")
+                if not image_id or not colour:
+                    continue
+                if colour == "discard":
+                    chosen.setdefault(UNKNOWN_LABEL, []).append(image_id)
+                elif colour == "remove" and kind == "labeled":
+                    chosen.setdefault(REMOVED_LABEL, []).append(image_id)
+                elif colour.isdigit() and int(colour) < len(labels) and labels[int(colour)]:
+                    chosen.setdefault(labels[int(colour)], []).append(image_id)
+                else:
+                    error = "A colour is used on some bees but has no class: type its class and save again."
+            if error is None and not chosen:
+                error = "No bee has a colour yet: pick a colour and click the bees."
+            if error is None:
+                try:  # tutto o niente: si controlla prima di scrivere
+                    for label, image_ids in chosen.items():
+                        if not engine.store.normalize_label(label) or any(i not in engine.bank for i in image_ids):
+                            raise ALError("cannot label the selected bees")
+                    changed = sum(engine.assign_many(user, image_ids, label) for label, image_ids in chosen.items())
+                except ALError as e:
+                    error = str(e)
+                else:
+                    return redirect(url_for("al.clusters", group=group, page=page_no, changed=changed))
 
+        view = engine.cluster_view(kind, group[2:], GRID_SIZE, page_no) if kind else None
+        if view is not None:
+            bands = {"high": "very similar", "median": "median", "low": "least similar"}
+            for b in view["samples"]:
+                b["band"] = bands[b["band"]]
+                b["tip"] = "".join(f" - {k}: {b[k]}" for k in ("confidence", "nearest_class", "annotator") if b.get(k) not in (None, ""))
+            if kind == "predicted":
+                view["reference"] = "the centre of this cluster"
+                view["summary"] = f"{view['n_members']} bees assigned by the model to \"{view['label']}\" (hand-labeled bees are listed apart)."
+            elif kind == "labeled":
+                view["reference"] = "the centre of this class"
+                view["summary"] = f"{view['n_members']} bees labeled by hand as \"{shown(view['label'])}\"."
+            else:
+                view["reference"] = "their closest labeled bee"
+                view["summary"] = f"{view['n_members']} bees far from every labeled example, kept out of the clusters."
         changed = request.args.get("changed", type=int)
-        message = None if changed is None else f"{changed} bee(s) updated. Predictions recomputed."
-        clusters = engine.labeled_samples(n) if view == "labeled" else engine.cluster_samples(n, order)
         return render_template_string(
-            _CLUSTERS_PAGE, css=base_css, user=user, s=engine.status(), view=view,
-            clusters=clusters, unassigned=engine.unassigned_samples(n, order),
-            quick_labels=engine.quick_labels(), message=message, error=error,
-            n=n, order=order, sizes=sizes, orders=orders,
+            _CLUSTERS_PAGE, css=base_css, user=user, s=engine.status(), group=group, menu=menu, view=view,
+            groups=[{"name": name, "color": color, "label": labels[g]} for g, (name, color) in enumerate(GRID_COLORS)],
+            quick_labels=engine.quick_labels(), can_remove=kind == "labeled", error=error,
+            message=None if changed is None else f"{changed} bee(s) updated. Predictions recomputed.",
         )
 
     @bp.route("/al-refresh", methods=["POST"])

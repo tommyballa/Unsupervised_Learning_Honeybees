@@ -247,24 +247,29 @@ def index():
                 </div>
             </div>
             
-            <p>Select a survey mode or inspect current data:</p>
+            <p>Active learning:</p>
             <div style="display: flex; flex-direction: column; gap: 15px; margin-top: 25px;">
-                <a href="/labeling" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px;">1. Single Image Labeling</a>
-                <a href="/ab-test" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px;">2. A/B Cluster Similarity Survey</a>
-                <a href="/grid-labeling" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px;">3. 2x6 Grid Multi-Labeling</a>
-                
-                <div style="border-top: 1px solid var(--border-color); margin: 5px 0;"></div>
-                
-                <a href="/inspect" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px; border-left: 4px solid var(--btn-yellow);">4. Inspect Clusters</a>
-                <a href="/clean" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px; border-left: 4px solid var(--btn-red);">5. Clean Clusters (Remove Outliers)</a>
-                <a href="/results" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px;">6. Annotation Dashboard Metrics</a>
+                <a href="/al-grid" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px; border-left: 4px solid var(--btn-green);">Grid labeling (12 bees, several classes at once)</a>
+                <a href="/al-labeling" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px; border-left: 4px solid var(--btn-green);">Single bee labeling</a>
+                <a href="/al-labeling?mode=validation" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px; border-left: 4px solid var(--btn-green);">Validation set</a>
+                <a href="/al-clusters" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px; border-left: 4px solid var(--btn-yellow);">Clusters</a>
+                <a href="/al-review" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px; border-left: 4px solid var(--btn-yellow);">Review suspicious labels</a>
+                <a href="/al-labeling?mode=audit" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px; border-left: 4px solid var(--btn-yellow);">Audit</a>
+                <a href="/al-status" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px; border-left: 4px solid var(--border-color);">Status</a>
 
                 <div style="border-top: 1px solid var(--border-color); margin: 5px 0;"></div>
 
-                <a href="/al-labeling" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px; border-left: 4px solid var(--btn-green);">7. Active Learning Labeling</a>
-                <a href="/al-status" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px; border-left: 4px solid var(--btn-green);">8. Active Learning Status</a>
-                <a href="/al-clusters" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px; border-left: 4px solid var(--btn-green);">9. Active Learning Clusters</a>
-                <a href="/al-grid" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px; border-left: 4px solid var(--btn-green);">10. Active Learning Grid (12 bees, several classes at once)</a>
+                <details>
+                    <summary style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px; cursor: pointer; color: #94a3b8;">Old tools (previous dataset)</summary>
+                    <div style="display: flex; flex-direction: column; gap: 15px; margin: 15px 0 0 20px;">
+                        <a href="/labeling" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px;">Single Image Labeling</a>
+                        <a href="/ab-test" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px;">A/B Cluster Similarity Survey</a>
+                        <a href="/grid-labeling" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px;">2x6 Grid Multi-Labeling</a>
+                        <a href="/inspect" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px; border-left: 4px solid var(--btn-yellow);">Inspect Clusters</a>
+                        <a href="/clean" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px; border-left: 4px solid var(--btn-red);">Clean Clusters (Remove Outliers)</a>
+                        <a href="/results" style="font-size: 18px; padding: 10px; background: var(--input-bg); border-radius: 6px;">Annotation Dashboard Metrics</a>
+                    </div>
+                </details>
             </div>
         </div>
         """

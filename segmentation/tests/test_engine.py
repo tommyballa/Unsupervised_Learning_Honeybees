@@ -1,5 +1,6 @@
 import csv
 
+import numpy as np
 import pytest
 import yaml
 
@@ -337,3 +338,51 @@ def test_manual_label_on_pending_batch_image_closes_it(cfg, synth, truth):
     assert target.done and engine.store.events()[-1].query_type == target.query_type
     seen = label_batch(engine, truth)
     assert target.image_id not in seen and len(seen) == 9          # non viene riproposta
+
+
+def test_similarity_bands_take_top_median_and_bottom_thirds():
+    from bee_al.engine import similarity_bands
+
+    sims = np.linspace(1.0, 0.0, 120)                            # indice = posizione, dalla più simile
+    picks, n_pages = similarity_bands(sims, 12, 0)
+    assert n_pages == 9 and [b for _, b in picks] == ["high"] * 4 + ["median"] * 4 + ["low"] * 4
+    assert [i for i, _ in picks] == [0, 1, 2, 3, 58, 59, 60, 61, 116, 117, 118, 119]
+    seen = [i for page in range(n_pages) for i, _ in similarity_bands(sims, 12, page)[0]]
+    assert len(seen) == len(set(seen)) == 108                    # ogni pagina api nuove, mai ripetute
+    assert similarity_bands(sims, 12, n_pages) == (picks, n_pages)   # dopo l'ultima pagina si ricomincia
+    assert similarity_bands(sims, 12, -1)[0] == similarity_bands(sims, 12, n_pages - 1)[0]
+
+    shuffled = np.random.default_rng(0).permutation(sims)
+    top = [i for i, b in similarity_bands(shuffled, 12, 0)[0] if b == "high"]
+    assert sorted(shuffled[top], reverse=True) == sorted(shuffled, reverse=True)[:4]
+    few, pages = similarity_bands(np.array([0.2, 0.9, 0.5, 0.7, 0.1]), 12, 3)
+    assert pages == 1 and [i for i, _ in few] == [1, 3, 2, 0, 4] and [b for _, b in few] == ["high", "high", "median", "median", "low"]
+    assert similarity_bands(np.array([]), 12, 0) == ([], 1)
+    for m in range(1, 80):                                       # nessuna ripetizione, qualunque sia la dimensione
+        pages = similarity_bands(np.arange(m, dtype=float), 12, 0)[1]
+        for page in range(pages):
+            shown = [i for i, _ in similarity_bands(np.arange(m, dtype=float), 12, page)[0]]
+            assert len(shown) == len(set(shown)) == min(m, 12)
+
+
+def test_cluster_view_orders_one_group_by_similarity_to_its_centre(cfg, synth, truth):
+    engine = make_engine(cfg, synth)
+    assert engine.cluster_view("predicted", "boh") is None and engine.cluster_view("unassigned") is None
+    label_batch(engine, truth)
+    name = max(engine.cluster_samples(0), key=lambda c: c["n_predicted"])["label"]
+    view = engine.cluster_view("predicted", name, 12, 0)
+    members = {b["image_id"] for c in engine.cluster_samples(5000) if c["label"] == name for b in c["samples"]}
+    assert view["n_members"] == len(members) and {b["image_id"] for b in view["samples"]} <= members
+    X = engine.bank.X[[engine.bank.index_of(i) for i in sorted(members, key=engine.bank.index_of)]]
+    centre = X.mean(axis=0) / np.linalg.norm(X.mean(axis=0))
+    sims = sorted((X @ centre).tolist(), reverse=True)
+    assert view["samples"][0]["similarity"] == pytest.approx(sims[0], abs=1e-5)
+    assert view["samples"][-1]["similarity"] == pytest.approx(sims[-1], abs=1e-5)
+    assert view == engine.cluster_view("predicted", name, 12, 0)             # deterministico
+
+    hand = engine.cluster_view("labeled", name, 12, 0)
+    assert all(engine.bank.label_of(b["image_id"]) == name and b["annotator"] for b in hand["samples"])
+    far = engine.cluster_view("unassigned", "", 12, 0)
+    assert far["n_members"] == engine.status()["n_unassigned"]
+    assert not {b["image_id"] for b in far["samples"]} & members
+    assert engine.cluster_view("altro") is None

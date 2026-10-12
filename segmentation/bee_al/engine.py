@@ -25,6 +25,28 @@ from .validation import classification_metrics, load_or_create_validation_set
 CONFIDENCES = ("High", "Medium", "Low")
 
 
+def similarity_bands(sims: np.ndarray, n: int = 12, page: int = 0) -> tuple[list[tuple[int, str]], int]:
+    """Sceglie ``n`` elementi per fasce di similarità: un terzo i più simili, un terzo intorno alla mediana, un terzo i meno simili.
+
+    Restituisce le coppie ``(indice, fascia)`` con fascia ``high``/``median``/``low``, dalla più simile
+    alla meno simile, e il numero di pagine. Ogni pagina prende elementi nuovi: i successivi dall'alto,
+    i successivi dal basso e quelli accanto alla mediana, alternando i due lati. Se gli elementi sono
+    al più ``n`` si mostrano tutti, divisi in tre parti per posizione.
+    """
+    order = np.argsort(-np.asarray(sims, dtype=np.float64), kind="stable")
+    m, names = len(order), ("high", "median", "low")
+    third = max(1, n // 3)
+    if m <= 3 * third:
+        return [(int(i), names[min(2, 3 * rank // max(m, 1))]) for rank, i in enumerate(order)], 1
+    n_pages = max(1, (m - third) // (3 * third))        # così le tre fasce non si toccano mai
+    page %= n_pages
+    step = (page + 1) // 2 * (1 if page % 2 else -1)     # finestre intorno alla mediana: 0, +1, -1, +2, -2, ...
+    start = m // 2 - third // 2 + step * third
+    picks = [(order[page * third:(page + 1) * third], "high"), (order[start:start + third], "median"),
+             (order[m - (page + 1) * third:m - page * third], "low")]
+    return [(int(i), name) for chunk, name in picks for i in chunk], n_pages
+
+
 class ALError(ValueError):
     """Richiesta non valida (immagine sconosciuta, etichetta vuota, ...)."""
 
@@ -879,6 +901,50 @@ class ALEngine:
             image_id: {annotator: ev.label for annotator, ev in by_annotator.items()}
             for image_id, by_annotator in answers.items() if image_id in self._audit_ids
         }
+
+    def cluster_view(self, kind: str, label: str = "", n: int = 12, page: int = 0) -> Optional[dict[str, Any]]:
+        """Api di un solo gruppo per la pagina dei cluster, scelte per fasce di similarità (``similarity_bands``).
+
+        ``kind``: ``predicted`` (api assegnate dal modello alla classe ``label``), ``labeled`` (etichettate a
+        mano come ``label``) o ``unassigned``. La similarità è il coseno con il centro del gruppo; per le
+        "non assegnate" è quella con l'esempio etichettato più vicino. ``None`` se il gruppo non esiste.
+        """
+        with self.lock:
+            pred = self.final_pred
+            extra: dict[int, dict[str, Any]] = {}
+            if kind == "predicted":
+                if label not in pred.classes:
+                    return None
+                mask = pred.probs.sum(axis=1) > 0
+                mask[self.bank.labeled_indices()] = False
+                mask[self.bank.unknown_indices()] = False
+                mask &= ~self.unassigned & self._not_validation() & ~self._audit_mask()
+                members = np.flatnonzero(mask & (pred.probs.argmax(axis=1) == pred.classes.index(label)))
+                extra = {int(i): {"confidence": f"{100 * pred.confidence[i]:.0f}%"} for i in members}
+            elif kind == "labeled":
+                events = {i: e for i, e in self.store.current(is_training_event).items()
+                          if e.label == label and i in self.bank and i not in self._val_set}
+                members = np.array(sorted(self.bank.index_of(i) for i in events), dtype=np.int64)
+                extra = {self.bank.index_of(i): {"annotator": f"{e.annotator} ({e.query_type})"} for i, e in events.items()}
+            elif kind == "unassigned":
+                members = np.flatnonzero(self.unassigned & ~self._audit_mask())
+                extra = {int(i): {"nearest_class": pred.labels[i]} for i in members}
+            else:
+                return None
+            if not len(members):
+                return None
+            if kind == "unassigned":
+                sims = self.nearest_sim[members]
+            else:
+                centre = self.bank.X[members].mean(axis=0)
+                sims = self.bank.X[members] @ (centre / max(float(np.linalg.norm(centre)), 1e-12))
+            picks, n_pages = similarity_bands(sims, n, page)
+            return {
+                "kind": kind, "label": label, "n_members": int(len(members)), "n_pages": n_pages,
+                "page": page % n_pages, "reject": label in self.reject_classes(),
+                "samples": [{"image_id": self.bank.ids[members[j]], "similarity": float(sims[j]), "band": band,
+                             **extra.get(int(members[j]), {})} for j, band in picks],
+            }
 
     def _audit_mask(self) -> np.ndarray:
         mask = np.zeros(len(self.bank), dtype=bool)
