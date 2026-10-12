@@ -690,6 +690,12 @@ document.querySelectorAll('.quick-label-btn[data-label]').forEach(function (b) {
 _CLUSTERS_PAGE = """
 {{ css|safe }}
 """ + _GRID_STYLE + """
+<style>
+    /* Le api scorrono da sole: la pagina resta ferma e i comandi a destra sempre visibili. */
+    .grid-page { height: calc(100vh - 24px); }
+    .grid-left { max-height: 100%; overflow-y: auto; overscroll-behavior: contain; padding-right: 6px; }
+    .grid-right { max-height: 100%; overflow-y: auto; overscroll-behavior: contain; box-sizing: border-box; }
+</style>
 <form method="POST" action="{{ url_for('al.clusters', group=group, page=view.page if view else 0) }}" id="grid_form">
 <div class="grid-page">
     <div class="grid-left">

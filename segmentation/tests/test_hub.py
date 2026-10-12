@@ -243,6 +243,8 @@ def test_clusters_page_lets_you_choose_how_many_bees_and_their_order(client, syn
 
     html, caps, _ = page()
     assert len(caps) == 12 and all(f"n={k}" in html for k in (12, 24, 48, 96))
+    assert ".grid-left { max-height: 100%; overflow-y: auto;" in html          # scorrono solo le api
+    assert "overflow-y: auto" not in client.get("/al-grid").get_data(as_text=True)
     assert all(f"order={o}" in html for o in ("bands", "similar", "dissimilar", "confident", "uncertain", "random"))
 
     html, caps, sims = page("&n=24&order=uncertain")
