@@ -10,7 +10,6 @@ LABELS_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/t
 VARROA_PATHS = [
     "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/varroa_alpha.png",
     "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/varroa_alpha2.png",
-    "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/varroa_alpha3.png",
 ]
 OUTPUT_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_batch3+4/synthetic_varroa_output"
 

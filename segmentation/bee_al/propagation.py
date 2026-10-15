@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import hashlib
 import os
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 from typing import Sequence, Union
 
@@ -41,8 +44,7 @@ def load_or_build_graph(bank: MemoryBank, n_neighbors: int = 15, cache_dir: Unio
     """
     if cache_dir is None:
         return build_knn_graph(bank, n_neighbors)
-    key = hashlib.sha1(np.ascontiguousarray(bank.X).tobytes()).hexdigest()[:16]
-    path = Path(cache_dir) / f"knn_graph_{key}_k{n_neighbors}.npz"
+    path = graph_cache_path(bank.X, n_neighbors, cache_dir)
     if path.exists():
         try:
             graph = sp.load_npz(path).tocsr()
@@ -56,6 +58,36 @@ def load_or_build_graph(bank: MemoryBank, n_neighbors: int = 15, cache_dir: Unio
     sp.save_npz(tmp, graph)
     os.replace(tmp, path)
     return graph
+
+
+def graph_cache_path(X: np.ndarray, n_neighbors: int, cache_dir: Union[str, Path]) -> Path:
+    """File della cache del grafo: legato al contenuto degli embedding (float32, come nella bank)."""
+    key = hashlib.sha1(np.ascontiguousarray(X, dtype=np.float32).tobytes()).hexdigest()[:16]
+    return Path(cache_dir) / f"knn_graph_{key}_k{n_neighbors}.npz"
+
+
+def build_graph_cache_in_subprocess(
+    X: np.ndarray, n_neighbors: int, cache_dir: Union[str, Path], backend: str = "auto"
+) -> Path:
+    """Costruisce il grafo di ``X`` in un processo Python separato e lo lascia nella cache.
+
+    Serve all'hub: la ricerca di faiss su tutte le api non rilascia il GIL, quindi costruito
+    nel processo del server il grafo lo blocca per minuti (anche le pagine che non usano il
+    motore). Il processo chiamante aspetta senza tenere il GIL; poi ``load_or_build_graph``
+    trova il file in cache e lo carica in un attimo.
+    """
+    from .config import REPO_ROOT
+
+    path = graph_cache_path(X, n_neighbors, cache_dir)
+    if path.exists():
+        return path
+    Path(cache_dir).mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=cache_dir) as tmp:
+        x_path = Path(tmp) / "X.npy"
+        np.save(x_path, np.ascontiguousarray(X, dtype=np.float32))
+        subprocess.run([sys.executable, "-m", "bee_al.propagation", str(x_path), str(n_neighbors), str(cache_dir), backend],
+                       cwd=REPO_ROOT, check=True)
+    return path
 
 
 class LabelSpreader:
@@ -107,3 +139,10 @@ class LabelSpreader:
     def propagate_bank(self, bank: MemoryBank) -> Prediction:
         idx = bank.labeled_indices()
         return self.propagate(idx, bank.labels_at(idx))
+
+
+if __name__ == "__main__":
+    # Usato da build_graph_cache_in_subprocess: python -m bee_al.propagation X.npy n_neighbors cache_dir backend
+    x_file, k, cache, backend_name = sys.argv[1:5]
+    X_all = np.load(x_file)
+    load_or_build_graph(MemoryBank([str(i) for i in range(len(X_all))], X_all, backend=backend_name), int(k), cache)

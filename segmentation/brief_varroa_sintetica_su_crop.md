@@ -39,7 +39,7 @@ I due script vecchi non sono stati modificati e restano utilizzabili.
   CLI per prove visive con foglio di confronto.
 - `build_varroa_split.py` — costruzione del dataset train/test.
 - `tests/test_varroa_split.py` — test su conteggi e divisione.
-- Sorgenti varroa: `varroa_alpha.png`, `varroa_alpha2.png`, `varroa_alpha3.png` in
+- Sorgenti varroa: `varroa_alpha.png` e `varroa_alpha2.png` (la terza, `varroa_alpha3.png`, è stata tolta il 9 ottobre 2026) in
   `/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/` (PNG RGBA).
 - Crop di input (default): `.../processed/train_single_bee_batch3+4_clusters/Prova1/Crop_Utilizzabile`
   (54.182 PNG 512×512, asse lungo dell'ape verticale, testa in alto **o** in basso).
@@ -179,7 +179,7 @@ In `varroa_generator.py` (condivisi col metodo vecchio): `BLEND_LUMINANCE`,
   api con le ali aperte la varroa esce più grande.
 - **Bordino chiaro** attorno alla varroa in alcuni casi, più visibile sulle zone scure.
 - **Punta dell'addome esclusa** come effetto collaterale dell'esclusione degli occhi.
-- **Solo tre varroa sorgente**: la varietà di aspetto viene da rotazione, scala e
+- **Solo due varroa sorgente**: la varietà di aspetto viene da rotazione, scala e
   adattamento del colore.
 - **Realismo valutato solo a occhio** su qualche decina di api. Non è stato
   verificato l'effetto sul modello di anomaly detection né fatto un confronto con

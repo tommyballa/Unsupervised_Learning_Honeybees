@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import yaml
 
 from .config import ALConfig
-from .snapshot import NAME_RE, read_csv
+from .snapshot import NAME_RE, read_csv, snapshot_path
 
 if TYPE_CHECKING:
     from .engine import ALEngine
@@ -73,17 +73,22 @@ class ClusterExporter:
             raise ValueError(f"'{name}' was already exported: pick another name")
         if not self.engine.bank.n_labeled:
             raise ValueError("there are no labels yet: nothing to export")
-        snapshot_dir = self.engine.export_snapshot(name, annotator)   # ALError (un ValueError) se il nome esiste
+        if snapshot_path(cfg, name).exists():
+            raise ValueError(f"snapshot '{name}' already exists: snapshots are immutable, pick another name")
         self.state, self.error = "running", ""
         self.progress = {"name": name, "copied": 0, "total": 0, "started": time.time()}
-        self._thread = threading.Thread(target=self._run, args=(name, annotator, snapshot_dir), daemon=True, name="bee-al-export")
+        self._thread = threading.Thread(target=self._run, args=(name, annotator), daemon=True, name="bee-al-export")
         self._thread.start()
 
-    def _run(self, name: str, annotator: str, snapshot_dir: Path) -> None:
+    def _run(self, name: str, annotator: str, snapshot_dir: Optional[Path] = None) -> None:
+        """Congela lo snapshot (se non è già dato) e ne scrive i cluster; anche lo snapshot
+        avviene qui, perché su un disco lento scriverlo richiede minuti."""
         cfg = self.engine.cfg
         out = cfg.clusters_dir / name
         tmp = cfg.clusters_dir / f".tmp-{name}-{os.getpid()}"
         try:
+            if snapshot_dir is None:
+                snapshot_dir = self.engine.export_snapshot(name, annotator)
             rows = read_csv(snapshot_dir / "predictions.csv")
             members = [r for r in rows if r["status"] in IN_CLUSTERS and r["final_label"]]
             self.progress["total"] = len(members)

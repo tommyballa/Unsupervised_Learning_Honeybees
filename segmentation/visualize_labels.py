@@ -2,8 +2,8 @@ import cv2
 import os
 import numpy as np
 
-image_dir = '/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_batch4_labelled/images'
-label_dir = '/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_batch4_labelled/labels'
+image_dir = '/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_batch3+4/images'
+label_dir = '/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_batch3+4/labels'
 output_dir = 'visualizations'
 
 os.makedirs(output_dir, exist_ok=True)

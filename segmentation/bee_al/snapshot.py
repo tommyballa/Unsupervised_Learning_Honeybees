@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 import csv
+import io
 import json
 import os
 import re
 import shutil
+import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 from . import UNKNOWN_LABEL
 from .config import ALConfig
@@ -42,7 +44,8 @@ def _fmt(value: float) -> str:
     return f"{value:.6f}"
 
 
-def bee_rows(engine: "ALEngine") -> tuple[list[dict[str, str]], dict[str, Any]]:
+def bee_rows(engine: "ALEngine", maps: Optional[dict[str, Any]] = None,
+             grouper: Optional[FrameGrouper] = None) -> tuple[list[dict[str, str]], dict[str, Any]]:
     """Una riga per ogni ape della bank, più lo stato delle mappe dei frame.
 
     ``status``: ``validation`` (validation set), ``unknown`` ("Non so"), ``labeled`` (etichetta
@@ -50,10 +53,11 @@ def bee_rows(engine: "ALEngine") -> tuple[list[dict[str, str]], dict[str, Any]]:
     ``no_prediction`` (nessuna etichetta la raggiunge), ``unassigned`` (troppo lontana da ogni
     esempio), ``predicted`` (classe assegnata dal modello). ``final_label`` è l'etichetta umana
     se c'è, altrimenti quella predetta; resta vuota quando l'ape non appartiene a nessun cluster.
+    ``maps`` e ``grouper`` si possono preparare prima, fuori dal lock: leggerli dal disco è lento.
     """
     cfg, bank = engine.cfg, engine.bank
-    maps = load_frame_maps(cfg)
-    grouper = FrameGrouper(cfg)
+    maps = load_frame_maps(cfg) if maps is None else maps
+    grouper = FrameGrouper(cfg) if grouper is None else grouper
     reject = engine.reject_classes()
     final, knn = engine.final_pred, engine.knn_pred
     final_labels, final_conf = final.labels, final.confidence
@@ -127,10 +131,10 @@ def bee_rows(engine: "ALEngine") -> tuple[list[dict[str, str]], dict[str, Any]]:
                   "session_dirs_missing": grouper.missing_dirs, "frames_in_several_sessions": sorted(grouper.ambiguous)}
 
 
-def frame_rows(cfg: ALConfig, maps: dict[str, Any]) -> list[dict[str, Any]]:
+def frame_rows(cfg: ALConfig, maps: dict[str, Any], grouper: Optional[FrameGrouper] = None) -> list[dict[str, Any]]:
     """Una riga per frame: api grezze estratte e api accettate/scartate dalla pulizia."""
     folders = dataset_folders(cfg)
-    grouper = FrameGrouper(cfg)
+    grouper = FrameGrouper(cfg) if grouper is None else grouper
     rows: list[dict[str, Any]] = []
     for dataset, fmap in maps.items():
         if fmap is None or not fmap.reliable:
@@ -149,15 +153,21 @@ def frame_rows(cfg: ALConfig, maps: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _write_csv(path: Path, fields: list[str], rows: list[dict[str, Any]]) -> None:
+    # Prima in memoria e poi una sola scrittura: sul disco NTFS (fuse) tante scritture piccole costano il doppio
+    buf = io.StringIO(newline="")
+    writer = csv.DictWriter(buf, fieldnames=fields)
+    writer.writeheader()
+    writer.writerows(rows)
     with open(path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fields)
-        writer.writeheader()
-        writer.writerows(rows)
+        f.write(buf.getvalue())
 
 
 def export_snapshot(engine: "ALEngine", name: str, annotator: str) -> Path:
-    """Scrive lo snapshot in ``results_dir/snapshots/<name>/``. Va chiamata con il lock dell'engine.
+    """Scrive lo snapshot in ``results_dir/snapshots/<name>/``.
 
+    Il lock dell'engine si tiene solo per leggere lo stato (qualche secondo); la lettura delle
+    cartelle dei frame e la scrittura dei file, che sul disco dei risultati durano minuti,
+    avvengono fuori, così l'hub non si blocca.
     Gli snapshot sono immutabili: se il nome esiste già si solleva ``FileExistsError``.
     Si scrive in una cartella temporanea che viene rinominata solo alla fine, così
     un'esportazione interrotta non lascia uno snapshot a metà.
@@ -166,14 +176,26 @@ def export_snapshot(engine: "ALEngine", name: str, annotator: str) -> Path:
     out = snapshot_path(cfg, name)
     if out.exists():
         raise FileExistsError(f"snapshot '{name}' already exists: snapshots are immutable, pick another name")
+    maps, grouper = load_frame_maps(cfg), FrameGrouper(cfg)
+    with engine.lock:
+        rows, frames = bee_rows(engine, maps, grouper)
+        n_events = len(engine.store.events())
+        last = engine.history[-1] if engine.history else {}
+        state = {
+            "round": engine.round, "model_version": engine.model_version, "config_id": cfg.config_id,
+            "config": cfg.to_dict(), "reject_classes": sorted(engine.reject_classes()),
+            "stopping": engine.stopping_status(),
+        }
+        # Etichette e validation set copiati com'erano insieme alle predizioni
+        copies = {src.name: src.read_bytes() for src in (cfg.al_labels_path, cfg.validation_path) if src.exists()}
+
     out.parent.mkdir(parents=True, exist_ok=True)
-    tmp = out.parent / f".tmp-{name}-{os.getpid()}"
+    tmp = out.parent / f".tmp-{name}-{os.getpid()}-{threading.get_ident()}"
     shutil.rmtree(tmp, ignore_errors=True)
     tmp.mkdir()
     try:
-        rows, frames = bee_rows(engine)
         _write_csv(tmp / "predictions.csv", PREDICTION_FIELDS, rows)
-        _write_csv(tmp / "frames.csv", FRAME_FIELDS, frame_rows(cfg, frames["maps"]))
+        _write_csv(tmp / "frames.csv", FRAME_FIELDS, frame_rows(cfg, frames["maps"], grouper))
 
         by_status = {s: 0 for s in STATUSES}
         by_class: dict[str, dict[str, int]] = {}
@@ -182,23 +204,21 @@ def export_snapshot(engine: "ALEngine", name: str, annotator: str) -> Path:
             if row["final_label"]:
                 counts = by_class.setdefault(row["final_label"], {"human": 0, "predicted": 0})
                 counts[row["source"]] += 1
-        n_events = len(engine.store.events())
-        last = engine.history[-1] if engine.history else {}
         meta = {
             "name": name,
             "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
             "annotator": annotator,
-            "round": engine.round,
-            "model_version": engine.model_version,
-            "config_id": cfg.config_id,
-            "config": cfg.to_dict(),
+            "round": state["round"],
+            "model_version": state["model_version"],
+            "config_id": state["config_id"],
+            "config": state["config"],
             "n_bees": len(rows),
             "n_label_events": n_events,
             "status_counts": by_status,
             "class_counts": dict(sorted(by_class.items())),
-            "reject_classes": sorted(engine.reject_classes()),
+            "reject_classes": state["reject_classes"],
             "validation_metrics": {k: last.get(k) for k in ("accuracy", "macro_f1", "knn_accuracy", "knn_macro_f1", "n_validation")},
-            "stopping": engine.stopping_status(),
+            "stopping": state["stopping"],
             "frame_maps": frames["info"],
             "bees_per_session": frames["sessions"],
             "session_dirs_missing": frames["session_dirs_missing"],
@@ -206,9 +226,10 @@ def export_snapshot(engine: "ALEngine", name: str, annotator: str) -> Path:
         }
         with open(tmp / "meta.json", "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=2, ensure_ascii=False)
-        for src in (cfg.al_labels_path, cfg.validation_path):
-            if src.exists():
-                shutil.copy2(src, tmp / src.name)
+        for filename, data in copies.items():
+            (tmp / filename).write_bytes(data)
+        if out.exists():   # creato da un'altra richiesta con lo stesso nome mentre si scriveva
+            raise FileExistsError(f"snapshot '{name}' already exists: snapshots are immutable, pick another name")
         os.rename(tmp, out)
     except BaseException:
         shutil.rmtree(tmp, ignore_errors=True)

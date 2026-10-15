@@ -5,7 +5,7 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import torch
 import cv2
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 import torchvision
 from transformers import Sam3Model, Sam3Processor
 import gc
@@ -253,7 +253,9 @@ for source_dir in source_dirs:
             print(f"Skipping {img_name} (already processed)")
             continue
 
-        original_pil = Image.open(img_path).convert("RGB")
+        # apply the EXIF orientation like cv2 (and so YOLO) does: some phone photos are stored
+        # upside down, and their labels would be rotated 180° with respect to the training image
+        original_pil = ImageOps.exif_transpose(Image.open(img_path)).convert("RGB")
 
         # pass 1: estimate bee size
         try:

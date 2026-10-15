@@ -372,8 +372,10 @@ class ALEngine:
             "accuracy": None, "macro_f1": None, "knn_accuracy": None, "knn_macro_f1": None,
         }
         if val and self.bank.n_labeled:
-            final = classification_metrics(y_true, [self.final_pred.labels[i] for i in idx])
-            knn = classification_metrics(y_true, [self.knn_pred.labels[i] for i in idx])
+            # labels è una property che ricalcola la lista di tutte le api: una volta sola, non per ape
+            final_labels, knn_labels = self.final_pred.labels, self.knn_pred.labels
+            final = classification_metrics(y_true, [final_labels[i] for i in idx])
+            knn = classification_metrics(y_true, [knn_labels[i] for i in idx])
             entry.update(final)
             entry.update({"knn_accuracy": knn["accuracy"], "knn_macro_f1": knn["macro_f1"]})
         return entry
@@ -576,16 +578,19 @@ class ALEngine:
                 return self._next_validation(annotator, now)
             if mode == "audit":
                 return self._next_audit(annotator, now)
-            pending = [b for b in self.batch if not b.done]
-            for item in pending:
-                if item.assigned_to == annotator:
-                    item.assigned_at = now
-                    return item
-            for item in pending:
-                if not self._is_assigned(item, now):
-                    item.assigned_to, item.assigned_at = annotator, now
-                    return item
-            return None  # il resto del batch è in mano ad altri annotatori, o non resta nulla
+            for attempt in range(2):
+                pending = [b for b in self.batch if not b.done]
+                for item in pending:
+                    if item.assigned_to == annotator:
+                        item.assigned_at = now
+                        return item
+                for item in pending:
+                    if not self._is_assigned(item, now):
+                        item.assigned_to, item.assigned_at = annotator, now
+                        return item
+                if attempt == 0:
+                    self._next_round_if_taken(now)
+            return None  # non resta nessuna ape da etichettare
 
     def next_images(self, annotator: str, n: int = 12, mode: str = "train") -> list[BatchItem]:
         """Fino a ``n`` immagini per l'annotatore, per etichettarne molte insieme (pagina a griglia).
@@ -605,13 +610,24 @@ class ALEngine:
                 for image_id in chosen:
                     self._val_assigned[image_id] = (annotator, now)
                 return [BatchItem(i, self.bank.index_of(i), "validation", "validation", annotator, now) for i in chosen]
-            pending = [b for b in self.batch if not b.done]
-            mine = [b for b in pending if b.assigned_to == annotator]
-            free = [b for b in pending if b.assigned_to != annotator and not self._is_assigned(b, now)]
+            for attempt in range(2):
+                pending = [b for b in self.batch if not b.done]
+                mine = [b for b in pending if b.assigned_to == annotator]
+                free = [b for b in pending if b.assigned_to != annotator and not self._is_assigned(b, now)]
+                if mine or free or attempt == 1:
+                    break
+                self._next_round_if_taken(now)
             chosen = (mine + free)[:n]
             for item in chosen:
                 item.assigned_to, item.assigned_at = annotator, now
             return chosen
+
+    def _next_round_if_taken(self, now: float) -> None:
+        """Le api rimaste nel batch sono tutte in mano ad altri annotatori: invece di far
+        aspettare chi è libero si passa al round successivo (le api assegnate restano a chi le ha)."""
+        if any(not b.done and not self._is_assigned(b, now) for b in self.batch):
+            return
+        self.refresh()
 
     def _next_validation(self, annotator: str, now: float) -> Optional[BatchItem]:
         timeout = self.cfg.hub.assignment_timeout_s
@@ -919,7 +935,11 @@ class ALEngine:
         """
         with self.lock:
             pred = self.final_pred
-            extra: dict[int, dict[str, Any]] = {}
+            # confidence e labels sono property calcolate su tutte le api: lette dentro un ciclo
+            # sui membri il costo diventa quadratico (minuti, con l'hub bloccato, su 180k api)
+            confidence = pred.confidence
+            # Dettagli del tooltip: calcolati solo per le api mostrate, non per tutto il gruppo
+            extra_of: Callable[[int], dict[str, Any]]
             if kind == "predicted":
                 if label not in pred.classes:
                     return None
@@ -928,15 +948,17 @@ class ALEngine:
                 mask[self.bank.unknown_indices()] = False
                 mask &= ~self.unassigned & self._not_validation() & ~self._audit_mask()
                 members = np.flatnonzero(mask & (pred.probs.argmax(axis=1) == pred.classes.index(label)))
-                extra = {int(i): {"confidence": f"{100 * pred.confidence[i]:.0f}%"} for i in members}
+                extra_of = lambda i: {"confidence": f"{100 * confidence[i]:.0f}%"}  # noqa: E731
             elif kind == "labeled":
                 events = {i: e for i, e in self.store.current(is_training_event).items()
                           if e.label == label and i in self.bank and i not in self._val_set}
                 members = np.array(sorted(self.bank.index_of(i) for i in events), dtype=np.int64)
-                extra = {self.bank.index_of(i): {"annotator": f"{e.annotator} ({e.query_type})"} for i, e in events.items()}
+                by_index = {self.bank.index_of(i): e for i, e in events.items()}
+                extra_of = lambda i: {"annotator": f"{by_index[i].annotator} ({by_index[i].query_type})"}  # noqa: E731
             elif kind == "unassigned":
                 members = np.flatnonzero(self.unassigned & ~self._audit_mask())
-                extra = {int(i): {"nearest_class": pred.labels[i]} for i in members}
+                nearest = pred.labels
+                extra_of = lambda i: {"nearest_class": nearest[i]}  # noqa: E731
             else:
                 return None
             if not len(members):
@@ -954,7 +976,7 @@ class ALEngine:
                 if order == "random":
                     ranked = np.random.default_rng([self.cfg.seed, self.round, 3]).permutation(len(members))
                 else:
-                    key = pred.confidence[members] if order in ("confident", "uncertain") else sims
+                    key = confidence[members] if order in ("confident", "uncertain") else sims
                     ranked = np.argsort(key if order in ("uncertain", "dissimilar") else -key, kind="stable")
                 n_pages = max(1, -(-len(members) // max(n, 1)))
                 picks = [(int(j), "") for j in ranked[(page % n_pages) * n:(page % n_pages + 1) * n]]
@@ -962,7 +984,7 @@ class ALEngine:
                 "kind": kind, "label": label, "n_members": int(len(members)), "n_pages": n_pages, "order": order,
                 "page": page % n_pages, "reject": label in self.reject_classes(),
                 "samples": [{"image_id": self.bank.ids[members[j]], "similarity": float(sims[j]), "band": band,
-                             **extra.get(int(members[j]), {})} for j, band in picks],
+                             **extra_of(int(members[j]))} for j, band in picks],
             }
 
     def _audit_mask(self) -> np.ndarray:
@@ -1072,12 +1094,12 @@ class ALEngine:
         """Congela predizioni, frame di origine e stato in ``results_dir/snapshots/<name>/``.
 
         Lo snapshot è immutabile: un nome già usato o non valido solleva ``ALError``.
+        Il lock si prende dentro, solo per leggere lo stato: la scrittura non blocca l'hub.
         """
-        with self.lock:
-            try:
-                return snapshot.export_snapshot(self, name, annotator)
-            except (ValueError, FileExistsError) as e:
-                raise ALError(str(e)) from None
+        try:
+            return snapshot.export_snapshot(self, name, annotator)
+        except (ValueError, FileExistsError) as e:
+            raise ALError(str(e)) from None
 
     def list_snapshots(self) -> list[dict[str, Any]]:
         with self.lock:

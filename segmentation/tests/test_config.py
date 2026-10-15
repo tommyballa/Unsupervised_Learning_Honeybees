@@ -1,6 +1,6 @@
 import pytest
 
-from bee_al.config import DEFAULT_CONFIG_PATH, REPO_ROOT, config_from_dict, load_config
+from bee_al.config import DEFAULT_CONFIG_PATH, config_from_dict, load_config
 
 
 def test_default_yaml_loads_with_spec_defaults():
@@ -19,7 +19,8 @@ def test_default_yaml_loads_with_spec_defaults():
 def test_relative_paths_resolve_against_root(tmp_path):
     cfg = config_from_dict({"paths": {"results_dir": "res"}}, root=tmp_path)
     assert cfg.al_labels_path == tmp_path / "res" / "al_labels.csv"
-    assert load_config().embeddings_dir == REPO_ROOT / "data" / "embeddings_batch3+4"
+    cfg = config_from_dict({"paths": {"embeddings_dir": "emb", "models_dir": "/assoluto/models"}}, root=tmp_path)
+    assert cfg.embeddings_dir == tmp_path / "emb" and str(cfg.models_dir) == "/assoluto/models"
 
 
 def test_unknown_key_and_bad_values_are_rejected():

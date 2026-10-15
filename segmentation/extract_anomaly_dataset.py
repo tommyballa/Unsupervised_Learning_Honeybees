@@ -1,4 +1,5 @@
 import os
+import argparse
 import cv2
 import glob
 import json
@@ -69,15 +70,25 @@ def normalize_photo(img_bgr, bee_mask):
     return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR), gain, offset
 
 
-def main():
-    print(" Caricamento del modello YOLO...")
-    model = YOLO("runs/segment/runs/segment/bee_model_finetuned_yolo26s_batch3+4_img1440/weights/best.pt")
-    
-    # Scegli la cartella da cui estrarre le api (qui usiamo il train set remoto)
-    source_dir = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_batch3+4/images"
-    
+def parse_args():
+    parser = argparse.ArgumentParser(description="Estrae le singole api segmentate da YOLO come PNG RGBA.")
+    parser.add_argument("--model", default="runs/segment/runs/segment/bee_model_finetuned_yolo26s_batch3+4_img1440/weights/best.pt")
+    # Cartella da cui estrarre le api
+    parser.add_argument("--source", default="/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_batch3+4/images")
     # Output: cartella con TUTTE le api estratte grezze (senza filtri)
-    out_dir = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee_batch3+4_novarroa/raw_bees"
+    parser.add_argument("--out", default="/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee_batch3+4_novarroa/raw_bees")
+    parser.add_argument("--imgsz", type=int, default=1920)
+    parser.add_argument("--conf", type=float, default=0.35)
+    parser.add_argument("--device", default=None, help="Es. 0 oppure cpu; default: scelta automatica di ultralytics")
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+    print(" Caricamento del modello YOLO...")
+    model = YOLO(args.model)
+    source_dir = args.source
+    out_dir = args.out
     os.makedirs(out_dir, exist_ok=True)
     
     # Carica il manifesto per sapere quali immagini sorgente sono già state processate
@@ -116,7 +127,8 @@ def main():
             continue
         
         # Facciamo inferenza alla massima risoluzione. retina_masks=True migliora enormemente i bordi.
-        results = model.predict(source=img, save=False, show=False, conf=0.35, imgsz=1920, max_det=2000)
+        results = model.predict(source=img, save=False, show=False, conf=args.conf, imgsz=args.imgsz,
+                                max_det=2000, device=args.device, verbose=False)
         
         if len(results) == 0 or results[0].masks is None:
             manifest["processed_sources"][img_name] = {"bees": 0}

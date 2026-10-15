@@ -197,6 +197,31 @@ def test_home_keeps_only_active_learning_and_groups_the_old_tools(client):
     assert html.count("<summary") == 1                           # un solo tasto per tutte le sezioni vecchie
 
 
+def test_pages_do_not_wait_for_a_busy_engine(client):
+    """Il banner di fase gira a ogni pagina: con il motore occupato (re-train, ricalcoli lunghi) non deve bloccare."""
+    import threading
+
+    held, release = threading.Event(), threading.Event()
+
+    def busy():
+        with client.engine.lock:
+            held.set()
+            release.wait(10)
+
+    worker = threading.Thread(target=busy)
+    worker.start()
+    held.wait(5)
+    try:
+        result = {}
+        page = threading.Thread(target=lambda: result.setdefault("r", client.get("/")))
+        page.start()
+        page.join(5)
+        assert not page.is_alive() and result["r"].status_code == 200
+    finally:
+        release.set()
+        worker.join()
+
+
 def test_clusters_page_shows_one_group_chosen_from_a_dropdown(client, synth):
     X, y, ids = synth
     truth = dict(zip(ids, y))

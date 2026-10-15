@@ -3,12 +3,14 @@ import csv
 import json
 import subprocess
 import sys
+import threading
 from collections import Counter
 
 import pytest
 import yaml
 
 from bee_al import hub as al_hub
+from bee_al import snapshot
 from bee_al.config import REPO_ROOT
 from bee_al.embeddings import save_embeddings
 from bee_al.engine import ALEngine, ALError
@@ -198,3 +200,25 @@ def test_hub_freezes_and_lists_snapshots(colony, hub_app, monkeypatch, tmp_path)
         page = c.get(r.headers["Location"])
         assert r.status_code == 302 and page.status_code == 200 and "Snapshot not created" in page.get_data(as_text=True)
     assert len(engine.list_snapshots()) == 1
+
+
+def test_snapshot_writes_files_without_holding_the_engine_lock(colony, monkeypatch):
+    """Scrivere lo snapshot su disco lento dura minuti: intanto l'hub deve poter usare l'engine."""
+    engine = labeled_engine(colony, rounds=1)
+    real, free = snapshot._write_csv, []
+
+    def write_and_probe(*args):
+        def probe():
+            if engine.lock.acquire(blocking=False):
+                engine.lock.release()
+                free.append(True)
+            else:
+                free.append(False)
+        t = threading.Thread(target=probe)
+        t.start()
+        t.join()
+        real(*args)
+
+    monkeypatch.setattr(snapshot, "_write_csv", write_and_probe)
+    engine.export_snapshot("s", "a@x.it")
+    assert free == [True, True]

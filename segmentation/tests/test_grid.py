@@ -24,13 +24,14 @@ def test_next_images_hands_out_a_grid_per_annotator(cfg, synth):
     assert len(a) == 6 and len(b) == 4                               # il batch è finito: a b restano 4
     assert not {i.image_id for i in a} & {i.image_id for i in b}
     assert [i.image_id for i in engine.next_images("a@x.it", 6)] == [i.image_id for i in a]   # ricaricare non cambia griglia
-    assert engine.next_images("c@x.it", 6) == []
+    c = engine.next_images("c@x.it", 6)                              # batch tutto assegnato: parte il round dopo
+    assert len(c) == 6 and not {i.image_id for i in c} & {i.image_id for i in a + b}
 
     engine.submit("a@x.it", a[0].image_id, "Bene")
     again = engine.next_images("a@x.it", 6)
-    assert [i.image_id for i in again] == [i.image_id for i in a[1:]]   # le non etichettate tornano, niente di nuovo da prendere
+    assert [i.image_id for i in again[:5]] == [i.image_id for i in a[1:]]   # prima le sue non etichettate, poi una nuova
     clock.t += cfg.hub.assignment_timeout_s + 1
-    assert len(engine.next_images("c@x.it", 12)) == 9                 # assegnazioni scadute: tutto libero
+    assert len(engine.next_images("d@x.it", 12)) == 12                # assegnazioni scadute: tutto libero
 
     val = engine.next_images("a@x.it", 12, mode="validation")
     assert len(val) == 12 and {i.image_id for i in val} <= set(engine.validation_ids)

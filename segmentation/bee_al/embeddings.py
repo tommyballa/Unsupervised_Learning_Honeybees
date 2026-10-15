@@ -156,11 +156,17 @@ def save_embeddings(
     paths: Sequence[str],
     X: np.ndarray,
     meta: Optional[dict[str, Any]] = None,
+    normalize: bool = True,
 ) -> None:
-    """Salva in un colpo solo embedding già calcolati (usato dai re-train e dai test)."""
+    """Salva in un colpo solo embedding già calcolati (usato dai re-train e dai test).
+
+    ``normalize=False`` per vettori già normalizzati: normalizzarli di nuovo cambia gli ultimi
+    bit, e con loro la chiave della cache del grafo kNN (che va riusato anche dopo un riavvio).
+    """
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    X = l2_normalize(X)
+    if normalize:
+        X = l2_normalize(X)
     _write_shard(out, "shard_00000.npz", ids, paths, X)
     manifest = {
         "meta": dict(meta or {}),

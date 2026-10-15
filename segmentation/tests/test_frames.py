@@ -142,9 +142,10 @@ def test_ambiguous_or_missing_session_dirs(colony, tmp_path):
     assert grouper.ambiguous == {"hiveA_s1_001.JPG"} and grouper.missing_dirs == [str(tmp_path / "orig" / "non_esiste")]
 
 
-def test_default_config_maps_batch_3_and_batch_4():
+def test_default_config_maps_batches_3_to_6():
     from bee_al.config import load_config
 
     cfg = load_config()
-    assert list(cfg.frames.session_dirs) == ["batch_3", "batch_4"]
-    assert cfg.colony.time_order == {"*": ["batch_3", "batch_4"]}
+    batches = ["batch_3", "batch_4", "batch_5", "batch_6"]
+    assert list(cfg.frames.session_dirs) == batches
+    assert cfg.colony.time_order == {"*": batches}

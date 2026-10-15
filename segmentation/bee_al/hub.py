@@ -40,6 +40,7 @@ class HubState:
         self.error: Optional[Exception] = None
         self.started_at = 0.0
         self._thread: Optional[threading.Thread] = None
+        self.review_count = 0   # ultimo numero di etichette sospette, per il menù quando il motore è occupato
 
     def _load(self) -> None:
         try:
@@ -397,7 +398,7 @@ _STATUS_PAGE = """
         <code>{{ x.clusters_dir }}/&lt;name&gt;/</code>. Labeling can go on meanwhile; which clusters feed the next phase is decided later.</p>
     {% if export_error %}<p style="color: var(--btn-red);"><b>{{ export_error }}</b></p>{% endif %}
     {% if x.state == 'running' %}
-    <p><b style="color: var(--btn-yellow);">Export running</b>: {{ x.progress.copied }} / {{ x.progress.total }} images written for '{{ x.progress.name }}'. This page reloads by itself.</p>
+    <p><b style="color: var(--btn-yellow);">Export running</b>: {% if x.progress.total %}{{ x.progress.copied }} / {{ x.progress.total }} images written{% else %}freezing the snapshot of the predictions (a few minutes on a slow disk){% endif %} for '{{ x.progress.name }}'. This page reloads by itself.</p>
     {% elif x.state == 'failed' %}
     <p><b style="color: var(--btn-red);">Last export failed</b>: {{ x.error }}</p>
     {% endif %}
@@ -782,9 +783,16 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
             return {"al_stage": None, "al_review_count": 0}
         stage = engine.cfg.stage
         done = [e["name"] for e in list_exports(engine.cfg) if e.get("stage") == stage.name and e.get("config_id")]
+        # Gira a ogni pagina, home compresa: non deve mai aspettare il motore. Se è occupato
+        # (re-train che installa embedding nuovi, ricalcolo lungo) si mostra l'ultimo conteggio.
+        if engine.lock.acquire(blocking=False):
+            try:
+                STATE.review_count = len(engine.suspects()["main"])
+            finally:
+                engine.lock.release()
         return {"al_stage": {"name": stage.name, "title": stage.title, "description": stage.description,
                              "exported": done[0] if done else ""},
-                "al_review_count": len(engine.suspects()["main"])}
+                "al_review_count": STATE.review_count}
     # La config si può scegliere all'avvio con BEE_AL_CONFIG=config/al_fase2.yaml (una fase per file).
     STATE.config_path = config_path or os.environ.get("BEE_AL_CONFIG") or None
 

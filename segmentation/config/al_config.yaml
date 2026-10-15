@@ -6,17 +6,16 @@ seed: 42
 paths:
   # Cartelle delle api, {nome: cartella}. L'image_id di ogni ape è "<nome>__<file>",
   # perché i nomi dei file (bee_00000_...) si ripetono da una cartella all'altra.
-  # Si lavora solo sul training set: le api del test set non vengono mai proposte né raggruppate,
-  # anche se i loro embedding sono già stati estratti. Per includerle basta togliere il commento.
+  # Dal 2026-10-14 tutte le foto di batch 3-6 (train, val e test dello split SAM3 insieme), api
+  # estratte a 2048 px con yolo26s_batch3+4+5+6_SAM3_img1376 e pulite con dataset_cleaning.py v4
+  # (filtro short, testa in alto). La run precedente (batch3+4, fasi 1 e 2) è archiviata in
+  # /mnt/disk1/tommaso_ballarin/bee_al/archivio_<data>_<ora>.
   dataset_dirs:
-    train_b34: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_batch3+4/cleaned_bees
-    # test_b34_novarroa: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee_batch3+4_novarroa/cleaned_bees
-  # Stato separato da quello del dataset precedente (train_single_bee_merged), che resta in
-  # active_learning_tool/results, data/embeddings e models.
-  # Etichette e modelli stanno su /mnt/disk1: il disco di sistema è quasi pieno.
-  results_dir: /mnt/disk1/tommaso_ballarin/bee_al/results_batch3+4   # al_labels.csv, validation_set.json, al_rounds.jsonl
-  embeddings_dir: data/embeddings_batch3+4             # embedding dell'extractor congelato (v000)
-  models_dir: /mnt/disk1/tommaso_ballarin/bee_al/models_batch3+4     # vNNN/ prodotti dai re-train
+    sam3_b3456: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/cleaned_bees
+  # Etichette, embedding e modelli stanno su /mnt/disk1: il disco di sistema è quasi pieno.
+  results_dir: /mnt/disk1/tommaso_ballarin/bee_al/results_sam3_b3456   # al_labels.csv, validation_set.json, al_rounds.jsonl
+  embeddings_dir: /mnt/disk1/tommaso_ballarin/bee_al/embeddings_sam3_b3456   # embedding dell'extractor congelato (v000)
+  models_dir: /mnt/disk1/tommaso_ballarin/bee_al/models_sam3_b3456     # vNNN/ prodotti dai re-train
   subset_file: ""        # JSON {"image_ids": [...]}: se indicato l'hub lavora solo su quelle api (fasi successive)
 
 stage:
@@ -28,7 +27,7 @@ stage:
 export:
   # Pulsante "Save configuration & export clusters" in /al-status: a fase finita scrive qui i cluster,
   # una sottocartella per esportazione, con una cartella di immagini per classe.
-  clusters_dir: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_batch3+4_clusters
+  clusters_dir: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3_clusters
   mode: copy             # copy | hardlink | symlink
 
 labels:
@@ -130,9 +129,12 @@ frames:
   frame_pattern: ""
   # Sessione = cartella che contiene il frame originale. I frame si chiamano DSC_xxxx.JPG e dal nome
   # non si ricava nulla: batch_3 è del 12/09/2026, batch_4 del 26/09/2026, stesso alveare, con flash e zoom diversi.
+  # Le 791 foto del dataset SAM3 si attribuiscono tutte a una sola batch (168 / 241 / 199 / 183).
   session_dirs:
     batch_3: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_3
     batch_4: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_4
+    batch_5: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_5
+    batch_6: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_6
   colony: ""             # nome dell'alveare per tutti i frame (un solo alveare fotografato); vuoto = non indicato
 
 audit:
@@ -155,7 +157,7 @@ colony:
   min_detected: 3             # I2: api confermate da un umano perché un segno sia "detected"
   reference_groups: []        # I3: gruppi sani di riferimento; vuoto = media di tutti i gruppi
   time_order:                 # I5: {alveare: [sessione1, sessione2, ...]}; "*" = tutti gli alveari insieme
-    "*": [batch_3, batch_4]
+    "*": [batch_3, batch_4, batch_5, batch_6]
   anomaly_threshold: 0.0      # quota di api con anomaly score sopra soglia (0 = spento)
   n_boot: 1000
   seed: 11

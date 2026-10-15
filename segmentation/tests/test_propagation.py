@@ -100,3 +100,33 @@ def test_graph_cache_is_reused_and_tied_to_the_embeddings(synth, tmp_path, monke
         f.write_bytes(b"rotto")                                   # cache rovinata: si ricostruisce senza errori
     assert LabelSpreader.from_bank(bank, n_neighbors=8, cache_dir=tmp_path).graph.shape == (300, 300)
     assert broken.stat().st_size > 100
+
+
+def test_graph_built_in_subprocess_is_reused_from_cache(tmp_path, monkeypatch):
+    """L'hub non costruisce il grafo: lo trova in cache, preparato da un processo separato."""
+    from bee_al import propagation
+    from bee_al.embeddings import l2_normalize
+    from bee_al.memory_bank import MemoryBank
+
+    X = l2_normalize(np.random.default_rng(0).normal(size=(60, 8)))
+    path = propagation.build_graph_cache_in_subprocess(X, 5, tmp_path, backend="numpy")
+    assert path.exists() and path == propagation.graph_cache_path(X, 5, tmp_path)
+
+    def no_build(*args, **kwargs):
+        raise AssertionError("il grafo doveva arrivare dalla cache")
+
+    monkeypatch.setattr(propagation, "build_knn_graph", no_build)
+    bank = MemoryBank([f"b{i}" for i in range(len(X))], X, backend="numpy")
+    graph = propagation.load_or_build_graph(bank, 5, tmp_path)
+    assert graph.shape == (60, 60) and graph.nnz > 0
+
+
+def test_saved_retrain_embeddings_keep_the_graph_cache_key(tmp_path):
+    """Gli embedding di un re-train ricaricati dopo un riavvio devono ritrovare lo stesso grafo in cache."""
+    from bee_al.embeddings import l2_normalize, load_embeddings, save_embeddings
+    from bee_al.propagation import graph_cache_path
+
+    X = l2_normalize(np.random.default_rng(1).normal(size=(500, 32)))
+    ids = [f"b{i}" for i in range(len(X))]
+    save_embeddings(tmp_path / "emb", ids, ids, X, normalize=False)
+    assert graph_cache_path(load_embeddings(tmp_path / "emb").X, 15, tmp_path) == graph_cache_path(X, 15, tmp_path)

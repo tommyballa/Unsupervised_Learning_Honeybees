@@ -21,6 +21,7 @@ import numpy as np
 from ultralytics import YOLO
 # Importiamo la funzione aggiornata dal nuovo script di pulizia ottimizzato
 from dataset_cleaning import TARGET_SIZE, clean_bee
+from bee_orientation import HeadOrienter
 
 
 # --- Configurazione ---
@@ -71,7 +72,7 @@ def crop_raw_bee(image, varroa_full_mask, polygon_pts, bbox):
     return img_crop, bee_mask_crop, varroa_mask_crop
 
 
-def process_synthetic_image(syn_img_path, mask_path, model):
+def process_synthetic_image(syn_img_path, mask_path, model, orienter):
     """
     Processa una singola immagine sintetica: estrae tutte le api e le classifica
     come normali o anomale in base alla sovrapposizione con la maschera varroa.
@@ -121,8 +122,9 @@ def process_synthetic_image(syn_img_path, mask_path, model):
 
         # 2. Pulizia e normalizzazione dell'ape con la pipeline di dataset_cleaning.
         #    clean_bee restituisce anche l'affine usata (crop -> frame finale): la
-        #    applichiamo alla maschera varroa, che resta così allineata all'ape.
-        result = clean_bee(img_crop, bee_mask_crop, is_raw_polygon=True)
+        #    applichiamo alla maschera varroa, che resta così allineata all'ape
+        #    (anche quando l'ape viene ruotata di 180° per avere la testa in alto).
+        result = clean_bee(img_crop, bee_mask_crop, is_raw_polygon=True, orienter=orienter)
         if result.image is None:
             discarded += 1
             continue
@@ -146,6 +148,7 @@ def process_synthetic_image(syn_img_path, mask_path, model):
 def main():
     print(" Caricamento del modello YOLO...")
     model = YOLO(YOLO_MODEL_PATH)
+    orienter = HeadOrienter()
     
     # Crea le cartelle di output
     for d in [OUTPUT_NORMAL, OUTPUT_ANOMALOUS, OUTPUT_MASKS]:
@@ -179,7 +182,7 @@ def main():
             continue
 
         print(f"\nProcesso: {syn_file}")
-        results, discarded = process_synthetic_image(syn_path, mask_path, model)
+        results, discarded = process_synthetic_image(syn_path, mask_path, model, orienter)
         total_discarded += discarded
 
         for bee_crop, varroa_crop, is_anomalous, base_name, bee_idx in results:

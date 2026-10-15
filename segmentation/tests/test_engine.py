@@ -101,10 +101,14 @@ def test_shared_batch_one_annotator_per_image(cfg, synth):
     assert engine.next_image("a@x.it").image_id == a.image_id  # ricaricare la pagina non cambia immagine
     assigned = {engine.next_image(f"u{i}@x.it").image_id for i in range(8)}
     assert len(assigned | {a.image_id, b.image_id}) == 10
-    assert engine.next_image("late@x.it") is None               # tutto il batch è già assegnato
-
-    clock.t += cfg.hub.assignment_timeout_s + 1                 # assegnazioni scadute: tornano libere
-    assert engine.next_image("late@x.it") is not None
+    # Tutto il batch è già assegnato: chi arriva non aspetta, parte il round successivo
+    round_before = engine.round
+    late = engine.next_image("late@x.it")
+    assert late is not None and late.image_id not in assigned | {a.image_id, b.image_id}
+    assert engine.round == round_before + 1
+    assert engine.next_image("a@x.it").image_id == a.image_id  # chi aveva un'ape la tiene
+    many = engine.next_images("late2@x.it", 5)                  # lo stesso per la griglia
+    assert many and not {m.image_id for m in many} & (assigned | {a.image_id, b.image_id, late.image_id})
 
 
 def test_refresh_keeps_images_someone_is_looking_at(cfg, synth):

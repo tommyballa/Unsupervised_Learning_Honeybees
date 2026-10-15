@@ -2,6 +2,7 @@
 import csv
 import json
 import os
+import shutil
 import threading
 
 import numpy as np
@@ -151,6 +152,30 @@ def test_failed_export_leaves_nothing_behind(phase, monkeypatch):
     assert not (cfg.clusters_dir / "rotto").exists() and list_exports(cfg) == []
     assert not [p for p in cfg.clusters_dir.iterdir()]
 
+
+
+def test_export_freezes_the_snapshot_in_the_background(phase, monkeypatch):
+    """Sul disco dei risultati lo snapshot richiede minuti: il pulsante non deve aspettarlo."""
+    engine, cfg = phase.engine, phase.cfg
+    release = threading.Event()
+    real = engine.export_snapshot
+
+    def slow_snapshot(name, annotator):
+        release.wait(30)
+        return real(name, annotator)
+
+    monkeypatch.setattr(engine, "export_snapshot", slow_snapshot)
+    engine.exporter.start("lento", "a@x.it")                                    # ritorna subito
+    assert engine.exporter.state == "running" and engine.exporter.progress["total"] == 0
+    release.set()
+    engine.exporter.join(30)
+    assert engine.exporter.state == "idle", engine.exporter.error
+    assert (cfg.clusters_dir / "lento" / "clusters.csv").exists()
+    with pytest.raises(ValueError, match="already"):                           # lo snapshot c'è già
+        engine.exporter.start("lento", "a@x.it")
+    shutil.rmtree(cfg.clusters_dir / "lento")
+    with pytest.raises(ValueError, match="snapshot 'lento' already exists"):
+        engine.exporter.start("lento", "a@x.it")
 
 @pytest.fixture
 def client(phase, hub_app, monkeypatch, tmp_path):
