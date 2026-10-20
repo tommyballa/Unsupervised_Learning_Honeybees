@@ -78,7 +78,7 @@ def assign_strata(
       score sopra/sotto il quantile ``anomaly_quantile`` (calcolato sulle api di quella classe;
       un'ape senza score sta sotto).
     """
-    population = [r for r in rows if in_population(r)]
+    population = [r for r in rows if in_population(r) and (not audit.datasets or r["dataset"] in audit.datasets)]
     threshold: Optional[float] = None
     if anomaly_scores and split_class:
         values = [anomaly_scores[r["image_id"]] for r in population

@@ -68,6 +68,27 @@ Due menù scelgono quante api vedere (12, 24, 48 o 96) e in che ordine: le tre f
 più o dalla meno simile, dalla più o dalla meno sicura per il modello (solo per i cluster predetti) o un
 campione casuale. La scelta resta valida cambiando gruppo.
 
+Con più batch, il menù **Batch** mostra solo le api di un batch (la sessione di `frames.session_dirs`,
+ricavata dal frame di origine; senza mappa dei frame è la cartella di dataset). I conteggi del menù dei
+gruppi e il centro del gruppo seguono il filtro.
+
+## Batch tenuto da parte per la validazione
+
+Un batch nuovo si può tenere fuori dall'addestramento per misurare il modello su foto mai viste:
+
+```
+python scripts/add_dataset_to_stage.py --snapshot fase1_finale_okvsscarta --stage-config config/al_fase2_sam3.yaml \
+    --name b7 --dir /percorso/single_bee7_SAM3/cleaned_bees --keep Ok      # filtro della fase 1
+python scripts/extend_stage_embeddings.py --config config/al_fase2_sam3.yaml --name b7   # embedding del modello corrente
+```
+
+e in config `validation.holdout_datasets: [b7]`. Le api di quella cartella vengono predette (sono nel
+grafo della propagazione come api non etichettate) ma non vengono mai proposte, non entrano nel re-train
+nemmeno come non etichettate e non spostano la soglia delle "non assegnate". Le correzioni fatte su di
+loro nella pagina dei cluster diventano eventi `holdout`, che non addestrano nulla; nella griglia hanno
+la scritta *held out*. Le misure per la tesi vengono dall'audit alla cieca limitato al batch
+(`audit.datasets: [b7]`, sezione 3).
+
 La home dell'hub elenca solo le pagine di active learning; gli strumenti precedenti sono raccolti
 sotto il tasto *Old tools*.
 

@@ -13,6 +13,7 @@ import numpy as np
 from . import REMOVED_LABEL, UNKNOWN_LABEL, audit, review, snapshot
 from .config import DEFAULT_CONFIG_PATH, ALConfig, load_config
 from .export import ClusterExporter
+from .frames import FrameGrouper, dataset_of, load_frame_maps
 from .embeddings import Embeddings, load_embeddings, restrict_embeddings, restrict_to_datasets
 from .knn import Prediction, knn_predict, nearest_labeled_similarity
 from .label_store import LabelStore, is_training_event
@@ -123,6 +124,8 @@ class ALEngine:
             cfg.validation_path, embeddings.ids, cfg.validation.size, cfg.validation.seed
         )
         self._val_set = set(self.validation_ids)
+        self.holdout_labels: dict[str, str] = {}   # etichette delle api tenute da parte (mai addestramento)
+        self._batches: Optional[np.ndarray] = None  # batch (sessione) di ogni ape, calcolato alla prima richiesta
         self._round_final: Optional[np.ndarray] = None  # etichette finali al round precedente (criteri di stop)
         # Audit attivo: campione di controllo di uno snapshot, mai usato per addestrare.
         self.audit: Optional[dict[str, Any]] = None
@@ -158,6 +161,9 @@ class ALEngine:
     def _install_embeddings(self, embeddings: Embeddings, model_version: str) -> None:
         self.bank = MemoryBank(embeddings.ids, embeddings.X, embeddings.paths, backend=self.cfg.knn.backend)
         self.model_version = model_version
+        holdout = set(self.cfg.validation.holdout_datasets)
+        self._holdout = np.array([bool(holdout) and dataset_of(i, self.cfg) in holdout for i in self.bank.ids], dtype=bool)
+        self._holdout_ids = {self.bank.ids[i] for i in np.flatnonzero(self._holdout)}
         self.spreader: Optional[LabelSpreader] = None
         if self.cfg.propagation.enabled:
             p = self.cfg.propagation
@@ -178,8 +184,13 @@ class ALEngine:
         # Le api di validazione non entrano mai nella bank, nemmeno se hanno un'etichetta legacy.
         # Gli eventi di validazione e di audit sono tenuti da parte: non addestrano nulla.
         for image_id, ev in self.store.current(is_training_event).items():
-            if image_id in self.bank and image_id not in self._val_set:
+            if image_id in self.bank and image_id not in self._val_set and image_id not in self._holdout_ids:
                 self.bank.add_label(image_id, ev.label)
+        self.holdout_labels = {
+            image_id: ev.label
+            for image_id, ev in self.store.current(lambda e: e.query_type == "holdout").items()
+            if image_id in self._holdout_ids and ev.label != REMOVED_LABEL
+        }
         self._reload_audit_labels()
         self.val_labels = {
             image_id: ev.label
@@ -352,10 +363,14 @@ class ALEngine:
         free = self._not_validation()  # le api di validazione restano fuori da questa pagina
         free[self.bank.labeled_indices()] = False
         free[self.bank.unknown_indices()] = False
-        free_idx = np.flatnonzero(free)
+        # La soglia viene dalle sole api non tenute da parte, così aggiungerne non cambia le altre;
+        # alle tenute da parte si applica la stessa soglia di similarità.
+        free_idx = np.flatnonzero(free & ~self._holdout)
         k = int(round(self.cfg.knn.unassigned_fraction * len(free_idx)))
         if k:
-            self.unassigned[free_idx[np.argsort(self.nearest_sim[free_idx], kind="stable")[:k]]] = True
+            far = free_idx[np.argsort(self.nearest_sim[free_idx], kind="stable")[:k]]
+            self.unassigned[far] = True
+            self.unassigned |= free & self._holdout & (self.nearest_sim <= self.nearest_sim[far].max())
 
     def _evaluate(self) -> dict[str, Any]:
         """Metriche sul validation set (solo etichette date in modalità validazione)."""
@@ -529,6 +544,7 @@ class ALEngine:
         excluded.update(self.bank.unknown_indices().tolist())
         excluded.update(self.bank.index_of(i) for i in self._val_set if i in self.bank)
         excluded.update(self.bank.index_of(i) for i in self._audit_ids if i in self.bank)
+        excluded.update(np.flatnonzero(self._holdout).tolist())
         excluded.update(taken)
         source = self.knn_pred if self.cfg.query.uncertainty_source == "knn" else self.final_pred
         queries = select_batch(
@@ -698,6 +714,18 @@ class ALEngine:
                 raise ALError(f"{image_id} è nel validation set: va etichettata in modalità validazione")
             if image_id in self._audit_ids:
                 raise ALError(f"{image_id} è nel campione di audit: va etichettata in modalità audit")
+            if image_id in self._holdout_ids:
+                # Batch tenuto da parte: l'etichetta serve a valutare il modello, non entra nella bank.
+                if not manual:
+                    raise ALError(f"{image_id} fa parte di un dataset tenuto da parte")
+                self.store.append(image_id, label, annotator, confidence, "holdout",
+                                  self.cfg.config_id, self.model_version, "holdout")
+                resolved = self.store.resolve(label)
+                if resolved == REMOVED_LABEL:
+                    self.holdout_labels.pop(image_id, None)
+                else:
+                    self.holdout_labels[image_id] = resolved
+                return label
             item = next((b for b in self.batch if b.image_id == image_id), None)
             if item is not None:
                 query_type, batch_id = item.query_type, item.batch_id
@@ -792,22 +820,23 @@ class ALEngine:
             resolved = self.store.resolve(label)
             changed = 0
             for image_id in image_ids:
-                current = self.bank.label_of(image_id)
+                current = self.holdout_labels.get(image_id) if image_id in self._holdout_ids else self.bank.label_of(image_id)
                 if current == resolved or (resolved == REMOVED_LABEL and current is None):
                     continue  # niente da cambiare: nessun evento inutile nello storico
                 self.submit(annotator, image_id, label, confidence, manual=True)
                 changed += 1
-            if changed:
-                self.recompute()
+            if changed and any(i not in self._holdout_ids for i in image_ids):
+                self.recompute()  # le etichette tenute da parte non cambiano le predizioni
             return changed
 
-    def labeled_samples(self, n: int = 12) -> list[dict[str, Any]]:
+    def labeled_samples(self, n: int = 12, batch: str = "") -> list[dict[str, Any]]:
         """Per ogni classe, le ultime ``n`` api etichettate a mano; in fondo i "Non so"."""
         with self.lock:
             reject = self.reject_classes()
+            in_batch = self._batch_mask(batch)
             groups: dict[str, list[Any]] = {}
             for image_id, ev in self.store.current(is_training_event).items():
-                if image_id in self.bank and image_id not in self._val_set:
+                if image_id in self.bank and image_id not in self._val_set and in_batch[self.bank.index_of(image_id)]:
                     groups.setdefault(ev.label, []).append(ev)
             out = []
             for label in sorted(groups, key=lambda name: (name == UNKNOWN_LABEL, name)):
@@ -824,12 +853,43 @@ class ALEngine:
                 })
             return out
 
+    def bee_batches(self) -> np.ndarray:
+        """Batch di ogni ape della bank: la sessione di ``frames`` (cartella del frame di origine).
+
+        Si calcola alla prima richiesta (legge i manifest dell'estrazione) e resta in memoria.
+        """
+        if self._batches is None or len(self._batches) != len(self.bank):
+            maps, grouper = load_frame_maps(self.cfg), FrameGrouper(self.cfg)
+            out = []
+            for image_id, path in zip(self.bank.ids, self.bank.paths):
+                dataset = dataset_of(image_id, self.cfg)
+                fmap = maps.get(dataset)
+                frame = (fmap.frame_of(Path(path).name) if fmap is not None else None) or ""
+                out.append(grouper.groups(frame, dataset)[0])
+            self._batches = np.array(out, dtype=object)
+        return self._batches
+
+    def batch_counts(self) -> dict[str, int]:
+        """Api per batch, in ordine di nome."""
+        names, counts = np.unique(self.bee_batches().astype(str), return_counts=True)
+        return {str(k): int(v) for k, v in zip(names, counts)}
+
+    def held_out_batches(self) -> set[str]:
+        """Batch che contengono api tenute da parte."""
+        return set(self.bee_batches()[self._holdout].tolist())
+
+    def _batch_mask(self, batch: str = "") -> np.ndarray:
+        """Api del batch ``batch``; tutte se è vuoto."""
+        if not batch:
+            return np.ones(len(self.bank), dtype=bool)
+        return self.bee_batches() == batch
+
     def _not_validation(self) -> np.ndarray:
         mask = np.ones(len(self.bank), dtype=bool)
         mask[[self.bank.index_of(i) for i in self._val_set if i in self.bank]] = False
         return mask
 
-    def cluster_samples(self, n: int = 12, order: str = "random") -> list[dict[str, Any]]:
+    def cluster_samples(self, n: int = 12, order: str = "random", batch: str = "") -> list[dict[str, Any]]:
         """Per ogni cluster, ``n`` api assegnate dal modello (non dall'annotatore).
 
         Le predizioni sono quelle dell'ultimo ricalcolo, quindi la pagina cambia a ogni batch.
@@ -845,7 +905,7 @@ class ALEngine:
             predicted = pred.probs.sum(axis=1) > 0
             predicted[self.bank.labeled_indices()] = False
             predicted[self.bank.unknown_indices()] = False
-            predicted &= ~self.unassigned & self._not_validation() & ~self._audit_mask()
+            predicted &= ~self.unassigned & self._not_validation() & ~self._audit_mask() & self._batch_mask(batch)
             human = self.bank.class_counts()
             reject = self.reject_classes()
             rng = np.random.default_rng([self.cfg.seed, self.round])
@@ -868,13 +928,13 @@ class ALEngine:
                 })
             return clusters
 
-    def unassigned_samples(self, n: int = 12, order: str = "random") -> dict[str, Any]:
+    def unassigned_samples(self, n: int = 12, order: str = "random", batch: str = "") -> dict[str, Any]:
         """``n`` api del gruppo "non assegnate", con la similarità all'esempio etichettato più vicino.
 
         ``order``: ``random``, ``uncertain`` (le più lontane) o ``confident`` (le meno lontane).
         """
         with self.lock:
-            members = np.flatnonzero(self.unassigned & ~self._audit_mask())
+            members = np.flatnonzero(self.unassigned & ~self._audit_mask() & self._batch_mask(batch))
             if not len(members):
                 return {"n": 0, "samples": []}
             sims = self.nearest_sim[members]
@@ -922,7 +982,7 @@ class ALEngine:
         }
 
     def cluster_view(self, kind: str, label: str = "", n: int = 12, page: int = 0,
-                     order: str = "bands") -> Optional[dict[str, Any]]:
+                     order: str = "bands", batch: str = "") -> Optional[dict[str, Any]]:
         """Api di un solo gruppo per la pagina dei cluster, scelte per fasce di similarità (``similarity_bands``).
 
         ``kind``: ``predicted`` (api assegnate dal modello alla classe ``label``), ``labeled`` (etichettate a
@@ -932,6 +992,8 @@ class ALEngine:
         ``order``: ``bands`` (le tre fasce), ``similar``/``dissimilar``, ``confident``/``uncertain`` (confidenza
         del modello, solo per ``predicted``) o ``random`` (fisso fino al round successivo). Un ordinamento
         che il gruppo non ammette ricade su ``bands``; quello usato è nel campo ``order``.
+        ``batch``: solo le api di quel batch (vuoto = tutte); il centro è quello delle api mostrate.
+        Le api tenute da parte hanno ``holdout`` vero e, se c'è, l'etichetta data a mano in ``holdout_label``.
         """
         with self.lock:
             pred = self.final_pred
@@ -961,6 +1023,7 @@ class ALEngine:
                 extra_of = lambda i: {"nearest_class": nearest[i]}  # noqa: E731
             else:
                 return None
+            members = members[self._batch_mask(batch)[members]] if batch else members
             if not len(members):
                 return None
             if kind == "unassigned":
@@ -984,6 +1047,8 @@ class ALEngine:
                 "kind": kind, "label": label, "n_members": int(len(members)), "n_pages": n_pages, "order": order,
                 "page": page % n_pages, "reject": label in self.reject_classes(),
                 "samples": [{"image_id": self.bank.ids[members[j]], "similarity": float(sims[j]), "band": band,
+                             "holdout": bool(self._holdout[members[j]]),
+                             "holdout_label": self.holdout_labels.get(self.bank.ids[members[j]], ""),
                              **extra_of(int(members[j]))} for j, band in picks],
             }
 
@@ -1147,6 +1212,8 @@ class ALEngine:
                 "batch_done": sum(b.done for b in self.batch),
                 "validation_size": len(self.validation_ids),
                 "validation_labeled": len(self.val_labels),
+                "holdout": {"datasets": list(self.cfg.validation.holdout_datasets), "n_bees": int(self._holdout.sum()),
+                            "n_labels": len(self.holdout_labels)},
                 "metrics": {k: last.get(k) for k in ("accuracy", "macro_f1", "knn_accuracy", "knn_macro_f1", "n_validation")},
                 "history": list(self.history),
                 "retrain": self.retrain.status() if self.retrain is not None else None,

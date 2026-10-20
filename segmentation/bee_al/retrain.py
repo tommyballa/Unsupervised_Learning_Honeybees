@@ -244,7 +244,8 @@ class RetrainManager:
                 raise ValueError(blocked)
             bank = engine.bank
             lab = bank.labeled_indices()
-            unl = np.setdiff1d(np.arange(len(bank)), lab)
+            # Le api tenute da parte (validazione su un batch nuovo) non entrano nemmeno come non etichettate.
+            unl = np.setdiff1d(np.flatnonzero(~engine._holdout), lab)
             labeled = TrainingData([bank.ids[i] for i in lab], [bank.paths[i] for i in lab], bank.X[lab], bank.labels_at(lab))
 
             # Pseudo-label: predizioni correnti molto sicure, ricalcolate a ogni job.

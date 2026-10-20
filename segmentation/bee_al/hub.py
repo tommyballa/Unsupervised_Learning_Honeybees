@@ -706,13 +706,13 @@ _CLUSTERS_PAGE = """
             <div class="grid-tile" data-index="{{ loop.index0 }}">
                 <img src="{{ url_for('al.image', image_id=b.image_id) }}" title="{{ b.image_id }}{{ b.tip }}">
                 <span class="badge"></span>
-                <span class="cap">{% if b.band %}{{ b.band }} &middot; {% endif %}sim {{ '%.2f' % b.similarity }}{% if b.confidence %} &middot; conf {{ b.confidence }}{% endif %}</span>
+                <span class="cap">{% if b.band %}{{ b.band }} &middot; {% endif %}sim {{ '%.2f' % b.similarity }}{% if b.confidence %} &middot; conf {{ b.confidence }}{% endif %}{% if b.holdout %} &middot; held out{% if b.holdout_label %}: {{ b.holdout_label }}{% endif %}{% endif %}</span>
                 <input type="hidden" name="image_{{ loop.index0 }}" value="{{ b.image_id }}">
                 <input type="hidden" name="group_{{ loop.index0 }}" value="">
             </div>
             {% endfor %}
         </div>
-        {% if not view %}<p>No clusters yet: label a few bees first.</p>{% endif %}
+        {% if not view %}<p>{% if batch %}No bees of {{ batch }} in any group.{% else %}No clusters yet: label a few bees first.{% endif %}</p>{% endif %}
     </div>
     <div class="grid-right">
         """ + _STAGE_BANNER + _SIDE_NAV + """
@@ -720,6 +720,16 @@ _CLUSTERS_PAGE = """
         <p style="color: #94a3b8; font-size: 13px; margin: 4px 0 8px;">Round {{ s.round }}, {{ s.n_labels }} labels.</p>
         {% if message %}<p style="color: var(--btn-green); margin: 4px 0;"><b>{{ message }}</b></p>{% endif %}
         {% if error %}<p style="color: var(--btn-red); margin: 4px 0;"><b>{{ error }}</b></p>{% endif %}
+        {% if batches|length > 1 or held %}
+        <p style="font-size: 13px; margin: 4px 0 8px; display: flex; gap: 8px; align-items: center;">
+            Batch
+            <select class="cluster-option" id="batch_select" style="flex: 1; min-width: 0; padding: 6px; background: var(--input-bg); color: var(--input-text); border: 1px solid var(--border-color); border-radius: 6px;">
+                <option value="{{ url_for('al.clusters', group=group, batch='') }}" {% if not batch %}selected{% endif %}>All batches</option>
+                {% for name, count in batches.items() %}<option value="{{ url_for('al.clusters', group=group, batch=name) }}" {% if name == batch %}selected{% endif %}>{{ name }} ({{ count }} bees){% if name in held %} - held out{% endif %}</option>{% endfor %}
+            </select>
+        </p>
+        {% if batch in held %}<p style="font-size: 13px; margin: 4px 0; color: var(--btn-orange, #f59e0b);">{{ batch }} is held out to validate the model: it never proposes these bees and never learns from them. Colours you save here are kept as validation labels.</p>{% endif %}
+        {% endif %}
         {% if view %}
         <select id="cluster_select" style="width: 100%; padding: 10px; font-size: 15px; background: var(--input-bg); color: var(--input-text); border: 1px solid var(--border-color); border-radius: 6px;">
             {% for title, options in menu %}
@@ -762,9 +772,11 @@ _CLUSTERS_PAGE = """
 """ + _GRID_SCRIPT + """
 <script>
 document.getElementById('cluster_select').addEventListener('change', function () { window.location = this.value; });
-document.querySelectorAll('.cluster-option').forEach(function (el) { el.addEventListener('change', function () { window.location = this.value; }); });
 </script>
 {% endif %}
+<script>
+document.querySelectorAll('.cluster-option').forEach(function (el) { el.addEventListener('change', function () { window.location = this.value; }); });
+</script>
 """
 
 
@@ -1189,11 +1201,19 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
         def shown(name: str) -> str:
             return "Scarta ape (set aside)" if name == UNKNOWN_LABEL else name
 
-        predicted = [{"key": f"p:{c['label']}", "name": c["label"], "n": c["n_predicted"]} for c in engine.cluster_samples(0)]
-        n_unassigned = engine.unassigned_samples(0)["n"]
+        # Filtro per batch: anche questa scelta resta nella sessione ("" = tutti i batch).
+        batches = engine.batch_counts()
+        batch = request.args.get("batch")
+        batch = session.get("al_clusters_batch", "") if batch is None else batch
+        batch = batch if batch in batches else ""
+        session["al_clusters_batch"] = batch
+        held = engine.held_out_batches()
+
+        predicted = [{"key": f"p:{c['label']}", "name": c["label"], "n": c["n_predicted"]} for c in engine.cluster_samples(0, batch=batch)]
+        n_unassigned = engine.unassigned_samples(0, batch=batch)["n"]
         if n_unassigned:
             predicted.append({"key": "u", "name": "Unassigned - possible new class", "n": n_unassigned})
-        by_hand = [{"key": f"h:{c['label']}", "name": shown(c["label"]), "n": c["n_human"]} for c in engine.labeled_samples(0)]
+        by_hand = [{"key": f"h:{c['label']}", "name": shown(c["label"]), "n": c["n_human"]} for c in engine.labeled_samples(0, batch=batch)]
         menu = [(title, options) for title, options in (("Model predictions", predicted), ("Labels given by hand", by_hand)) if options]
         sizes = {o["key"]: o["n"] for _, options in menu for o in options}
         group = request.args.get("group", "")
@@ -1246,7 +1266,7 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
                 else:
                     return redirect(url_for("al.clusters", group=group, page=page_no, changed=changed))
 
-        view = engine.cluster_view(kind, group[2:], n, page_no, order) if kind else None
+        view = engine.cluster_view(kind, group[2:], n, page_no, order, batch) if kind else None
         if view is not None:
             bands = {"high": "very similar", "median": "median", "low": "least similar", "": ""}
             for b in view["samples"]:
@@ -1266,7 +1286,7 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
             _CLUSTERS_PAGE, css=base_css, user=user, s=engine.status(), group=group, menu=menu, view=view,
             groups=[{"name": name, "color": color, "label": labels[g]} for g, (name, color) in enumerate(GRID_COLORS)],
             quick_labels=engine.quick_labels(), can_remove=kind == "labeled", error=error,
-            kind=kind, n=n, sizes=sizes, orders=orders,
+            kind=kind, n=n, sizes=sizes, orders=orders, batches=batches, batch=batch, held=held,
             message=None if changed is None else f"{changed} bee(s) updated. Predictions recomputed.",
         )
 

@@ -108,6 +108,9 @@ class QueryConfig:
 class ValidationConfig:
     size: int = 100
     seed: int = 123
+    # Cartelle di dataset tenute da parte per validare il modello (es. un batch nuovo): il modello
+    # le predice ma non le propone mai, non impara da loro e le etichette date restano "holdout".
+    holdout_datasets: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -202,6 +205,8 @@ class AuditConfig:
     anomaly_split_class: str = ""     # es. "Healthy Adult"; vuoto = nessuna divisione per anomaly score
     anomaly_quantile: float = 0.9
     seed: int = 7
+    # Solo le api di queste cartelle di dataset (es. il batch tenuto da parte); vuoto = tutte.
+    datasets: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         _check(self.per_stratum >= 1, "audit.per_stratum >= 1")
@@ -421,6 +426,8 @@ def config_from_dict(data: Optional[dict[str, Any]], root: Union[str, Path, None
     for name in cfg.paths.dataset_dirs:
         _check(bool(name) and "/" not in name and ID_SEPARATOR not in name,
                f"paths.dataset_dirs: nome non valido {name!r} (niente '/' né '{ID_SEPARATOR}')")
+    for name in cfg.validation.holdout_datasets:
+        _check(name in cfg.paths.dataset_dirs, f"validation.holdout_datasets: {name!r} non è in paths.dataset_dirs")
     if root is not None:
         cfg.root = str(Path(root).resolve())
     return cfg

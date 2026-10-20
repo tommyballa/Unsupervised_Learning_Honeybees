@@ -16,8 +16,8 @@ FIELDS = [
     "image_id", "label", "timestamp", "annotator", "confidence",
     "query_type", "config_id", "model_version", "batch_id",
 ]
-QUERY_TYPES = ("random", "diversity", "uncertainty", "novelty", "manual", "validation", "audit", "legacy")
-HELD_OUT_TYPES = ("validation", "audit")  # eventi che non entrano mai nella memory bank
+QUERY_TYPES = ("random", "diversity", "uncertainty", "novelty", "manual", "validation", "audit", "holdout", "legacy")
+HELD_OUT_TYPES = ("validation", "audit", "holdout")  # eventi che non entrano mai nella memory bank
 SENTINELS = (UNKNOWN_LABEL, REMOVED_LABEL)
 # Scritto a mano nel campo libero vale come il pulsante "Scarta ape" ("non so" era il vecchio nome).
 UNKNOWN_TEXTS = ("scarta ape", "non so")
