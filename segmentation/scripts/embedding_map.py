@@ -12,7 +12,8 @@ In ``<results_dir>/embedding_map/<name>/``:
 - ``coords.csv``: coordinate, batch, cluster e confidenza di ogni ape;
 - ``map_overview.png``: tutte le api non tenute da parte, un colore per cluster;
 - ``map_by_cluster.png``: un pannello per cluster (le altre api in grigio);
-- ``map_holdout.png``: le api tenute da parte sopra la mappa delle altre (se ce ne sono).
+- ``map_holdout.png``: le api tenute da parte sopra la mappa delle altre (se ce ne sono);
+- ``map_holdout_by_cluster.png``: le stesse, un pannello per cluster.
 """
 import argparse
 import csv
@@ -119,23 +120,27 @@ def plot(coords, clusters, classes, holdout, out_dir, title):
     fig.savefig(out_dir / "map_overview.png")
     plt.close(fig)
 
-    panels = [c for c in classes + [UNASSIGNED] if np.any(clusters[train] == c)]
-    cols = 3
-    rows = -(-len(panels) // cols)
-    fig, axes = plt.subplots(rows, cols, figsize=(5 * cols, 4.4 * rows), dpi=130, squeeze=False)
-    for ax, c in zip(axes.flat, panels):
-        own = train[clusters[train] == c]
-        ax.scatter(coords[train, 0], coords[train, 1], s=0.5, c=BACKGROUND, linewidths=0, rasterized=True)
-        ax.scatter(coords[own, 0], coords[own, 1], s=size_of(len(own)), c=DARK if c == UNASSIGNED else colour[c],
-                   alpha=0.35 if len(own) > 20000 else 0.8, linewidths=0, rasterized=True)
-        ax.set_title(f"{c} ({len(own)})", loc="left", fontsize=11)
-        frame(ax)
-    for ax in list(axes.flat)[len(panels):]:
-        ax.axis("off")
-    fig.suptitle(f"{title}: one panel per cluster (other bees in grey)", x=0.01, ha="left", fontsize=12)
-    fig.tight_layout()
-    fig.savefig(out_dir / "map_by_cluster.png")
-    plt.close(fig)
+    def by_cluster(idx, filename, subtitle):
+        """Un pannello per cluster delle api ``idx``, sopra la mappa grigia delle api non tenute da parte."""
+        panels = [c for c in classes + [UNASSIGNED] if np.any(clusters[idx] == c)]
+        cols = 3
+        rows = -(-len(panels) // cols)
+        fig, axes = plt.subplots(rows, cols, figsize=(5 * cols, 4.4 * rows), dpi=130, squeeze=False)
+        for ax, c in zip(axes.flat, panels):
+            own = idx[clusters[idx] == c]
+            ax.scatter(coords[train, 0], coords[train, 1], s=0.5, c=BACKGROUND, linewidths=0, rasterized=True)
+            ax.scatter(coords[own, 0], coords[own, 1], s=size_of(len(own)), c=DARK if c == UNASSIGNED else colour[c],
+                       alpha=0.35 if len(own) > 20000 else 0.8, linewidths=0, rasterized=True)
+            ax.set_title(f"{c} ({len(own)})", loc="left", fontsize=11)
+            frame(ax)
+        for ax in list(axes.flat)[len(panels):]:
+            ax.axis("off")
+        fig.suptitle(f"{title}: {subtitle}", x=0.01, ha="left", fontsize=12)
+        fig.tight_layout()
+        fig.savefig(out_dir / filename)
+        plt.close(fig)
+
+    by_cluster(train, "map_by_cluster.png", "one panel per cluster (other bees in grey)")
 
     held = np.flatnonzero(holdout)
     if len(held):
@@ -149,6 +154,7 @@ def plot(coords, clusters, classes, holdout, out_dir, title):
         fig.tight_layout()
         fig.savefig(out_dir / "map_holdout.png")
         plt.close(fig)
+        by_cluster(held, "map_holdout_by_cluster.png", "held-out bees, one panel per cluster (map of the others in grey)")
 
 
 def main() -> None:
