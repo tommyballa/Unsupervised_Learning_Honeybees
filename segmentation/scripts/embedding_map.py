@@ -13,7 +13,10 @@ In ``<results_dir>/embedding_map/<name>/``:
 - ``map_overview.png``: tutte le api non tenute da parte, un colore per cluster;
 - ``map_by_cluster.png``: un pannello per cluster (le altre api in grigio);
 - ``map_holdout.png``: le api tenute da parte sopra la mappa delle altre (se ce ne sono);
-- ``map_holdout_by_cluster.png``: le stesse, un pannello per cluster.
+- ``map_holdout_by_cluster.png``: le stesse, un pannello per cluster;
+- con ``--per-batch``: ``map_<batch>.png`` e ``map_<batch>_by_cluster.png`` per ogni batch non tenuto da parte.
+
+Nei grafici i nomi dei cluster sono in inglese (``ENGLISH``); in ``coords.csv`` restano quelli dell'hub.
 """
 import argparse
 import csv
@@ -31,6 +34,13 @@ SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#62
 UNASSIGNED, SET_ASIDE, OTHER = "Unassigned", "Set aside", "Other"
 GREY, BACKGROUND, DARK = "#9a9890", "#e3e2dc", "#4a4944"
 INK, MUTED = "#1f1e1c", "#6b6a64"
+# Nomi dei cluster nei grafici (i colori seguono comunque l'ordine fisso dei nomi originali).
+ENGLISH = {"Adulte": "Adult", "Fuco": "Drone", "Giovane": "Young", "Malata": "Sick",
+           "Non Classificabile": "Unclassifiable", "Scarta": "Discard", "Ok": "Ok"}
+
+
+def english(name: str) -> str:
+    return ENGLISH.get(name, name)
 
 
 def cluster_of(engine: ALEngine) -> tuple[list[str], np.ndarray, list[str]]:
@@ -56,7 +66,7 @@ def cluster_of(engine: ALEngine) -> tuple[list[str], np.ndarray, list[str]]:
     return out, conf, source
 
 
-def plot(coords, clusters, classes, holdout, out_dir, title):
+def plot(coords, clusters, classes, holdout, out_dir, title, batches=None):
     import matplotlib
 
     matplotlib.use("Agg")
@@ -98,7 +108,7 @@ def plot(coords, clusters, classes, holdout, out_dir, title):
                 bx, by = np.unravel_index(np.argmax(h), h.shape)
                 if h[bx, by] < 0.1 * len(members):
                     continue                    # cluster sparso su tutta la mappa: niente nome, basta la legenda
-                ax.text((xe[bx] + xe[bx + 1]) / 2, (ye[by] + ye[by + 1]) / 2, c, ha="center", va="bottom",
+                ax.text((xe[bx] + xe[bx + 1]) / 2, (ye[by] + ye[by + 1]) / 2, english(c), ha="center", va="bottom",
                         fontsize=10, weight="bold", color=INK, path_effects=halo)
 
     def legend(ax, idx):
@@ -106,7 +116,7 @@ def plot(coords, clusters, classes, holdout, out_dir, title):
 
         shown = [c for c in classes + [UNASSIGNED, SET_ASIDE, OTHER] if np.any(clusters[idx] == c)]
         handles = [Line2D([], [], marker="o", linestyle="", markersize=7, markerfacecolor=colour[c], markeredgewidth=0,
-                          label=f"{c} ({int(np.sum(clusters[idx] == c))})") for c in shown]
+                          label=f"{english(c)} ({int(np.sum(clusters[idx] == c))})") for c in shown]
         ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(1.01, 1), frameon=False, labelcolor=INK)
 
     train = np.flatnonzero(~holdout)
@@ -131,7 +141,7 @@ def plot(coords, clusters, classes, holdout, out_dir, title):
             ax.scatter(coords[train, 0], coords[train, 1], s=0.5, c=BACKGROUND, linewidths=0, rasterized=True)
             ax.scatter(coords[own, 0], coords[own, 1], s=size_of(len(own)), c=DARK if c == UNASSIGNED else colour[c],
                        alpha=0.35 if len(own) > 20000 else 0.8, linewidths=0, rasterized=True)
-            ax.set_title(f"{c} ({len(own)})", loc="left", fontsize=11)
+            ax.set_title(f"{english(c)} ({len(own)})", loc="left", fontsize=11)
             frame(ax)
         for ax in list(axes.flat)[len(panels):]:
             ax.axis("off")
@@ -142,19 +152,27 @@ def plot(coords, clusters, classes, holdout, out_dir, title):
 
     by_cluster(train, "map_by_cluster.png", "one panel per cluster (other bees in grey)")
 
-    held = np.flatnonzero(holdout)
-    if len(held):
+    def overlay(idx, stem, what):
+        """Le api ``idx`` a colori sopra la mappa grigia delle api non tenute da parte, poi un pannello per cluster."""
         fig, ax = plt.subplots(figsize=(11, 8.5), dpi=150)
         ax.scatter(coords[train, 0], coords[train, 1], s=0.5, c=BACKGROUND, linewidths=0, rasterized=True)
-        scatter(ax, held, scale=2.0)
-        names(ax, held)
-        legend(ax, held)
+        scatter(ax, idx, scale=2.0)
+        names(ax, idx)
+        legend(ax, idx)
         frame(ax)
-        ax.set_title(f"{title}: {len(held)} held-out bees (colour) on the map of the others (grey)", loc="left", fontsize=12)
+        ax.set_title(f"{title}: {len(idx)} {what} (colour) on the map of the non-held-out bees (grey)", loc="left", fontsize=12)
         fig.tight_layout()
-        fig.savefig(out_dir / "map_holdout.png")
+        fig.savefig(out_dir / f"{stem}.png")
         plt.close(fig)
-        by_cluster(held, "map_holdout_by_cluster.png", "held-out bees, one panel per cluster (map of the others in grey)")
+        by_cluster(idx, f"{stem}_by_cluster.png", f"{what}, one panel per cluster (non-held-out bees in grey)")
+
+    held = np.flatnonzero(holdout)
+    if len(held):
+        overlay(held, "map_holdout", "held-out bees")
+    if batches is not None:
+        batches = np.asarray(batches, dtype=object)
+        for b in sorted(set(batches[train])):
+            overlay(train[batches[train] == b], f"map_{b}", f"bees of {b}")
 
 
 def main() -> None:
@@ -166,6 +184,7 @@ def main() -> None:
     ap.add_argument("--min-dist", type=float, default=0.1)
     ap.add_argument("--title", default="", help="titolo dei grafici con --replot")
     ap.add_argument("--replot", action="store_true", help="ridisegna dalle coordinate già salvate in coords.csv")
+    ap.add_argument("--per-batch", action="store_true", help="anche una mappa per ogni batch non tenuto da parte")
     args = ap.parse_args()
     if args.replot:
         from bee_al.config import load_config
@@ -179,7 +198,8 @@ def main() -> None:
         holdout = np.array([r["holdout"] == "1" for r in rows])
         classes = sorted(set(clusters) - {UNASSIGNED, SET_ASIDE, OTHER})
         title = f"{cfg.stage.name or 'stage'} - " + (args.name if not args.title else args.title)
-        plot(coords, clusters, classes, holdout, out_dir, title)
+        batches = [r["batch"] for r in rows] if args.per_batch else None
+        plot(coords, clusters, classes, holdout, out_dir, title, batches)
         print(f"Fatto: {out_dir}")
         return
 
@@ -216,7 +236,7 @@ def main() -> None:
             writer.writerow([image_id, batches[i], int(holdout[i]), clusters[i], source[i], f"{confidence[i]:.4f}",
                              int(in_fit[i]), f"{coords[i, 0]:.4f}", f"{coords[i, 1]:.4f}"])
     title = f"{cfg.stage.name or 'stage'} - model {engine.model_version}"
-    plot(coords, clusters, classes, holdout, out_dir, title)
+    plot(coords, clusters, classes, holdout, out_dir, title, list(batches) if args.per_batch else None)
     print(f"Fatto: {out_dir}")
 
 
