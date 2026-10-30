@@ -43,6 +43,7 @@ def parse_args():
     p.add_argument("--backbone", default="wide_resnet50_2")
     p.add_argument("--img-size", type=int, default=256)
     p.add_argument("--epochs", type=float, default=5)
+    p.add_argument("--steps", type=int, default=0, help="step totali (0 = --epochs epoche)")
     p.add_argument("--bs", type=int, default=16)
     p.add_argument("--lr", type=float, default=0.005)
     p.add_argument("--beta1", type=float, default=0.5)
@@ -124,7 +125,7 @@ def variant_table(per_layer, labels, masks128, size, device):
     """AUROC / AP image e AP pixel (a 128) per diverse varianti di post-processing."""
     n = len(per_layer)
     # sottoinsieme ridotto: il blur a risoluzione alta (σ grande) è molto costoso
-    layer_sets = [tuple(range(n)), tuple(range(1, n))]
+    layer_sets = [tuple(range(n)), tuple(range(1, n)), (n - 1,)]
     step = max(1, masks128.size // 2_000_000)
     gt = masks128.ravel()[::step]
     rows = []
@@ -178,7 +179,7 @@ def main():
     params = list(model.decoder.parameters()) + list(model.bn.parameters())
     optimizer = torch.optim.AdamW(params, lr=args.lr, betas=(args.beta1, 0.999), weight_decay=args.wd) \
         if args.wd > 0 else torch.optim.Adam(params, lr=args.lr, betas=(args.beta1, 0.999))
-    total = int(args.epochs * len(train_loader))
+    total = args.steps or int(args.epochs * len(train_loader))
     if args.sched == "cos":
         warm = max(1, int(0.02 * total))
         scheduler = torch.optim.lr_scheduler.LambdaLR(

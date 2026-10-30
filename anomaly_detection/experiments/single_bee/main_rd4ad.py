@@ -1,6 +1,23 @@
 """
 RD4AD (Reverse Distillation) - Anomaly detection su singole api (single bee crops).
 
+Dataset:       single_bee3+4+5+6_SAM3_varroa_split (train/normal: 102k api sane;
+               val: 322 con varroa + 1251 sane, per la best e le soglie F1;
+               test_heldout: 957 con varroa + 5000 sane, valutato una volta;
+               vedi make_val_split.py).
+               Ri-ottimizzato su questo dataset (sweep_rd4ad.py, run sam3_*,
+               metriche dello sweep: pixel AP a 128 px). La ricetta del dataset
+               merged (724 step, layer 1+2, sigma 4) si ferma a img AUROC 0.914 /
+               pixel AP 0.27 (picco a 273 step, poi ~0.88):
+                 - 400 step con coseno, valutazione ogni 40: il picco è tra 160 e
+                   400 step ma oscilla di ±0.02 tra valutazioni vicine;
+                 - mappa dal solo layer 2 con sigma 8 px (= 4 a 256): ~0.94-0.95 /
+                   0.33-0.37 (layer 1+2: ~0.94 / 0.35-0.38; layer 0+1+2: 0.86);
+                   sigma 12, 16 o 24 px e score top-k non superano ~0.945;
+                 - lr 0.001: picco precoce (0.943 a 160 step) e poi calo a 0.92.
+               Con questo script (metriche ufficiali a 512): step 400 img_roc_auc
+               0.953 / pxl_avg_prec 0.362, AU-PRO 0.989 (0.93-0.95 da 160 step).
+               Sotto, la storia dello sweep sul dataset merged (23k api).
 Addestramento: immagini normali di singole api (VarroaDataset, split TRAIN),
                con augmentation geometrica (flip) perché le api possono avere
                qualsiasi orientamento.
@@ -14,7 +31,7 @@ Ottimizzazione (sweep: experiments/single_bee/sweep_rd4ad.py):
   - EMA dei pesi (EMA_DECAY) disponibile ma disattivata: stabilizza le run
     lunghe, ma al picco precoce è in ritardo (384: img AUROC 0.954 contro 0.962);
   - training in bf16 (autocast), valutazione in fp32.
-Best:          ogni EVAL_INTERVAL step (e alla fine) metriche sul test set;
+Best:          ogni EVAL_INTERVAL step (e alla fine) metriche sul validation set;
                la configurazione migliore (img_roc_auc, a parità pxl_avg_prec)
                viene salvata in checkpoints/single_bee/rd4ad/ (best.pth +
                config.json).
@@ -44,34 +61,41 @@ from moviad.utilities.evaluation.report import (
 )
 
 
+import ablation
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Configurazione
 # ──────────────────────────────────────────────────────────────────────
 MODEL_NAME    = "rd4ad"
 REPO_ROOT     = Path(__file__).resolve().parents[2]
-TRAIN_DIR     = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees"
+DATASET_DIR   = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3_varroa_split"
+TRAIN_DIR     = f"{DATASET_DIR}/train/normal"
+VAL_DIR       = f"{DATASET_DIR}/val"           # selezione della best e soglie F1
+TEST_DIR      = f"{DATASET_DIR}/test_heldout"  # valutato una sola volta sulla best
 # i crop delle api sono 512x512: maschere GT, metriche pixel e heatmap a questa
 # risoluzione per tutti i modelli (la mappa viene riportata a GT_SIZE)
 GT_SIZE       = (512, 512)
 
-BACKBONE      = "wide_resnet50_2"
+BACKBONE      = ablation.backbone("wide_resnet50_2")   # resnet18: ablation (ABL_BACKBONE)
 IMG_SIZE      = (512, 512)   # RD4AD richiede multipli di 32
-TRAIN_EPOCHS  = 0.5          # epoche (anche frazionarie): il picco è tra 1/4 e 1/2 epoca
+TRAIN_STEPS   = 400          # step totali: picco tra 160 e 400 step (merged: 724 = 1/2 epoca)
 BATCH_SIZE    = 16
 LR            = 0.005        # paper: Adam lr 0.005, betas (0.5, 0.999)
 BETAS         = (0.5, 0.999)
 WARMUP_FRAC   = 0.02         # warmup lineare, poi decadimento coseno fino a 0
 EMA_DECAY     = 0.0          # EMA dei pesi di bn + decoder (0 = off: al picco precoce l'EMA è in ritardo)
 AMP           = True         # bf16 autocast in training
-EVAL_INTERVAL = 181          # valuta ogni N step (~1/8 di epoca) e sempre alla fine
-BLUR_SIGMA    = 4.0          # sigma del blur sulla mappa a IMG_SIZE (= 2 a 256)
-LAYERS        = (1, 2)       # layer sommati nella mappa (None = tutti e 3): il layer 0 è rumoroso
+EVAL_INTERVAL = 40           # valuta ogni N step e sempre alla fine
+BLUR_SIGMA    = 8.0          # sigma del blur sulla mappa a IMG_SIZE (= 4 a 256; merged: 4)
+LAYERS        = (2,)         # layer sommati nella mappa (None = tutti e 3; merged: (1, 2))
 NUM_WORKERS   = 8
 SEED          = 1
 
 NUM_HEATMAPS  = 20           # metà sane, metà con varroa
-OUTPUT_DIR    = REPO_ROOT / "heatmaps" / "single_bee" / MODEL_NAME
-CHECKPOINT_DIR = REPO_ROOT / "checkpoints" / "single_bee" / MODEL_NAME
+OUTPUT_DIR    = REPO_ROOT / "heatmaps" / "single_bee_val" / MODEL_NAME
+CHECKPOINT_DIR = REPO_ROOT / "checkpoints" / "single_bee_val" / MODEL_NAME
+CHECKPOINT_DIR, OUTPUT_DIR = ablation.dirs(REPO_ROOT, MODEL_NAME, CHECKPOINT_DIR, OUTPUT_DIR)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -106,9 +130,10 @@ class AugmentedTrainDataset(Dataset):
 # ──────────────────────────────────────────────────────────────────────
 # Modello e dati (usati anche da experiments/plot_heatmaps.py)
 # ──────────────────────────────────────────────────────────────────────
-def dataset_args():
+def dataset_args(test_dir=TEST_DIR):
     return DatasetArguments(
         dataset_path=TRAIN_DIR,
+        test_path=test_dir,
         img_size=IMG_SIZE,
         gt_mask_size=GT_SIZE,
         image_transform_list=[
@@ -169,30 +194,30 @@ def train_rd4ad_single_bee():
     ema_model = copy.deepcopy(model) if EMA_DECAY > 0 else model
     ema_model.encoder = model.encoder  # encoder congelato condiviso
 
-    train_dataset = AugmentedTrainDataset(VarroaDataset(dataset_args(), "varroa", Split.TRAIN))
-    test_dataset = VarroaDataset(dataset_args(), "varroa", Split.TEST)
+    train_dataset = AugmentedTrainDataset(ablation.subset_train(VarroaDataset(dataset_args(), "varroa", Split.TRAIN)))
+    val_dataset = VarroaDataset(dataset_args(VAL_DIR), "varroa", Split.TEST)
 
     train_loader = DataLoader(
         train_dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=True,
         num_workers=NUM_WORKERS, pin_memory=True, persistent_workers=NUM_WORKERS > 0,
     )
-    test_loader = DataLoader(
-        test_dataset, batch_size=BATCH_SIZE, shuffle=False,
+    val_loader = DataLoader(
+        val_dataset, batch_size=BATCH_SIZE, shuffle=False,
         num_workers=NUM_WORKERS, pin_memory=True,
     )
 
     # l'encoder (teacher) è congelato: l'optimizer aggiorna solo bottleneck e decoder
     optimizer = torch.optim.Adam(list(model.decoder.parameters()) + list(model.bn.parameters()),
                                  lr=LR, betas=BETAS)
-    total_steps = int(TRAIN_EPOCHS * len(train_loader))
+    total_steps = TRAIN_STEPS
     warmup = max(1, int(WARMUP_FRAC * total_steps))
     scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer, lambda s: min(1.0, (s + 1) / warmup) * 0.5 * (1 + math.cos(math.pi * min(s, total_steps) / total_steps)))
     use_amp = AMP and device.type == "cuda"
-    tracker = BestTracker(CHECKPOINT_DIR, script_config(globals()))
+    tracker = BestTracker(CHECKPOINT_DIR, script_config(globals()), selection_data="validation set")
 
     print(f"\n{'='*60}")
-    print(f"Training RD4AD single-bee | {TRAIN_EPOCHS} epoche = {total_steps} step "
+    print(f"Training RD4AD single-bee | {total_steps} step = {total_steps / len(train_loader):.2f} epoche "
           f"| {len(train_loader)} batch/epoca | valutazione ogni {EVAL_INTERVAL} step")
     print(f"{'='*60}\n")
 
@@ -218,7 +243,7 @@ def train_rd4ad_single_bee():
                 print(f"Step {step}/{total_steps} (epoca {step / len(train_loader):.2f}) — "
                       f"loss: {running_loss / n:.6f}, lr: {scheduler.get_last_lr()[0]:.2e}")
                 running_loss, n = 0.0, 0
-                maps, scores, labels, masks = run_inference(ema_model, test_loader, device)
+                maps, scores, labels, masks = run_inference(ema_model, val_loader, device)
                 results = compute_metrics(maps, scores, labels, masks, with_pro=False)
                 del maps, masks
                 print_metrics(results)

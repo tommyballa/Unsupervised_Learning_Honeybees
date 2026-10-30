@@ -62,19 +62,28 @@ def plot_single_bee(mod, model, info, device, num_heatmaps):
     from moviad.utilities.configurations import Split
     from moviad.utilities.evaluation.report import evaluate_and_report
 
+    batch_size = getattr(mod, "TEST_BATCH_SIZE", mod.BATCH_SIZE)
     test_dataset = VarroaDataset(mod.dataset_args(), "varroa", Split.TEST)
     test_loader = DataLoader(
-        test_dataset, batch_size=getattr(mod, "TEST_BATCH_SIZE", mod.BATCH_SIZE), shuffle=False,
+        test_dataset, batch_size=batch_size, shuffle=False,
         num_workers=mod.NUM_WORKERS, pin_memory=True,
     )
+    # soglie F1 e normalizzazione delle heatmap dal validation set, se lo script ne ha uno
+    val_loader = None
+    if hasattr(mod, "VAL_DIR"):
+        val_loader = DataLoader(
+            VarroaDataset(mod.dataset_args(mod.VAL_DIR), "varroa", Split.TEST), batch_size=batch_size,
+            shuffle=False, num_workers=mod.NUM_WORKERS, pin_memory=True,
+        )
     epoch = info.get("best_epoch")
-    title = f"{mod.MODEL_NAME} single-bee" + (f" (best: epoca {epoch})" if epoch else "")
+    title = f"{mod.MODEL_NAME} single-bee" + (f" (best: epoch {epoch})" if epoch else "")
     evaluate_and_report(
         model, test_dataset, test_loader, device, mod.OUTPUT_DIR, title=title,
         num_heatmaps=num_heatmaps or mod.NUM_HEATMAPS, seed=mod.SEED,
         map_postprocess=getattr(mod, "map_postprocess", None),
-        raw_label=getattr(mod, "RAW_LABEL", "Mappa grezza"),
+        raw_label=getattr(mod, "RAW_LABEL", "Raw anomaly map"),
         extra_info={k: v for k, v in info.items() if k != "config"},
+        val_loader=val_loader,
     )
 
 

@@ -1,0 +1,19 @@
+{
+  "model": "stfpm",
+  "tag": "default",
+  "backbone": "resnet18",
+  "img_size": [
+    512,
+    512
+  ],
+  "params_M": 5.574528,
+  "size_MB": 21.26513671875,
+  "gflops": 31.524921602,
+  "gpu_latency_ms": 6.46509206853807,
+  "gpu_peak_MB_bs1": 42.0,
+  "gpu_model_MB": 29.4150390625,
+  "gpu_throughput_bs32": 206.46969168185032,
+  "gpu": "NVIDIA RTX A6000",
+  "cpu_latency_ms": 186.0067981760949,
+  "cpu_threads": 4
+}

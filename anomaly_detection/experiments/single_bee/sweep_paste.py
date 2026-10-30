@@ -49,8 +49,9 @@ def parse_args():
     p.add_argument("--img-size", type=int, default=512)
     p.add_argument("--ad-layers", default="1,2,3")
     p.add_argument("--bootstrap", type=int, default=0, help="-1 = nessun bootstrap (STFPM)")
-    p.add_argument("--epochs", type=int, default=10)
-    p.add_argument("--eval-every", type=int, default=1)
+    p.add_argument("--epochs", type=float, default=10, help="anche frazionarie")
+    p.add_argument("--eval-every", type=int, default=1, help="epoche tra due valutazioni (se --eval-steps è 0)")
+    p.add_argument("--eval-steps", type=int, default=0, help="valuta ogni N step (e sempre alla fine)")
     p.add_argument("--bs", type=int, default=32)
     p.add_argument("--opt", default="sgd", help="sgd | adam")
     p.add_argument("--lr", type=float, default=0.04)
@@ -59,6 +60,8 @@ def parse_args():
     p.add_argument("--layer-weights", default="", help="pesi della loss per layer, es. 1,1,2")
     p.add_argument("--aug", default="", help="flip | rot (flip + rot90)")
     p.add_argument("--ema", type=float, default=0.0, help="decay della EMA dei pesi dello student (0 = no)")
+    p.add_argument("--fg-loss", action="store_true", help="loss solo sulle celle dell'ape (sfondo nero escluso)")
+    p.add_argument("--fg-map", action="store_true", help="mappa azzerata fuori dall'ape")
     p.add_argument("--amp", type=int, default=1)
     p.add_argument("--max-train-batches", type=int, default=0)
     p.add_argument("--n-stats", type=int, default=1024, help="immagini di train per le statistiche nsum/psum")
@@ -79,8 +82,28 @@ def augment(x, mode):
     return x
 
 
+FG_THRESHOLD = 10 / 255   # come main_cfa / main_patchcore
+FG_CLOSING = 15
+FG_DILATION = 8
+
+
+def bee_foreground(images):
+    """Maschera (B,1,H,W) dell'ape da immagini normalizzate ImageNet (lo sfondo dei crop è nero)."""
+    mean = torch.tensor(mp.IMAGENET_MEAN, device=images.device).view(1, 3, 1, 1)
+    std = torch.tensor(mp.IMAGENET_STD, device=images.device).view(1, 3, 1, 1)
+    mask = ((images * std + mean).amax(dim=1, keepdim=True) > FG_THRESHOLD).float()
+    dil = lambda m, k: F.max_pool2d(m, k, stride=1, padding=k // 2)
+    mask = 1 - dil(1 - dil(mask, FG_CLOSING), FG_CLOSING)
+    return dil(mask, 2 * FG_DILATION + 1)
+
+
+def cell_foreground(fg, size):
+    """Maschera alla risoluzione di un layer: cella dell'ape se almeno metà dei suoi pixel lo sono."""
+    return (F.adaptive_avg_pool2d(fg, size) >= 0.5).float()
+
+
 @torch.no_grad()
-def layer_maps(model, x, amp):
+def layer_maps(model, x, amp, fg_map=False):
     """Mappe (B,1,h,w) di ||t/|t| - s/|s|||^2 per ogni ad_layer."""
     with torch.autocast("cuda", dtype=torch.bfloat16, enabled=bool(amp)):
         t_feat, bootstrap = model.teacher(x)
@@ -91,16 +114,19 @@ def layer_maps(model, x, amp):
         t = F.normalize(t.float(), dim=1)
         s = F.normalize(s.float(), dim=1)
         out.append(torch.sum((t - s) ** 2, 1, keepdim=True))
+    if fg_map:
+        fg = bee_foreground(x)
+        out = [m * cell_foreground(fg, m.shape[-2:]) for m in out]
     return out
 
 
 @torch.no_grad()
-def infer(model, loader, device, amp, with_labels=True):
+def infer(model, loader, device, amp, with_labels=True, fg_map=False):
     model.eval()
     per_layer, labels, masks = None, [], []
     for batch in tqdm(loader, desc="Inferenza", leave=False):
         images = batch[0] if isinstance(batch, (list, tuple)) else batch
-        maps = [m.half().cpu() for m in layer_maps(model, images.to(device, non_blocking=True), amp)]
+        maps = [m.half().cpu() for m in layer_maps(model, images.to(device, non_blocking=True), amp, fg_map)]
         per_layer = [[m] for m in maps] if per_layer is None else [a + [m] for a, m in zip(per_layer, maps)]
         if with_labels:
             labels.append(np.asarray(batch[1]).reshape(-1))
@@ -152,8 +178,8 @@ def variant_table(per_layer, labels, masks, ad_layers, stats, device):
     gt = masks.to(device).flatten()
     rows = []
     for idxs in layer_sets:
-        for agg in (("sum",) if len(idxs) == 1 else ("sum", "prod", "nsum")) + ("psum",):
-            for sigma in (0.0, 1.0, 2.0, 4.0):
+        for agg in (("sum",) if len(idxs) == 1 else ("sum", "prod", "nsum")):
+            for sigma in (0.0, 2.0, 4.0, 8.0):
                 maps, scores = [], {m: [] for m in ("max", "topk10", "topk50")}
                 for i in range(0, len(labels), 512):
                     mp_ = build_map(per_layer, idxs, agg, stats, sigma, i, i + 512, device)
@@ -222,52 +248,66 @@ def main():
         ema = torch.optim.swa_utils.AveragedModel(
             model.student, multi_avg_fn=torch.optim.swa_utils.get_ema_multi_avg_fn(args.ema), use_buffers=True)
     steps = args.max_train_batches or len(train_loader)
-    scheduler = (torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs * steps)
+    total_steps = int(round(args.epochs * steps))
+    eval_steps = args.eval_steps or args.eval_every * steps
+    scheduler = (torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps)
                  if args.sched == "cos" else torch.optim.lr_scheduler.LambdaLR(optimizer, lambda s: 1.0))
 
     config = vars(args)
     history = []
-    print(f"[{args.tag}] {config}\n{steps} step/epoca", flush=True)
+    print(f"[{args.tag}] {config}\n{steps} step/epoca, {total_steps} step totali", flush=True)
 
-    for epoch in range(args.epochs):
+    def batches():
+        while True:
+            for b, x in enumerate(train_loader):
+                if args.max_train_batches and b >= args.max_train_batches:
+                    break
+                yield x
+
+    data = batches()
+    t0, tot, n = time.time(), 0.0, 0
+    for step in tqdm(range(1, total_steps + 1), desc=args.tag, leave=False):
         model.train()
-        t0, tot, n = time.time(), 0.0, 0
-        for b, x in enumerate(tqdm(train_loader, desc=f"ep{epoch + 1}", leave=False)):
-            if args.max_train_batches and b >= args.max_train_batches:
-                break
-            x = augment(x.to(device, non_blocking=True), args.aug).contiguous(memory_format=torch.channels_last)
-            with torch.autocast("cuda", dtype=torch.bfloat16, enabled=bool(args.amp)):
-                with torch.no_grad():
-                    t_feat, bootstrap = model.teacher(x)
-                s_feat, _ = model.student(x if model.student_bootstrap_layer is None else bootstrap)
-            t_feat = t_feat[-len(s_feat):]
-            loss = 0.0
-            for w, t, s in zip(lw, t_feat, s_feat):
-                t = F.normalize(t.float(), dim=1)
-                s = F.normalize(s.float(), dim=1)
-                loss = loss + w * (0.5 / (t.shape[2] * t.shape[3])) * F.mse_loss(t, s, reduction="sum")
-            optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            optimizer.step()
-            scheduler.step()
-            if ema is not None:
-                ema.update_parameters(model.student)
-            tot += loss.item(); n += 1
-        print(f"[{args.tag}] epoca {epoch + 1}/{args.epochs} loss {tot / n:.3f} "
-              f"lr {scheduler.get_last_lr()[0]:.2e} ({time.time() - t0:.0f}s)", flush=True)
+        x = augment(next(data).to(device, non_blocking=True), args.aug).contiguous(memory_format=torch.channels_last)
+        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=bool(args.amp)):
+            with torch.no_grad():
+                t_feat, bootstrap = model.teacher(x)
+            s_feat, _ = model.student(x if model.student_bootstrap_layer is None else bootstrap)
+        t_feat = t_feat[-len(s_feat):]
+        loss = 0.0
+        fg = bee_foreground(x) if args.fg_loss else None
+        for w, t, s in zip(lw, t_feat, s_feat):
+            t = F.normalize(t.float(), dim=1)
+            s = F.normalize(s.float(), dim=1)
+            d = (t - s) ** 2
+            if fg is not None:
+                d = d * cell_foreground(fg, t.shape[-2:])
+            loss = loss + w * (0.5 / (t.shape[2] * t.shape[3])) * d.sum()
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
+        if ema is not None:
+            ema.update_parameters(model.student)
+        tot += loss.item(); n += 1
 
-        if (epoch + 1) % args.eval_every and epoch != args.epochs - 1:
+        if step % eval_steps and step != total_steps:
             continue
+        epoch = round(step / steps, 3)
+        mean_loss = tot / n
+        print(f"[{args.tag}] step {step}/{total_steps} (epoca {epoch}) loss {mean_loss:.3f} "
+              f"lr {scheduler.get_last_lr()[0]:.2e} ({time.time() - t0:.0f}s)", flush=True)
+        tot, n = 0.0, 0
         t0 = time.time()
         if ema is not None:
             train_student, model.student = model.student, ema.module
-        stats = compute_stats(infer(model, stats_loader, device, args.amp, with_labels=False))
-        per_layer, labels, masks = infer(model, test_loader, device, args.amp)
+        stats = compute_stats(infer(model, stats_loader, device, args.amp, with_labels=False, fg_map=args.fg_map))
+        per_layer, labels, masks = infer(model, test_loader, device, args.amp, fg_map=args.fg_map)
         rows = variant_table(per_layer, labels, masks, ad_layers, stats, device)
         del per_layer
         torch.save({"student": mp.clean_state_dict(model.student.state_dict()),
                     "stats": {k: [v.cpu() if torch.is_tensor(v) else v for v in vs] for k, vs in stats.items()}},
-                   ckpt_dir / f"ep{epoch + 1}.pth")
+                   ckpt_dir / f"step{step}.pth")
         if ema is not None:
             model.student = train_student
         for key in ("img_auc", "pxl_ap"):
@@ -277,7 +317,8 @@ def main():
                 print(f"    layers={r['layers']} agg={r['agg']} sigma={r['sigma']} score={r['score']}: "
                       f"auc={r['img_auc']:.4f} ap={r['img_ap']:.4f} pxl_ap={r['pxl_ap']:.4f}")
         print(f"  eval {time.time() - t0:.0f}s", flush=True)
-        history.append({"epoch": epoch + 1, "loss": tot / n, "variants": rows})
+        history.append({"epoch": epoch, "step": step, "loss": mean_loss, "variants": rows})
+        t0 = time.time()
         with open(log_dir / f"{args.tag}.json", "w") as f:
             json.dump({"config": config, "history": history}, f)
 

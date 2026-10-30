@@ -10,8 +10,9 @@ Ogni modello ha la sua cartella:
 
 Durante il training la best viene scelta con BestTracker confrontando le
 metriche in ordine lessicografico (default: img_roc_auc, a parità
-pxl_avg_prec). Le metriche sono calcolate sul test set, quindi quelle della
-best sono ottimistiche (la scelta dell'epoca usa gli stessi dati).
+pxl_avg_prec) sui dati di selezione (selection_data): gli script single_bee
+usano il validation set, così le metriche finali sul test held-out non sono
+ottimistiche; con il test set quelle della best lo sono (stessi dati).
 """
 
 import json

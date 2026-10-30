@@ -5,13 +5,13 @@ Ottimizzazioni velocità:
   - torch.compile su encoder blocks (frozen) e decoder blocks
   - AMP bfloat16 su forward + loss
   - batch_size=32 (A6000 48GB lo regge comodamente)
-  - Valutazione ogni 5 epoche anziché ogni epoca
+  - Valutazione ogni EVAL_EVERY iterazioni
   - persistent_workers + pin_memory nei DataLoader
   - cudnn.benchmark=True (input size fisso)
   - zero_grad(set_to_none=True) + non_blocking transfers
 
 Ottimizzazioni qualità varroa:
-  - Data augmentation geometrica (flips, rotazione) sul dataset cachato
+  - Data augmentation geometrica (flips, rotazione)
   - Maschere GT, metriche e heatmap a 512x512 (risoluzione dei crop)
 
 Allineamento all'implementazione ufficiale di Dinomaly:
@@ -20,7 +20,17 @@ Allineamento all'implementazione ufficiale di Dinomaly:
     del top-1% dei pixel (Dinomaly(max_ratio=0.01))
   - valutazione in fp32 (il training resta in bf16)
 
-Best: ogni EVAL_INTERVAL epoche (e all'ultima) metriche sul test set; la
+Dataset: single_bee3+4+5+6_SAM3_varroa_split (train/normal: 102k api sane;
+val: 322 con varroa + 1251 sane, per la best e le soglie F1;
+test_heldout: 957 con varroa + 5000 sane, valutato una volta;
+vedi make_val_split.py).
+Con 102k immagini un'epoca è ~3200 iterazioni: il training è a iterazioni
+(TOTAL_ITERS = 10k come nel repo ufficiale, scheduler coseno su TOTAL_ITERS).
+Su train_single_bee_merged (23k immagini) la configurazione ufficiale ViT-B
+(layer 2-9 in due gruppi, ~7k iterazioni) aveva dato img AUROC 0.960 contro
+0.949 dei layer 2-5 (pxl AP 0.574 contro 0.587).
+
+Best: ogni EVAL_EVERY iterazioni (e all'ultima) metriche sul validation set; la
 configurazione migliore (img_roc_auc, a parità pxl_avg_prec) viene salvata in
 checkpoints/single_bee/dinomaly/ (best.pth = bottleneck + decoder, l'encoder
 DINOv2 è congelato; config.json).
@@ -45,33 +55,42 @@ import random
 from pathlib import Path
 import numpy as np
 
+import ablation
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Configurazione
 # ──────────────────────────────────────────────────────────────────────
 MODEL_NAME     = "dinomaly"
-ENCODER_NAME   = "vit_base_patch14_reg4_dinov2"
+# vit_small_patch14_reg4_dinov2 (stessi layer, come nel repo ufficiale): ablation (ABL_BACKBONE)
+ENCODER_NAME   = ablation.backbone("vit_base_patch14_reg4_dinov2")
 # configurazione ufficiale di Dinomaly per ViT-B: 8 layer intermedi fusi in due gruppi
 TARGET_LAYERS  = [2, 3, 4, 5, 6, 7, 8, 9]
 FUSE_LAYER_ENCODER = [[0, 1, 2, 3], [4, 5, 6, 7]]
 FUSE_LAYER_DECODER = [[0, 1, 2, 3], [4, 5, 6, 7]]
 MAX_RATIO      = 0.01   # score immagine = media del top-1% dei pixel (come nel repo ufficiale)
 IMG_SIZE       = (518, 518)
-EPOCHS         = 10
+TOTAL_ITERS    = 10_000  # iterazioni di training (~3 epoche)
 BATCH_SIZE     = 32
-EVAL_INTERVAL  = 1      # valuta ogni N epoche (e sempre all'ultima)
+EVAL_EVERY     = 1000   # valuta ogni N iterazioni (e sempre all'ultima)
 SEED           = 1
 NUM_WORKERS    = 8
 
 REPO_ROOT      = Path(__file__).resolve().parents[2]
-TRAIN_DIR      = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees"
+DATASET_DIR    = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3_varroa_split"
+TRAIN_DIR      = f"{DATASET_DIR}/train/normal"
+VAL_DIR        = f"{DATASET_DIR}/val"           # selezione della best e soglie F1
+TEST_DIR       = f"{DATASET_DIR}/test_heldout"  # valutato una sola volta sulla best
 # i crop delle api sono 512x512: maschere GT, metriche pixel e heatmap a questa
 # risoluzione per tutti i modelli (la mappa viene riportata a GT_SIZE)
 GT_SIZE        = (512, 512)
 
 NUM_HEATMAPS   = 20      # metà sane, metà con varroa
-OUTPUT_DIR     = REPO_ROOT / "heatmaps" / "single_bee" / MODEL_NAME
+OUTPUT_DIR     = REPO_ROOT / "heatmaps" / "single_bee_val" / MODEL_NAME
 CHECKPOINT_DIR = Path(os.environ.get("DINOMALY_CKPT_DIR",
-                                    REPO_ROOT / "checkpoints" / "single_bee" / MODEL_NAME))
+                                    REPO_ROOT / "checkpoints" / "single_bee_val" / MODEL_NAME))
+if ablation.ACTIVE:
+    CHECKPOINT_DIR, OUTPUT_DIR = ablation.dirs(REPO_ROOT, MODEL_NAME, CHECKPOINT_DIR, OUTPUT_DIR)
 
 
 def set_seed(seed):
@@ -119,9 +138,10 @@ class AugmentedTrainDataset(Dataset):
 # ──────────────────────────────────────────────────────────────────────
 # Modello e dati (usati anche da experiments/plot_heatmaps.py)
 # ──────────────────────────────────────────────────────────────────────
-def dataset_args():
+def dataset_args(test_dir=TEST_DIR):
     return DatasetArguments(
         dataset_path=TRAIN_DIR,
+        test_path=test_dir,
         img_size=IMG_SIZE,
         gt_mask_size=GT_SIZE,
         image_transform_list=[
@@ -193,10 +213,10 @@ def train_dinomaly():
 
     # ── Dataset ──────────────────────────────────────────────────────
     # Training dataset con augmentation geometrica
-    train_dataset = AugmentedTrainDataset(VarroaDataset(dataset_args(), "varroa", Split.TRAIN))
+    train_dataset = AugmentedTrainDataset(ablation.subset_train(VarroaDataset(dataset_args(), "varroa", Split.TRAIN)))
 
     # Test dataset (senza augmentation)
-    test_dataset = VarroaDataset(dataset_args(), "varroa", Split.TEST)
+    val_dataset = VarroaDataset(dataset_args(VAL_DIR), "varroa", Split.TEST)
 
     train_loader = DataLoader(
         train_dataset,
@@ -207,7 +227,7 @@ def train_dinomaly():
         persistent_workers=NUM_WORKERS > 0,
     )
     eval_loader = DataLoader(
-        test_dataset,
+        val_dataset,
         batch_size=BATCH_SIZE,
         shuffle=False,
         num_workers=NUM_WORKERS,
@@ -216,39 +236,44 @@ def train_dinomaly():
     )
 
     # ── Training args ────────────────────────────────────────────────
-    total_iters = EPOCHS * len(train_loader)
     training_args = DinomalyTrainArgs(
-        epochs=EPOCHS,
+        epochs=-(-TOTAL_ITERS // len(train_loader)),
         batch_size=BATCH_SIZE,
-        total_iters=total_iters,
+        total_iters=TOTAL_ITERS,
     )
     training_args.init_train(model)
-    tracker = BestTracker(CHECKPOINT_DIR, script_config(globals()))
+    # la "best_epoch" salvata dal tracker è il numero di iterazioni
+    tracker = BestTracker(CHECKPOINT_DIR, script_config(globals()), selection_data="validation set")
 
-    # ── Training loop ────────────────────────────────────────────────
+    # ── Training loop (a iterazioni) ─────────────────────────────────
     print(f"\n{'='*60}")
-    print(f"Training Dinomaly | {EPOCHS} epoche | {len(train_loader)} batch/epoca")
-    print(f"Batch size: {BATCH_SIZE} | Eval ogni {EVAL_INTERVAL} epoche")
-    print(f"total_iters (LR scheduler): {total_iters}")
+    print(f"Training Dinomaly | {TOTAL_ITERS} iterazioni | {len(train_loader)} batch/epoca")
+    print(f"Batch size: {BATCH_SIZE} | Eval ogni {EVAL_EVERY} iterazioni")
     print(f"{'='*60}\n")
 
-    for epoch in range(EPOCHS):
-        model.train()
-        print(f"EPOCH: {epoch}")
+    def batches():
+        while True:
+            yield from train_loader
 
-        # Training epoch
-        avg_loss = 0.0
-        for batch in tqdm(train_loader):
-            avg_loss += model.train_step(batch, training_args)
-        avg_loss /= len(train_loader)
-        print(f"  Loss: {avg_loss:.6f}")
+    model.train()
+    running_loss = 0.0
+    for it, batch in enumerate(tqdm(batches(), total=TOTAL_ITERS), start=1):
+        running_loss += model.train_step(batch, training_args)
 
-        # Valutazione (ogni EVAL_INTERVAL epoche e all'ultima) + salvataggio della best
-        if (epoch + 1) % EVAL_INTERVAL == 0 or epoch == EPOCHS - 1:
+        # Valutazione (ogni EVAL_EVERY iterazioni e all'ultima) + salvataggio della best
+        if it % EVAL_EVERY == 0 or it == TOTAL_ITERS:
+            n = EVAL_EVERY if it % EVAL_EVERY == 0 else it % EVAL_EVERY
+            print(f"\nITER: {it} | Loss: {running_loss / n:.6f}")
+            running_loss = 0.0
             maps, scores, labels, masks = run_inference(model, eval_loader, device)
             results = compute_metrics(maps, scores, labels, masks, with_pro=False)
             print_metrics(results)
-            tracker.update(epoch + 1, results, lambda: model_state(model))
+            tracker.update(it, results, lambda: model_state(model))
+            del maps, scores, labels, masks
+            model.train()
+
+        if it == TOTAL_ITERS:
+            break
 
     print(f"\nBest Dinomaly — {tracker.summary()}")
     print(f"Heatmap e metriche finali: python experiments/plot_heatmaps.py single_bee {MODEL_NAME}")

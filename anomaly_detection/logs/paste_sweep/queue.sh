@@ -6,6 +6,6 @@ while true; do
   [ -z "$line" ] && break
   read -r tag args <<< "$line"
   touch logs/paste_sweep/$tag.running
-  CUDA_VISIBLE_DEVICES=1 .venv/bin/python -u experiments/single_bee/sweep_paste.py --tag $tag $args > logs/paste_sweep/$tag.log 2>&1 && touch logs/paste_sweep/$tag.done
+  CUDA_VISIBLE_DEVICES=${GPU:-0} .venv/bin/python -u experiments/single_bee/sweep_paste.py --tag $tag $args > logs/paste_sweep/$tag.log 2>&1 && touch logs/paste_sweep/$tag.done
   rm -f logs/paste_sweep/$tag.running
 done

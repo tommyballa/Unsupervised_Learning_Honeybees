@@ -1,0 +1,19 @@
+{
+  "model": "rd4ad",
+  "tag": "default",
+  "backbone": "wide_resnet50_2",
+  "img_size": [
+    512,
+    512
+  ],
+  "params_M": 161.214888,
+  "size_MB": 614.9859924316406,
+  "gflops": 268.93091661,
+  "gpu_latency_ms": 24.048577062785625,
+  "gpu_peak_MB_bs1": 103.87548828125,
+  "gpu_model_MB": 627.60302734375,
+  "gpu_throughput_bs32": 51.04896636458874,
+  "gpu": "NVIDIA RTX A6000",
+  "cpu_latency_ms": 1001.5184541698545,
+  "cpu_threads": 4
+}

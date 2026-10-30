@@ -109,7 +109,7 @@ class PasteBackbone(nn.Module):
             if model_name == "mobilenet_v2":
                 feat_extraction_layers = list(model.children())[0]
 
-            if model_name == "wide_resnet50_2":
+            if model_name in ("wide_resnet50_2", "resnet18"):
                 feat_extraction_layers = list(model.children())
                 feat_extraction_layers = [
                     feat_extraction_layers[0],  # layer0

@@ -42,11 +42,17 @@ from moviad.utilities.configurations import Split, LabelName
 
 # Default paths — overridden by dataset_arguments.dataset_path when provided
 _DEFAULT_TRAIN_DIR = Path(
-    "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees"
+    "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_batch3+4/cleaned_bees"
 )
 _DEFAULT_TEST_DIR = Path(
-    "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee_merged"
+    "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee_batch3+4_varroa/images"
 )
+
+# Test set alleggerito: tutte le anomale + un sottoinsieme fisso di normali
+# (le mappe a 512x512 di tutto il test set non stanno in tempi/RAM ragionevoli).
+# None = usa tutte le normali; DatasetArguments.full_test=True lo disattiva per uno script.
+_MAX_TEST_NORMALS = 5000
+_TEST_SUBSAMPLE_SEED = 0
 
 # Categoria speciale che aggrega tutti i dati
 _AGGREGATE_CATEGORY = "varroa"
@@ -129,7 +135,8 @@ class VarroaDataset(VADDataset):
 
     def _load_test(self):
         """Carica i sample da anomaly_dataset_synthetic usando labels.csv."""
-        test_dir = _DEFAULT_TEST_DIR
+        test_path = getattr(self.dataset_arguments, "test_path", None)
+        test_dir = Path(test_path) if test_path else _DEFAULT_TEST_DIR
         csv_path = test_dir / "labels.csv"
 
         if not csv_path.exists():
@@ -138,6 +145,16 @@ class VarroaDataset(VADDataset):
             )
 
         df = pd.read_csv(csv_path)
+
+        # Sottoinsieme deterministico delle normali (stesso per tutti i modelli)
+        normal_idx = df.index[df["label"] == 0]
+        full_test = getattr(self.dataset_arguments, "full_test", False)
+        if not full_test and _MAX_TEST_NORMALS is not None and len(normal_idx) > _MAX_TEST_NORMALS:
+            rng = np.random.default_rng(_TEST_SUBSAMPLE_SEED)
+            dropped = rng.choice(
+                normal_idx, size=len(normal_idx) - _MAX_TEST_NORMALS, replace=False
+            )
+            df = df.drop(index=dropped)
 
         rows = []
         for _, row in df.iterrows():

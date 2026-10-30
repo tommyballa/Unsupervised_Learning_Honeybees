@@ -1,0 +1,19 @@
+{
+  "model": "padim",
+  "tag": "mobilenet_v2",
+  "backbone": "mobilenet_v2",
+  "img_size": [
+    512,
+    512
+  ],
+  "params_M": 0.577184,
+  "size_MB": 2.2017822265625,
+  "gflops": 2.782660738,
+  "gpu_latency_ms": 5.2830909844487906,
+  "gpu_peak_MB_bs1": 55.0,
+  "gpu_model_MB": 10.384765625,
+  "gpu_throughput_bs32": 366.4253436456832,
+  "gpu": "NVIDIA RTX A6000",
+  "cpu_latency_ms": 341.59603784792125,
+  "cpu_threads": 4
+}

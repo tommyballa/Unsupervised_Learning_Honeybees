@@ -11,6 +11,12 @@ Così un'immagine sana resta blu e solo ciò che supera la soglia diventa
 giallo/rosso (con la normalizzazione min/max per immagine, invece, ogni
 immagine avrebbe sempre un punto rosso).
 
+Con un validation set (evaluate_and_report(val_loader=...)) le soglie image e
+pixel e la normalizzazione delle heatmap sono fissate sul validation set:
+img_f1 / pxl_f1 del test sono calcolati a quelle soglie, mentre
+img_f1_oracle / pxl_f1_oracle sono quelli alla soglia ottimale sul test stesso
+(ottimistici, solo come riferimento).
+
 Mappe, metriche pixel e heatmap sono calcolate alla risoluzione delle maschere
 GT del dataset (gt_mask_size): ogni modello può lavorare alla sua risoluzione
 di input, la mappa viene riportata a quella delle maschere con interpolazione
@@ -120,6 +126,18 @@ def f1_optimal_threshold(gt, pred):
     return float(thresholds[np.argmax(f1[:-1])])
 
 
+def f1_at_threshold(gt, pred, threshold, chunk=256):
+    """F1 con una soglia fissata (es. presa dal validation set), a blocchi di righe."""
+    tp = fp = fn = 0
+    for i in range(0, len(pred), chunk):
+        p = np.asarray(pred[i:i + chunk]) >= threshold
+        g = np.asarray(gt[i:i + chunk]) > 0
+        tp += int(np.count_nonzero(p & g))
+        fp += int(np.count_nonzero(p & ~g))
+        fn += int(np.count_nonzero(~p & g))
+    return 2 * tp / max(2 * tp + fp + fn, 1)
+
+
 def compute_heatmap_normalization(pixel_pred, pixel_gt, normal_pixel_pred, max_pixels=5_000_000):
     """
     Calcola i parametri di una normalizzazione GLOBALE, uguale per tutte le
@@ -174,7 +192,7 @@ def make_overlay(img_rgb, amap_norm, alpha=0.5):
     return cv2.addWeighted(img_rgb, 1 - alpha, heatmap, alpha, 0)
 
 
-def save_heatmap_figure(img_rgb, gt_mask, amap, norm, title, save_path, raw_label="Mappa grezza"):
+def save_heatmap_figure(img_rgb, gt_mask, amap, norm, title, save_path, raw_label="Raw anomaly map"):
     """
     Figura con: originale | ground truth | mappa grezza (scala della singola
     immagine) | heatmap normalizzata globalmente | overlay con contorno GT.
@@ -185,28 +203,28 @@ def save_heatmap_figure(img_rgb, gt_mask, amap, norm, title, save_path, raw_labe
     fig, axes = plt.subplots(1, 5, figsize=(22, 4.6))
 
     axes[0].imshow(img_rgb)
-    axes[0].set_title("Originale")
+    axes[0].set_title("Original")
 
     axes[1].imshow(gt_mask, cmap="gray", vmin=0, vmax=1)
     axes[1].set_title("Ground truth")
 
     im_raw = axes[2].imshow(amap, cmap="jet")
-    axes[2].set_title(f"{raw_label}\n(scala della singola immagine)")
+    axes[2].set_title(f"{raw_label}\n(per-image scale)")
     fig.colorbar(im_raw, ax=axes[2], fraction=0.046, pad=0.04)
 
     im_norm = axes[3].imshow(amap_norm, cmap="jet", vmin=0, vmax=1)
-    axes[3].set_title("Heatmap normalizzata\n(scala globale, soglia = 0.5)")
+    axes[3].set_title("Normalized heatmap\n(global scale, threshold = 0.5)")
     cbar = fig.colorbar(im_norm, ax=axes[3], fraction=0.046, pad=0.04, ticks=[0, 0.5, 1])
     cbar.ax.set_yticklabels([
         f"{norm['v_min']:.3g}",
-        f"soglia {norm['threshold']:.3g}",
+        f"threshold {norm['threshold']:.3g}",
         f"{norm['v_max']:.3g}",
     ])
 
     axes[4].imshow(make_overlay(img_rgb, amap_norm))
     if has_gt:
         axes[4].contour(gt_mask, levels=[0.5], colors="white", linewidths=1)
-    axes[4].set_title("Overlay" + (" (contorno bianco = GT)" if has_gt else ""))
+    axes[4].set_title("Overlay" + (" (white contour = GT)" if has_gt else ""))
 
     for ax in axes:
         ax.axis("off")
@@ -220,11 +238,11 @@ def save_score_distribution(scores, labels, image_threshold, save_path):
     """Istogramma degli anomaly score per immagini sane e anomale."""
     fig, ax = plt.subplots(figsize=(8, 4.5))
     bins = np.linspace(scores.min(), scores.max(), 60) if scores.max() > scores.min() else 10
-    ax.hist(scores[labels == 0], bins=bins, alpha=0.6, label="Sane", color="tab:blue")
+    ax.hist(scores[labels == 0], bins=bins, alpha=0.6, label="Healthy", color="tab:blue")
     ax.hist(scores[labels == 1], bins=bins, alpha=0.6, label="Varroa", color="tab:red")
-    ax.axvline(image_threshold, color="black", linestyle="--", label=f"Soglia F1 = {image_threshold:.3g}")
+    ax.axvline(image_threshold, color="black", linestyle="--", label=f"F1 threshold = {image_threshold:.3g}")
     ax.set_xlabel("Anomaly score")
-    ax.set_ylabel("Numero di immagini")
+    ax.set_ylabel("Number of images")
     ax.legend()
     fig.tight_layout()
     fig.savefig(save_path, dpi=150)
@@ -232,15 +250,20 @@ def save_score_distribution(scores, labels, image_threshold, save_path):
 
 
 def save_anomaly_heatmaps(test_dataset, maps, scores, labels, masks, output_dir, num_samples=20,
-                          seed=1, raw_label="Mappa grezza"):
-    """Calcola la normalizzazione globale e salva le heatmap di un campione bilanciato."""
+                          seed=1, raw_label="Raw anomaly map", norm=None, image_threshold=None):
+    """
+    Salva le heatmap di un campione bilanciato. norm e image_threshold (es. dal
+    validation set) se None sono calcolati su questi dati (F1 ottimale).
+    """
     os.makedirs(output_dir, exist_ok=True)
 
-    norm = compute_heatmap_normalization(maps, masks, maps[labels == 0])
-    image_threshold = f1_optimal_threshold(labels, scores)
+    if norm is None:
+        norm = compute_heatmap_normalization(maps, masks, maps[labels == 0])
+    if image_threshold is None:
+        image_threshold = f1_optimal_threshold(labels, scores)
     print(f"\nNormalizzazione heatmap: v_min={norm['v_min']:.4f} | "
           f"soglia={norm['threshold']:.4f} | v_max={norm['v_max']:.4f}")
-    print(f"Soglia image-level (F1 ottimale): {image_threshold:.4f}")
+    print(f"Soglia image-level: {image_threshold:.4f}")
 
     save_score_distribution(scores, labels, image_threshold,
                             os.path.join(output_dir, "score_distribution.png"))
@@ -256,9 +279,10 @@ def save_anomaly_heatmaps(test_dataset, maps, scores, labels, masks, output_dir,
         img_path = (test_dataset.image_paths[i] if hasattr(test_dataset, "image_paths")
                     else test_dataset[i][3])
         status = "Varroa" if labels[i] == 1 else "Sana"
-        pred = "Varroa" if scores[i] >= image_threshold else "Sana"
-        title = (f"{os.path.basename(img_path)} — GT: {status} | Pred: {pred} | "
-                 f"score {scores[i]:.4f} (soglia {image_threshold:.4f})")
+        gt_name = "Varroa" if labels[i] == 1 else "Healthy"
+        pred = "Varroa" if scores[i] >= image_threshold else "Healthy"
+        title = (f"GT: {gt_name} | Pred: {pred} | "
+                 f"score {scores[i]:.4f} (threshold {image_threshold:.4f})")
         save_heatmap_figure(
             load_rgb(img_path, masks.shape[-2:]), masks[i, 0], maps[i, 0], norm, title,
             os.path.join(output_dir, f"sample_{status}_{i:05d}_score_{scores[i]:.4f}.png"),
@@ -270,16 +294,33 @@ def save_anomaly_heatmaps(test_dataset, maps, scores, labels, masks, output_dir,
 
 def evaluate_and_report(model, test_dataset, test_loader, device, output_dir, title,
                         num_heatmaps=20, seed=1,
-                        map_postprocess: Callable | None = None, raw_label="Mappa grezza",
-                        extra_info: dict | None = None):
+                        map_postprocess: Callable | None = None, raw_label="Raw anomaly map",
+                        extra_info: dict | None = None, val_loader=None):
     """
     Valutazione finale: inferenza, metriche (con AU-PRO), heatmap normalizzate
     globalmente, distribuzione degli score e results.json in output_dir
     (extra_info, es. epoca della best, viene salvato in results.json).
+    Con val_loader soglie F1 e normalizzazione delle heatmap vengono dal
+    validation set (vedi docstring del modulo).
     """
     os.makedirs(output_dir, exist_ok=True)
+    norm = image_threshold = val_results = None
+    if val_loader is not None:
+        maps, scores, labels, masks = run_inference(model, val_loader, device, map_postprocess)
+        val_results = compute_metrics(maps, scores, labels, masks, with_pro=False)
+        norm = compute_heatmap_normalization(maps, masks, maps[labels == 0])
+        image_threshold = f1_optimal_threshold(labels, scores)
+        print("Validation set (soglie e normalizzazione):")
+        print_metrics(val_results)
+        del maps, masks
+
     maps, scores, labels, masks = run_inference(model, test_loader, device, map_postprocess)
     results = compute_metrics(maps, scores, labels, masks)
+    if val_loader is not None:
+        results["img_f1_oracle"] = results.pop("img_f1")
+        results["pxl_f1_oracle"] = results.pop("pxl_f1")
+        results["img_f1"] = f1_at_threshold(labels, scores, image_threshold)
+        results["pxl_f1"] = f1_at_threshold(masks, maps, norm["threshold"])
 
     print(f"\n{'='*60}")
     print(f"RISULTATI METRICHE — {title}")
@@ -291,8 +332,12 @@ def evaluate_and_report(model, test_dataset, test_loader, device, output_dir, ti
     norm, image_threshold = save_anomaly_heatmaps(
         test_dataset, maps, scores, labels, masks, output_dir,
         num_samples=num_heatmaps, seed=seed, raw_label=raw_label,
+        norm=norm, image_threshold=image_threshold,
     )
-    summary = {"metrics": results, "heatmap_normalization": norm, "image_threshold": image_threshold}
+    summary = {"metrics": results, "heatmap_normalization": norm, "image_threshold": image_threshold,
+               "thresholds_from": "validation set" if val_loader is not None else "test set"}
+    if val_results is not None:
+        summary["val_metrics"] = val_results
     if extra_info:
         summary["checkpoint"] = extra_info
     with open(os.path.join(output_dir, "results.json"), "w") as f:

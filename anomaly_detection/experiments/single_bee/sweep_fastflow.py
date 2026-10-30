@@ -187,10 +187,11 @@ def variant_table(per_scale, fg, labels, masks_full, size, device, full=False):
                                  (4.0, 8.0, 12.0), (-99, -4, 0, 4))
     else:
         f = size[0] / 256  # sigma ed erosione in pixel del modello, scalati con la risoluzione
-        grid = itertools.product([tuple(range(n_scales)), tuple(range(1, n_scales))],
-                                 (3.0 * f, 4.0 * f, 6.0 * f), (int(-4 * f), int(-2 * f)))
+        # attorno all'ottimo sul dataset finale SAM3 (z2, tutte le scale, sigma 16, erosione 24 a 512 px)
+        grid = itertools.product([tuple(range(n_scales))], (6.0 * f, 8.0 * f, 10.0 * f), (int(-8 * f), int(-12 * f)))
     rows = []
-    for (scales, sigma, dilate), kind in itertools.product(list(grid), ("z2", "nll")):
+    kinds = ("z2", "nll") if full else ("z2",)
+    for (scales, sigma, dilate), kind in itertools.product(list(grid), kinds):
         if True:
             maps, scores = [], {m: [] for m in ("max", "topk100")}
             for i in range(0, len(labels), 256):

@@ -1,0 +1,19 @@
+{
+  "model": "padim",
+  "tag": "resnet18",
+  "backbone": "resnet18",
+  "img_size": [
+    512,
+    512
+  ],
+  "params_M": 2.918592,
+  "size_MB": 11.133544921875,
+  "gflops": 15.360067714,
+  "gpu_latency_ms": 3.4565095556899905,
+  "gpu_peak_MB_bs1": 35.0,
+  "gpu_model_MB": 20.27294921875,
+  "gpu_throughput_bs32": 444.3875840021877,
+  "gpu": "NVIDIA RTX A6000",
+  "cpu_latency_ms": 285.0029820110649,
+  "cpu_threads": 4
+}

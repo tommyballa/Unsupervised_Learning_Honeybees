@@ -1,0 +1,4 @@
+a1_r18_lr04 --backbone resnet18 --lr 0.4 --epochs 0.94 --eval-steps 250
+a3_wrn_lr04 --lr 0.4 --epochs 0.94 --eval-steps 250
+b1_r18_s400 --backbone resnet18 --lr 0.4 --epochs 0.187 --eval-steps 50
+b2_r18_s400_fg --backbone resnet18 --lr 0.4 --epochs 0.187 --eval-steps 50 --fg-loss --fg-map

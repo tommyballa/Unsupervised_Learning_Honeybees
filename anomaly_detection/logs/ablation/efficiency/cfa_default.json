@@ -1,0 +1,19 @@
+{
+  "model": "cfa",
+  "tag": "default",
+  "backbone": "wide_resnet50_2",
+  "img_size": [
+    768,
+    768
+  ],
+  "params_M": 52.430273,
+  "size_MB": 200.00561904907227,
+  "gflops": 391.69271808,
+  "gpu_latency_ms": 53.51898795925081,
+  "gpu_peak_MB_bs1": 428.19482421875,
+  "gpu_model_MB": 210.1533203125,
+  "gpu_throughput_bs32": 20.486067718203095,
+  "gpu": "NVIDIA RTX A6000",
+  "cpu_latency_ms": 1988.6176560539752,
+  "cpu_threads": 4
+}

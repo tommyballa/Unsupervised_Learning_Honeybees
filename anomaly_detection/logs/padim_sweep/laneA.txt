@@ -1,0 +1,8 @@
+a1_wrn_l123_256_pos --img-size 256 --layers 1,2,3 --gaussian position --proj-dim 550
+a3_wrn_l123_512_shared --img-size 512 --layers 1,2,3 --gaussian shared --proj-dim 550
+a5_wrn_l23_512_shared_full --img-size 512 --layers 2,3 --gaussian shared --proj-dim 0
+a7_r18_l123_512_shared_full --img-size 512 --backbone resnet18 --layers 1,2,3 --gaussian shared --proj-dim 0
+b1_wrn_l3_512_full --img-size 512 --layers 3 --gaussian shared --proj-dim 0 --eps 0.001,0.0001,0.00001
+b3_wrn_l23_512_full_pool3 --img-size 512 --layers 2,3 --gaussian shared --proj-dim 0 --pool 3 --eps 0.001,0.0001,0.00001
+c1_wrn_l3_512_pool3 --img-size 512 --layers 3 --gaussian shared --proj-dim 0 --pool 3 --eps 0.001,0.0001
+c3_wrn_l3_768 --img-size 768 --layers 3 --gaussian shared --proj-dim 0 --eps 0.001,0.0001

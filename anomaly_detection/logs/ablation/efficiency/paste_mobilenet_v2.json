@@ -1,0 +1,19 @@
+{
+  "model": "paste",
+  "tag": "mobilenet_v2",
+  "backbone": "mobilenet_v2",
+  "img_size": [
+    512,
+    512
+  ],
+  "params_M": 1.11632,
+  "size_MB": 4.2584228515625,
+  "gflops": 12.997132802,
+  "gpu_latency_ms": 16.17067912593484,
+  "gpu_peak_MB_bs1": 66.25,
+  "gpu_model_MB": 12.4951171875,
+  "gpu_throughput_bs32": 92.49711650595124,
+  "gpu": "NVIDIA RTX A6000",
+  "cpu_latency_ms": 573.917652014643,
+  "cpu_threads": 4
+}

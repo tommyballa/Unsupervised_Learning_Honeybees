@@ -1,0 +1,19 @@
+{
+  "model": "fastflow",
+  "tag": "resnet18",
+  "backbone": "resnet18",
+  "img_size": [
+    512,
+    512
+  ],
+  "params_M": 10.42656,
+  "size_MB": 39.774169921875,
+  "gflops": 30.10789376,
+  "gpu_latency_ms": 13.711099396459758,
+  "gpu_peak_MB_bs1": 32.00244140625,
+  "gpu_model_MB": 40.57861328125,
+  "gpu_throughput_bs32": 152.77790909366067,
+  "gpu": "NVIDIA RTX A6000",
+  "cpu_latency_ms": 473.1724651064724,
+  "cpu_threads": 4
+}
