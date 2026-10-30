@@ -221,6 +221,7 @@ heatmaps/
 heatmaps_debug/
 heatmaps_*/
 checkpoints/
+/checkpoints
 *.pth
 *.jpg
 *.JPG

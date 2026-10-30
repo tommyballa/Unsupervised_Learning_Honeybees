@@ -30,7 +30,7 @@ from torch.utils.data import DataLoader
 EXPERIMENTS = Path(__file__).resolve().parent
 MODULE_PATTERN = {"single_bee": "main_{}", "full_image": "main_{}_full_image"}
 # script della cartella single_bee che non sono modelli con una best da plottare
-NOT_MODELS = {"stfpm_clad", "patchcore_outliners"}
+NOT_MODELS = {"stfpm_clad"}
 
 
 def available_models(setting):

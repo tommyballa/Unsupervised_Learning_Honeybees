@@ -14,12 +14,12 @@ from pathlib import Path
 
 import torch
 
-from experiments.full_image.main_dinomaly_full_image import (
+from main_dinomaly_full_image import (
     SEED, TILE_SIZE, build_model, evaluate_and_visualize, load_model_state, set_seed,
 )
 from moviad.utilities.evaluation.checkpoints import load_checkpoint
 
-REPO_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 CHECKPOINT_DIR = REPO_ROOT / "checkpoints" / "single_bee" / "dinomaly"
 OUTPUT_DIR = REPO_ROOT / "heatmaps" / "full_image" / "dinomaly_from_single_bee"
 

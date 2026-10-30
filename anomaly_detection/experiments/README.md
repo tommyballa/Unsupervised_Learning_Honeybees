@@ -5,12 +5,16 @@ experiments/
 ├── plot_heatmaps.py   metriche finali + heatmap dalla best (tutti i modelli)
 ├── single_bee/        crop della singola ape (512x512), VarroaDataset
 │   ├── main_<modello>.py              training + salvataggio della best
+│   ├── sweep_<modello>.py             sweep degli iperparametri (log in logs/<modello>_sweep/)
+│   ├── make_val_split.py              split val / test_heldout del dataset finale
+│   ├── ablation.py, summarize_ablation.py  ablation dimensione training set + backbone
+│   ├── measure_efficiency.py          tempi di inferenza, memoria, parametri
+│   ├── score_distributions.py, hard_cases.py  analisi degli score e casi difficili
 │   ├── diagnose_fastflow_varroa.py    diagnostica FastFlow
-│   ├── find_top_anomalies_fastflow.py top-N anomalie con FastFlow
-│   ├── main_patchcore_outliners.py    outlier nel training set con PatchCore
 │   └── main_stfpm_clad.py             STFPM continual (FT / multi-task / replay)
 └── full_image/        immagini intere con molte api, sliding window
-    └── main_<modello>_full_image.py   training + salvataggio della best
+    ├── main_<modello>_full_image.py   training + salvataggio della best
+    └── dinomaly_from_single_bee.py    heatmap full-image con i pesi Dinomaly single-bee
 ```
 
 Modelli single-bee: cfa, dinomaly, fastflow, ganomaly, padim, paste, patchcore,
