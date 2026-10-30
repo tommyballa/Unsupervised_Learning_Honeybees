@@ -535,4 +535,5 @@ except ImportError as e:
     print(f"Active learning pages disabled: {e}")
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8002, debug=False)
+    # BEE_AL_PORT lets a second hub (another phase) run next to the main one
+    app.run(host="0.0.0.0", port=int(os.environ.get("BEE_AL_PORT", "8002")), debug=False)

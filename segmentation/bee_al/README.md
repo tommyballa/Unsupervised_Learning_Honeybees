@@ -210,6 +210,14 @@ In `<snapshot>/report/`: `strata.csv`, `prevalence.csv`, `groups.csv`,
 `colony_indicators.json`, `colony_indicators.csv`, `agreement.json`, `report.md`.
 Il risultato resta in cache finché non arrivano nuove risposte di audit.
 
+Senza audit, i soli conteggi del modello per batch (quote con bootstrap sulle foto, api per foto):
+
+```
+python scripts/batch_counts.py --snapshot NOME --config config/al_fase2_sam3.yaml
+```
+
+In `<snapshot>/batch_counts/`: `batch_counts.csv`, `photo_counts.csv`, `batch_counts.png`.
+
 ### Stime
 
 Per lo strato `h`: `N_h` api nella popolazione, `n_h` risposte di audit (i "Scarta ape" sono

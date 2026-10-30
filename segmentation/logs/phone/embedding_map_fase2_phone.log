@@ -1,0 +1,13 @@
+Modello v004: 174328 api, 35540 tenute da parte, classi ['Adulte', 'Fuco', 'Giovane', 'Malata', 'Non Classificabile', 'Regina']
+/home/tommaso_ballarin/bee_segmentation/bee_segmentation/venv/lib/python3.10/site-packages/umap/umap_.py:1952: UserWarning: n_jobs value 1 overridden to 1 by setting random_state. Use no seed for parallelism.
+  warn(
+/home/tommaso_ballarin/bee_segmentation/bee_segmentation/venv/lib/python3.10/site-packages/numba/np/ufunc/parallel.py:373: NumbaWarning: The TBB threading layer requires TBB version 2021 update 6 or later i.e., TBB_INTERFACE_VERSION >= 12060. Found TBB_INTERFACE_VERSION = 12050. The TBB threading layer is disabled.
+  warnings.warn(problem)
+  proiettate 20000/134328
+  proiettate 40000/134328
+  proiettate 60000/134328
+  proiettate 80000/134328
+  proiettate 100000/134328
+  proiettate 120000/134328
+  proiettate 134328/134328
+Fatto: /mnt/disk1/tommaso_ballarin/bee_al/results_fase2_sam3/embedding_map/fase2_v004_b3456_b7_phone

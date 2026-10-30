@@ -3,8 +3,11 @@ Costruisce un dataset train/test per l'anomaly detection a partire dai crop
 delle singole api, inserendo la varroa sintetica direttamente sui crop
 (varroa_on_crops.py).
 
-  1. Divide a caso i crop in train (80%) e test (20%).
-  2. Nel test, il 3% delle api riceve la varroa: 2/3 con una varroa, 1/3 con due.
+  1. Divide a caso i crop in train (80%) e test (20%). I crop possono venire da
+     più cartelle (es. i cluster di un export dell'hub): la cartella di origine
+     viene riportata nella colonna "cluster" dei CSV.
+  2. Nel test, il 3% delle api (--anomalous-fraction) riceve la varroa: 2/3 con
+     una varroa, 1/3 con due.
   3. Per ogni ape con varroa salva anche la GT mask (bianco = varroa).
 
 Struttura dell'output:
@@ -12,17 +15,19 @@ Struttura dell'output:
   <output>/test/normal/         api normali di test
   <output>/test/anomalous/      api di test con varroa
   <output>/test/masks/          GT mask delle api con varroa (<bee_id>_mask.png, 0/255)
-  <output>/test/labels.csv      bee_id, label (0/1), num_varroa, image_path, mask_path
-  <output>/split.csv            ogni crop sorgente con split, label e num_varroa
+  <output>/test/labels.csv      bee_id, cluster, label (0/1), num_varroa, image_path, mask_path
+  <output>/split.csv            ogni crop sorgente con cluster, split, label e num_varroa
   <output>/config.json          parametri e conteggi della generazione
 
-Le api normali sono copie identiche dei crop sorgente. Con lo stesso seed e gli
-stessi crop il risultato è identico.
+Le api normali sono copie identiche dei crop sorgente (o hardlink/symlink con
+--mode). Con lo stesso seed e gli stessi crop il risultato è identico.
 
 Uso:
   python build_varroa_split.py                 # dataset completo
   python build_varroa_split.py --dry-run       # solo i conteggi, non scrive nulla
   python build_varroa_split.py --limit 2000 --output /tmp/prova   # prova su un sottoinsieme
+  python build_varroa_split.py --crops-dir <export>/Giovane <export>/Adulte \
+      --anomalous-fraction 0.05 --mode hardlink --output <dir>    # più cartelle sorgente
 """
 
 import argparse
@@ -95,6 +100,8 @@ def copy_all(pairs, mode):
         src, dst = pair
         if mode == "symlink":
             os.symlink(os.path.abspath(src), dst)
+        elif mode == "hardlink":
+            os.link(src, dst)
         else:
             shutil.copyfile(src, dst)
 
@@ -102,15 +109,48 @@ def copy_all(pairs, mode):
         list(pool.map(one, pairs))
 
 
-def build(crops_dir, output_dir, seed=SEED, limit=None, mode="copy", dry_run=False):
-    files = sorted(glob.glob(os.path.join(crops_dir, "*.png")))
-    if not files:
-        raise FileNotFoundError(f"Nessun crop .png in {crops_dir}")
+def collect_crops(crops_dirs):
+    """Crop .png di tutte le cartelle: {path: nome della cartella di origine}.
+
+    Due crop con lo stesso nome in cartelle diverse finirebbero sullo stesso file
+    di output, quindi sono un errore.
+    """
+    clusters, seen = {}, {}
+    for d in crops_dirs:
+        name = os.path.basename(os.path.normpath(d))
+        files = glob.glob(os.path.join(d, "*.png"))
+        if not files:
+            raise FileNotFoundError(f"Nessun crop .png in {d}")
+        for path in files:
+            base = os.path.basename(path)
+            if base in seen:
+                raise ValueError(f"Crop con lo stesso nome in due cartelle: {seen[base]} e {path}")
+            seen[base] = path
+            clusters[path] = name
+    return clusters
+
+
+def check_output(dirs, expected):
+    """Conta i file scritti in ogni cartella: il disco NTFS può perderli senza errori."""
+    for name, n in expected.items():
+        found = len(os.listdir(dirs[name]))
+        if found != n:
+            raise RuntimeError(f"{name}: {found} file invece di {n}")
+
+
+def build(crops_dirs, output_dir, seed=SEED, limit=None, mode="copy", dry_run=False,
+          anomalous_fraction=ANOMALOUS_FRACTION):
+    if isinstance(crops_dirs, str):
+        crops_dirs = [crops_dirs]
+    cluster_of = collect_crops(crops_dirs)
+    files = sorted(cluster_of)
     if limit is not None:
         files = random.Random(seed).sample(files, min(limit, len(files)))
 
-    n_train, n_test, n_one, n_two = plan_counts(len(files))
+    n_train, n_test, n_one, n_two = plan_counts(len(files), anomalous_fraction=anomalous_fraction)
     print(f"Crop totali: {len(files)}")
+    for name in sorted(set(cluster_of.values())):
+        print(f"  {name}: {sum(1 for p in files if cluster_of[p] == name)}")
     print(f"  train: {n_train}")
     print(f"  test:  {n_test}  (con varroa: {n_one + n_two} = {n_one} con una + {n_two} con due)")
     if dry_run:
@@ -124,7 +164,7 @@ def build(crops_dir, output_dir, seed=SEED, limit=None, mode="copy", dry_run=Fal
     for d in dirs.values():
         os.makedirs(d, exist_ok=True)
 
-    train_files, test_files = split_files(files, seed)
+    train_files, test_files = split_files(files, seed, test_fraction=TEST_FRACTION)
 
     # --- Api con varroa: si scorre il test in ordine casuale finché le quote
     # sono piene. Se su un'ape la varroa non entra, quell'ape resta normale.
@@ -153,35 +193,39 @@ def build(crops_dir, output_dir, seed=SEED, limit=None, mode="copy", dry_run=Fal
     test_normal = [p for p in test_files if p not in anomalous]
     copy_all([(p, os.path.join(dirs["train/normal"], os.path.basename(p))) for p in train_files], mode)
     copy_all([(p, os.path.join(dirs["test/normal"], os.path.basename(p))) for p in test_normal], mode)
+    check_output(dirs, {"train/normal": len(train_files), "test/normal": len(test_normal),
+                        "test/anomalous": len(anomalous), "test/masks": len(anomalous)})
 
     # --- Label del test e riepilogo della divisione
     with open(os.path.join(output_dir, "test", "labels.csv"), "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["bee_id", "label", "num_varroa", "image_path", "mask_path"])
+        writer.writerow(["bee_id", "cluster", "label", "num_varroa", "image_path", "mask_path"])
         for path in sorted(test_files):
             bee_id = os.path.splitext(os.path.basename(path))[0]
             if path in anomalous:
-                writer.writerow([bee_id, 1, anomalous[path],
+                writer.writerow([bee_id, cluster_of[path], 1, anomalous[path],
                                  os.path.join(dirs["test/anomalous"], f"{bee_id}.png"),
                                  os.path.join(dirs["test/masks"], f"{bee_id}_mask.png")])
             else:
-                writer.writerow([bee_id, 0, 0, os.path.join(dirs["test/normal"], f"{bee_id}.png"), ""])
+                writer.writerow([bee_id, cluster_of[path], 0, 0,
+                                 os.path.join(dirs["test/normal"], f"{bee_id}.png"), ""])
 
     with open(os.path.join(output_dir, "split.csv"), "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["file", "split", "label", "num_varroa"])
+        writer.writerow(["file", "cluster", "split", "label", "num_varroa"])
         for path in train_files:
-            writer.writerow([os.path.basename(path), "train", 0, 0])
+            writer.writerow([os.path.basename(path), cluster_of[path], "train", 0, 0])
         for path in sorted(test_files):
-            writer.writerow([os.path.basename(path), "test", int(path in anomalous), anomalous.get(path, 0)])
+            writer.writerow([os.path.basename(path), cluster_of[path], "test",
+                             int(path in anomalous), anomalous.get(path, 0)])
 
     summary = {
-        "crops_dir": crops_dir,
+        "crops_dirs": list(crops_dirs),
         "seed": seed,
         "limit": limit,
         "mode": mode,
         "test_fraction": TEST_FRACTION,
-        "anomalous_fraction": ANOMALOUS_FRACTION,
+        "anomalous_fraction": anomalous_fraction,
         "two_varroa_fraction": TWO_VARROA_FRACTION,
         "varroa_bee_ratio": [voc.VARROA_BEE_RATIO_MIN, voc.VARROA_BEE_RATIO_MAX],
         "counts": {
@@ -192,6 +236,14 @@ def build(crops_dir, output_dir, seed=SEED, limit=None, mode="copy", dry_run=Fal
             "one_varroa": sum(1 for n in anomalous.values() if n == 1),
             "two_varroa": sum(1 for n in anomalous.values() if n == 2),
             "skipped_no_room": skipped,
+        },
+        "clusters": {
+            name: {
+                "train": sum(1 for p in train_files if cluster_of[p] == name),
+                "test_normal": sum(1 for p in test_normal if cluster_of[p] == name),
+                "test_anomalous": sum(1 for p in anomalous if cluster_of[p] == name),
+            }
+            for name in sorted(set(cluster_of[p] for p in files))
         },
     }
     with open(os.path.join(output_dir, "config.json"), "w") as f:
@@ -204,15 +256,19 @@ def build(crops_dir, output_dir, seed=SEED, limit=None, mode="copy", dry_run=Fal
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--crops-dir", default=CROPS_DIR)
+    parser.add_argument("--crops-dir", nargs="+", default=[CROPS_DIR],
+                        help="una o più cartelle di crop (es. i cluster di un export)")
     parser.add_argument("--output", default=OUTPUT_DIR)
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument("--limit", type=int, default=None, help="usa solo N crop a caso (per le prove)")
-    parser.add_argument("--mode", choices=["copy", "symlink"], default="copy",
+    parser.add_argument("--anomalous-fraction", type=float, default=ANOMALOUS_FRACTION,
+                        help="quota del test set con varroa")
+    parser.add_argument("--mode", choices=["copy", "hardlink", "symlink"], default="copy",
                         help="come portare le api normali nell'output")
     parser.add_argument("--dry-run", action="store_true", help="stampa solo i conteggi")
     args = parser.parse_args()
-    build(args.crops_dir, args.output, seed=args.seed, limit=args.limit, mode=args.mode, dry_run=args.dry_run)
+    build(args.crops_dir, args.output, seed=args.seed, limit=args.limit, mode=args.mode, dry_run=args.dry_run,
+          anomalous_fraction=args.anomalous_fraction)
 
 
 if __name__ == "__main__":

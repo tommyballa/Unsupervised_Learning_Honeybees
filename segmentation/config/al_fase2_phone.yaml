@@ -1,0 +1,138 @@
+# Fase 'fase2_phone': fase 2 solo sulle 4689 api pulite delle 22 foto del telefono (batch_6/favi_phone_camera),
+# senza il filtro della fase 1 (che ne lasciava 3627 non assegnate). Etichette da zero, stesse classi di
+# al_fase2_sam3.yaml, embedding DINOv2 originali. Hub separato: BEE_AL_PORT=8003.
+
+seed: 42
+paths:
+  dataset_dir: /home/tommaso_ballarin/bee_segmentation/bee_segmentation/data/images
+  dataset_dirs:
+    phone: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee_phone_SAM3/cleaned_bees
+  results_dir: /mnt/disk1/tommaso_ballarin/bee_al/results_fase2_phone
+  embeddings_dir: /mnt/disk1/tommaso_ballarin/bee_al/embeddings_phone
+  models_dir: /mnt/disk1/tommaso_ballarin/bee_al/models_fase2_phone
+labels:
+  # Profilo demografico: Giovane, Adulte, Fuco. Malata: api malate in generale.
+  # Non Classificabile: non si giudica per segmentazione o posa (classe di scarto, fuori dalle quote).
+  classes: [Giovane, Adulte, Fuco, Malata, Non Classificabile]
+  label_aliases: {Non Classificabille: Non Classificabile}
+  reject_classes: [Non Classificabile]
+extractor:
+  model: dinov2_vits14
+  image_size: 224
+  batch_size: 128
+  num_workers: 4
+  shard_size: 2048
+  device: auto
+knn:
+  k: 10
+  temperature: 0.07
+  backend: auto
+  unassigned_fraction: 0.05
+propagation:
+  enabled: true
+  n_neighbors: 15
+  alpha: 0.8
+  max_iter: 30
+  tol: 0.0001
+query:
+  batch_size: 30
+  cold_start_threshold: 50
+  uncertainty: margin
+  uncertainty_source: propagation
+  candidate_multiplier: 10
+  random_fraction: 0.1
+  novelty_fraction: 0.2
+validation:
+  size: 100
+  seed: 123
+hub:
+  show_suggestion: false
+  assignment_timeout_s: 900.0
+retrain:
+  enabled: false
+  policy: label_count
+  initial_labels: 50
+  growth_factor: 2.0
+  plateau_rounds: 3
+  metric: macro_f1
+  min_delta: 0.0
+  trainer: contrastive
+  python: venv/bin/python
+  min_labels: 20
+  require_improvement: true
+  pseudo_label_threshold: 0.95
+  unfreeze_blocks: 2
+  steps: 300
+  batch_size: 96
+  labeled_fraction: 0.5
+  lr_backbone: 1.0e-05
+  lr_head: 0.001
+  temperature: 0.1
+  projection_dim: 128
+  num_workers: 8
+  device: auto
+stopping:
+  window: 3
+  max_pred_change: 0.01
+  f1_min_delta: 0.01
+frames:
+  manifests: {}
+  frame_pattern: ''
+  session_dirs:
+    phone: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_6/favi_phone_camera
+  colony: ''
+audit:
+  per_stratum: 40
+  large_stratum: 250
+  large_threshold: 5000
+  confidence_bins:
+  - 0.9
+  double_fraction: 0.1
+  anomaly_split_class: ''
+  anomaly_quantile: 0.9
+  seed: 7
+colony:
+  group_by: session
+  demographic_classes: [Giovane, Adulte, Fuco]
+  disease_classes: [Malata]
+  min_detected: 3
+  reference_groups: []
+  time_order:
+    '*':
+    - phone
+  anomaly_threshold: 0.0
+  n_boot: 1000
+  seed: 11
+  light_rules:
+  - disease_detected
+  - profile_divergent
+  red_min_rules: 2
+  max_unexplained: 0.0
+stage:
+  name: fase2_phone
+  title: Phase 2 - phone photos only
+  description: All the cleaned bees of the 22 phone photos (batch_6/favi_phone_camera), no phase-1 filter.
+export:
+  clusters_dir: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee_phone_SAM3_clusters
+  mode: copy
+review:
+  enabled: true
+  k: 0
+  min_disagreement: 0.8
+  min_class_size: 5
+  show_neighbors: 6
+simulation:
+  seeds:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  max_labels: 400
+  threshold_metric: macro_f1
+  threshold: 0.8
+  synthetic_n: 3000
+  synthetic_dim: 64
+  synthetic_classes: 6
+  synthetic_imbalance: 0.6
+  synthetic_noise: 2.0

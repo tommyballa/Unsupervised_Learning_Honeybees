@@ -1,0 +1,28 @@
+Versione v004 (/mnt/disk1/tommaso_ballarin/bee_al/models_fase2_sam3/v004/embeddings): 34645 api di 'b7' nella fase
+Using cache found in /home/tommaso_ballarin/.cache/torch/hub/facebookresearch_dinov2_main
+/home/tommaso_ballarin/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/swiglu_ffn.py:51: UserWarning: xFormers is not available (SwiGLU)
+  warnings.warn("xFormers is not available (SwiGLU)")
+/home/tommaso_ballarin/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/attention.py:33: UserWarning: xFormers is not available (Attention)
+  warnings.warn("xFormers is not available (Attention)")
+/home/tommaso_ballarin/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/block.py:40: UserWarning: xFormers is not available (Block)
+  warnings.warn("xFormers is not available (Block)")
+Coseno minimo con gli embedding salvati: 1.0000
+138788 immagini già fatte, 34645 da estrarre
+  2048/34645
+  4096/34645
+  6144/34645
+  8192/34645
+  10240/34645
+  12288/34645
+  14336/34645
+  16384/34645
+  18432/34645
+  20480/34645
+  22528/34645
+  24576/34645
+  26624/34645
+  28672/34645
+  30720/34645
+  32768/34645
+  34645/34645
+Aggiunti 34645 embedding (0 c'erano già); ora 173433 in /mnt/disk1/tommaso_ballarin/bee_al/models_fase2_sam3/v004/embeddings

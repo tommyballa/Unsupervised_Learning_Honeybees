@@ -127,7 +127,7 @@ def plot(coords, clusters, classes, holdout, out_dir, title, batches=None):
     frame(ax)
     ax.set_title(f"{title}: {len(train)} bees, colour = cluster", loc="left", fontsize=12)
     fig.tight_layout()
-    fig.savefig(out_dir / "map_overview.png")
+    fig.savefig(out_dir / "map_overview.png", bbox_inches="tight")
     plt.close(fig)
 
     def by_cluster(idx, filename, subtitle):
@@ -162,7 +162,7 @@ def plot(coords, clusters, classes, holdout, out_dir, title, batches=None):
         frame(ax)
         ax.set_title(f"{title}: {len(idx)} {what} (colour) on the map of the non-held-out bees (grey)", loc="left", fontsize=12)
         fig.tight_layout()
-        fig.savefig(out_dir / f"{stem}.png")
+        fig.savefig(out_dir / f"{stem}.png", bbox_inches="tight")
         plt.close(fig)
         by_cluster(idx, f"{stem}_by_cluster.png", f"{what}, one panel per cluster (non-held-out bees in grey)")
 

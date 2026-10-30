@@ -1,0 +1,7 @@
+# 22 foto del telefono (batch_6/favi_phone_camera) con le etichette SAM 3: mai usate nel training YOLO.
+train: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/phone_captured/images
+val: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/phone_captured/images
+test: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/phone_captured/images
+
+nc: 1
+names: ['bee']

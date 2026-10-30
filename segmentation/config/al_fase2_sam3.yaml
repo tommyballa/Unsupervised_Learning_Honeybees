@@ -1,19 +1,25 @@
 # Fase 'fase2_sam3': 138788 api con classe ['Ok'] nello snapshot 'fase1_finale_okvsscarta'
 # di al_config.yaml. Scritta da scripts/new_stage.py; etichette e modelli sono separati.
+# Aggiunte 34645 api di 'b7' (batch 7) filtrate con il modello v003 della fase 1 (scripts/add_dataset_to_stage.py).
+# Aggiunte 895 api di 'phone' (22 foto del telefono, batch_6/favi_phone_camera) filtrate con il modello v003 della fase 1.
 
 seed: 42
 paths:
   dataset_dir: /home/tommaso_ballarin/bee_segmentation/bee_segmentation/data/images
   dataset_dirs:
     sam3_b3456: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/cleaned_bees
+    b7: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee7_SAM3/cleaned_bees
+    phone: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee_phone_SAM3/cleaned_bees
   results_dir: /mnt/disk1/tommaso_ballarin/bee_al/results_fase2_sam3
   embeddings_dir: /mnt/disk1/tommaso_ballarin/bee_al/embeddings_sam3_b3456
   models_dir: /mnt/disk1/tommaso_ballarin/bee_al/models_fase2_sam3
   subset_file: /mnt/disk1/tommaso_ballarin/bee_al/results_fase2_sam3/subset.json
 labels:
-  classes: []
-  label_aliases: {}
-  reject_classes: []
+  # Profilo demografico: Giovane, Adulte, Fuco. Malata: api malate in generale.
+  # Non Classificabile: non si giudica per segmentazione o posa (classe di scarto, fuori dalle quote).
+  classes: [Giovane, Adulte, Fuco, Malata, Non Classificabile]
+  label_aliases: {Non Classificabille: Non Classificabile}
+  reject_classes: [Non Classificabile]
 extractor:
   model: dinov2_vits14
   image_size: 224
@@ -43,6 +49,8 @@ query:
 validation:
   size: 100
   seed: 123
+  # Batch 7 e foto del telefono tenuti da parte: predetti e visibili nei cluster, mai proposti né usati per addestrare.
+  holdout_datasets: [b7, phone]
 hub:
   show_suggestion: false
   assignment_timeout_s: 900.0
@@ -81,6 +89,7 @@ frames:
     batch_4: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_4
     batch_5: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_5
     batch_6: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_6
+    batch_7: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_7
   colony: ''
 audit:
   per_stratum: 40
@@ -94,8 +103,8 @@ audit:
   seed: 7
 colony:
   group_by: session
-  demographic_classes: []
-  disease_classes: []
+  demographic_classes: [Giovane, Adulte, Fuco]
+  disease_classes: [Malata]
   min_detected: 3
   reference_groups: []
   time_order:
@@ -104,6 +113,7 @@ colony:
     - batch_4
     - batch_5
     - batch_6
+    - batch_7
   anomaly_threshold: 0.0
   n_boot: 1000
   seed: 11
