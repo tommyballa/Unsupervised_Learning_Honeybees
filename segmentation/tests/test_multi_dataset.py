@@ -35,15 +35,15 @@ def _encoder(paths):
     return np.stack([np.random.default_rng(sum(Path(p).read_bytes())).normal(size=8) for p in paths])
 
 
-def test_default_config_points_to_the_two_batch34_folders():
+def test_default_config_uses_the_sam3_folder():
     cfg = load_config()
     sources = dict(cfg.dataset_sources)
-    assert set(sources) == {"train_b34__", "test_b34_novarroa__"}
-    assert sources["train_b34__"].parts[-2:] == ("train_single_bee_batch3+4", "cleaned_bees")
-    assert sources["test_b34_novarroa__"].parts[-2:] == ("test_single_bee_batch3+4_novarroa", "cleaned_bees")
-    # stato separato da quello del dataset precedente
-    assert cfg.results_dir.name == "results_batch3+4" and cfg.embeddings_dir.name == "embeddings_batch3+4"
-    assert cfg.models_dir.name == "models_batch3+4"
+    assert set(sources) == {"sam3_b3456__"}                                  # tutte le foto di batch 3-6
+    assert sources["sam3_b3456__"].parts[-2:] == ("single_bee3+4+5+6_SAM3", "cleaned_bees")
+    assert cfg.embeddings_dir.name == "embeddings_sam3_b3456"
+    assert cfg.stage.name == "fase1" and "segmentation" in cfg.stage.title.lower()
+    assert cfg.clusters_dir.name == "single_bee3+4+5+6_SAM3_clusters" and cfg.export.mode == "copy"
+    assert cfg.clusters_dir.parent == sources["sam3_b3456__"].parents[1]      # accanto agli altri dataset, in una cartella sua
 
 
 def test_sources_and_unique_ids(two_folders, tmp_path):

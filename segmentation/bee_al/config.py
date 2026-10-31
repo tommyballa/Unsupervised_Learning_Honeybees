@@ -4,6 +4,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import re
 import typing
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -32,6 +33,9 @@ class PathsConfig:
     results_dir: str = "active_learning_tool/results"
     embeddings_dir: str = "data/embeddings"
     models_dir: str = "models"
+    # JSON {"image_ids": [...]}: se indicato, l'hub lavora solo su queste api (fase successiva
+    # di una pipeline, es. solo le api segmentate bene). Vuoto = tutte quelle con un embedding.
+    subset_file: str = ""
 
 
 @dataclass
@@ -104,6 +108,9 @@ class QueryConfig:
 class ValidationConfig:
     size: int = 100
     seed: int = 123
+    # Cartelle di dataset tenute da parte per validare il modello (es. un batch nuovo): il modello
+    # le predice ma non le propone mai, non impara da loro e le etichette date restano "holdout".
+    holdout_datasets: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -149,6 +156,138 @@ class RetrainConfig:
 
 
 @dataclass
+class StoppingConfig:
+    """Criteri di stop mostrati nell'hub: sono un'indicazione, non fermano nulla."""
+
+    window: int = 3
+    max_pred_change: float = 0.01
+    f1_min_delta: float = 0.01
+
+    def __post_init__(self) -> None:
+        _check(self.window >= 1, "stopping.window >= 1")
+        _check(0 <= self.max_pred_change <= 1, "stopping.max_pred_change in [0, 1]")
+        _check(self.f1_min_delta >= 0, "stopping.f1_min_delta >= 0")
+
+
+@dataclass
+class FramesConfig:
+    """Collegamento ape -> frame di origine (vedi ``bee_al/frames.py``)."""
+
+    # {nome cartella dataset: percorso del manifest dell'estrazione}; vuoto = <cartella pulita>/../raw_bees/
+    manifests: dict[str, str] = field(default_factory=dict)
+    # regex con i gruppi nominati (?P<session>...) e/o (?P<colony>...) cercata nel nome del frame
+    frame_pattern: str = ""
+    # {nome sessione: cartella con i frame originali di quella sessione}, cercati anche nelle sottocartelle.
+    # Serve quando il nome del frame non dice nulla (es. DSC_5365.JPG): la sessione è la cartella che lo contiene.
+    session_dirs: dict[str, str] = field(default_factory=dict)
+    # alveare da assegnare a tutti i frame quando la regex non ne ricava uno (un solo alveare fotografato)
+    colony: str = ""
+
+    def __post_init__(self) -> None:
+        if self.frame_pattern:
+            try:
+                groups = set(re.compile(self.frame_pattern).groupindex)
+            except re.error as e:
+                raise ValueError(f"Config non valida: frames.frame_pattern non è una regex ({e})") from None
+            _check(bool(groups & {"session", "colony"}) and groups <= {"session", "colony"},
+                   "frames.frame_pattern deve avere i gruppi nominati 'session' e/o 'colony'")
+
+
+@dataclass
+class AuditConfig:
+    """Campione di controllo stratificato (vedi ``bee_al/audit.py``)."""
+
+    per_stratum: int = 40
+    large_stratum: int = 250
+    large_threshold: int = 5000
+    confidence_bins: list[float] = field(default_factory=lambda: [0.9])
+    double_fraction: float = 0.1
+    anomaly_split_class: str = ""     # es. "Healthy Adult"; vuoto = nessuna divisione per anomaly score
+    anomaly_quantile: float = 0.9
+    seed: int = 7
+    # Solo le api di queste cartelle di dataset (es. il batch tenuto da parte); vuoto = tutte.
+    datasets: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        _check(self.per_stratum >= 1, "audit.per_stratum >= 1")
+        _check(self.large_stratum >= self.per_stratum, "audit.large_stratum >= audit.per_stratum")
+        _check(self.large_threshold >= 1, "audit.large_threshold >= 1")
+        _check(all(0 < b < 1 for b in self.confidence_bins) and len(set(self.confidence_bins)) == len(self.confidence_bins),
+               "audit.confidence_bins: soglie distinte in (0, 1)")
+        _check(0 <= self.double_fraction <= 1, "audit.double_fraction in [0, 1]")
+        _check(0 < self.anomaly_quantile < 1, "audit.anomaly_quantile in (0, 1)")
+
+
+GROUP_BY = ("frame", "session", "colony", "dataset")
+LIGHT_RULES = ("disease_detected", "profile_divergent", "unexplained_high")
+
+
+@dataclass
+class ColonyConfig:
+    """Indicatori di colonia sulle stime corrette dall'audit (vedi ``bee_al/colony.py``)."""
+
+    group_by: str = "session"               # frame | session | colony | dataset
+    demographic_classes: list[str] = field(default_factory=list)
+    disease_classes: list[str] = field(default_factory=list)
+    min_detected: int = 3
+    reference_groups: list[str] = field(default_factory=list)
+    time_order: dict[str, list[str]] = field(default_factory=dict)  # {colony: [session1, session2, ...]}
+    anomaly_threshold: float = 0.0          # 0 = indicatore AD disattivato
+    n_boot: int = 1000
+    seed: int = 11
+    # Semaforo: giallo se scatta almeno una regola, rosso da red_min_rules in su.
+    light_rules: list[str] = field(default_factory=lambda: ["disease_detected", "profile_divergent"])
+    red_min_rules: int = 2
+    max_unexplained: float = 0.0            # soglia della regola unexplained_high (0 = spenta)
+
+    def __post_init__(self) -> None:
+        _check(self.group_by in GROUP_BY, f"colony.group_by in {GROUP_BY}")
+        _check(self.min_detected >= 1, "colony.min_detected >= 1")
+        _check(self.n_boot >= 1, "colony.n_boot >= 1")
+        _check(self.anomaly_threshold >= 0, "colony.anomaly_threshold >= 0")
+        _check(all(r in LIGHT_RULES for r in self.light_rules), f"colony.light_rules in {LIGHT_RULES}")
+        _check(self.red_min_rules >= 1, "colony.red_min_rules >= 1")
+        _check(0 <= self.max_unexplained <= 1, "colony.max_unexplained in [0, 1]")
+
+
+@dataclass
+class StageConfig:
+    """Fase della pipeline su cui lavora questa config: l'hub la mostra in ogni pagina."""
+
+    name: str = ""          # es. "fase1": finisce anche nei file esportati
+    title: str = ""         # riga in evidenza, es. "Phase 1 of 2 - segmentation quality"
+    description: str = ""   # cosa deve fare l'annotatore in questa fase
+
+
+@dataclass
+class ExportConfig:
+    """Dove finiscono i cluster quando si chiude una fase (vedi ``bee_al/export.py``)."""
+
+    clusters_dir: str = ""  # una sottocartella per esportazione; vuoto = pulsante disattivato
+    mode: str = "copy"      # copy | hardlink | symlink
+
+    def __post_init__(self) -> None:
+        _check(self.mode in ("copy", "hardlink", "symlink"), "export.mode in (copy, hardlink, symlink)")
+
+
+@dataclass
+class ReviewConfig:
+    """Coda di revisione delle etichette sospette (vedi ``bee_al/review.py``)."""
+
+    enabled: bool = True
+    k: int = 0                    # 0 = usa knn.k
+    min_disagreement: float = 0.8 # probabilità minima della classe suggerita
+    min_class_size: int = 5       # sotto questa soglia la classe è "rara": sezione a parte
+    show_neighbors: int = 6
+
+    def __post_init__(self) -> None:
+        _check(self.k >= 0, "review.k >= 0")
+        _check(0 < self.min_disagreement <= 1, "review.min_disagreement in (0, 1]")
+        _check(self.min_class_size >= 1, "review.min_class_size >= 1")
+        _check(self.show_neighbors >= 1, "review.show_neighbors >= 1")
+
+
+@dataclass
 class SimulationConfig:
     seeds: list[int] = field(default_factory=lambda: [0, 1, 2, 3, 4])
     max_labels: int = 400
@@ -173,6 +312,13 @@ class ALConfig:
     validation: ValidationConfig = field(default_factory=ValidationConfig)
     hub: HubConfig = field(default_factory=HubConfig)
     retrain: RetrainConfig = field(default_factory=RetrainConfig)
+    stopping: StoppingConfig = field(default_factory=StoppingConfig)
+    frames: FramesConfig = field(default_factory=FramesConfig)
+    audit: AuditConfig = field(default_factory=AuditConfig)
+    colony: ColonyConfig = field(default_factory=ColonyConfig)
+    stage: StageConfig = field(default_factory=StageConfig)
+    export: ExportConfig = field(default_factory=ExportConfig)
+    review: ReviewConfig = field(default_factory=ReviewConfig)
     simulation: SimulationConfig = field(default_factory=SimulationConfig)
     root: str = str(REPO_ROOT)  # base dei percorsi relativi; non va nel file YAML
 
@@ -204,6 +350,14 @@ class ALConfig:
     @property
     def models_dir(self) -> Path:
         return self.resolve(self.paths.models_dir)
+
+    @property
+    def clusters_dir(self) -> Optional[Path]:
+        return self.resolve(self.export.clusters_dir) if self.export.clusters_dir else None
+
+    @property
+    def subset_path(self) -> Optional[Path]:
+        return self.resolve(self.paths.subset_file) if self.paths.subset_file else None
 
     @property
     def al_labels_path(self) -> Path:
@@ -239,7 +393,8 @@ def _coerce(value: Any, tp: Any, where: str) -> Any:
     if origin is dict:
         value = {} if value is None else value
         _check(isinstance(value, dict), f"{where} deve essere una mappa")
-        return {str(k): str(v) for k, v in value.items()}
+        _, value_tp = typing.get_args(tp)
+        return {str(k): _coerce(v, value_tp, f"{where}.{k}") for k, v in value.items()}
     if tp is bool:
         _check(isinstance(value, bool), f"{where} deve essere true/false")
         return value
@@ -271,6 +426,8 @@ def config_from_dict(data: Optional[dict[str, Any]], root: Union[str, Path, None
     for name in cfg.paths.dataset_dirs:
         _check(bool(name) and "/" not in name and ID_SEPARATOR not in name,
                f"paths.dataset_dirs: nome non valido {name!r} (niente '/' né '{ID_SEPARATOR}')")
+    for name in cfg.validation.holdout_datasets:
+        _check(name in cfg.paths.dataset_dirs, f"validation.holdout_datasets: {name!r} non è in paths.dataset_dirs")
     if root is not None:
         cfg.root = str(Path(root).resolve())
     return cfg

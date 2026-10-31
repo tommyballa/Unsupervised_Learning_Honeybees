@@ -1,0 +1,106 @@
+[mer 14 ott 2026, 12:15:16, CEST] attendo la fine della pulizia (PID 2004521)
+accettate 183397, orientate 183397
+[mer 14 ott 2026, 12:45:17, CEST] 1/3 estrazione embedding (l'hub resta acceso sulla fase 2)
+Using cache found in /home/tommaso_ballarin/.cache/torch/hub/facebookresearch_dinov2_main
+/home/tommaso_ballarin/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/swiglu_ffn.py:51: UserWarning: xFormers is not available (SwiGLU)
+  warnings.warn("xFormers is not available (SwiGLU)")
+/home/tommaso_ballarin/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/attention.py:33: UserWarning: xFormers is not available (Attention)
+  warnings.warn("xFormers is not available (Attention)")
+/home/tommaso_ballarin/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/block.py:40: UserWarning: xFormers is not available (Block)
+  warnings.warn("xFormers is not available (Block)")
+183397 immagini in /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/cleaned_bees
+Modello dinov2_vits14, output /mnt/disk1/tommaso_ballarin/bee_al/embeddings_sam3_b3456
+0 immagini già fatte, 183397 da estrarre
+  2048/183397
+  4096/183397
+  6144/183397
+  8192/183397
+  10240/183397
+  12288/183397
+  14336/183397
+  16384/183397
+  18432/183397
+  20480/183397
+  22528/183397
+  24576/183397
+  26624/183397
+  28672/183397
+  30720/183397
+  32768/183397
+  34816/183397
+  36864/183397
+  38912/183397
+  40960/183397
+  43008/183397
+  45056/183397
+  47104/183397
+  49152/183397
+  51200/183397
+  53248/183397
+  55296/183397
+  57344/183397
+  59392/183397
+  61440/183397
+  63488/183397
+  65536/183397
+  67584/183397
+  69632/183397
+  71680/183397
+  73728/183397
+  75776/183397
+  77824/183397
+  79872/183397
+  81920/183397
+  83968/183397
+  86016/183397
+  88064/183397
+  90112/183397
+  92160/183397
+  94208/183397
+  96256/183397
+  98304/183397
+  100352/183397
+  102400/183397
+  104448/183397
+  106496/183397
+  108544/183397
+  110592/183397
+  112640/183397
+  114688/183397
+  116736/183397
+  118784/183397
+  120832/183397
+  122880/183397
+  124928/183397
+  126976/183397
+  129024/183397
+  131072/183397
+  133120/183397
+  135168/183397
+  137216/183397
+  139264/183397
+  141312/183397
+  143360/183397
+  145408/183397
+  147456/183397
+  149504/183397
+  151552/183397
+  153600/183397
+  155648/183397
+  157696/183397
+  159744/183397
+  161792/183397
+  163840/183397
+  165888/183397
+  167936/183397
+  169984/183397
+  172032/183397
+  174080/183397
+  176128/183397
+  178176/183397
+  180224/183397
+  182272/183397
+  183397/183397
+Aggiunti 183397 embedding in 749.4s. Totale 183397, dim 384.
+[mer 14 ott 2026, 12:57:53, CEST] 2/3 stop hub e archivio della run precedente
+L'hub non si è fermato: mi fermo prima di spostare lo stato

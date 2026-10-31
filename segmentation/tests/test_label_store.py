@@ -136,3 +136,10 @@ def test_no_legacy_files_is_a_noop(tmp_path):
     assert read_legacy_labels(tmp_path / "results") is None
     assert store.import_legacy(tmp_path / "results") == 0
     assert store.events() == [] and store.current() == {}
+
+
+def test_scarta_ape_typed_by_hand_sets_the_bee_aside(tmp_path):
+    store = _store(tmp_path)
+    for text in ("Scarta ape", "  scarta   APE ", "non so"):        # il nome nuovo, e quello vecchio per compatibilità
+        assert store.normalize_label(text) == UNKNOWN_LABEL
+    assert store.normalize_label("Scarta") == "Scarta"              # una classe vera resta una classe

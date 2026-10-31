@@ -1,0 +1,625 @@
+{
+ "seg_eval_labels_ruotate": [
+  {
+   "name": "bee_model_finetuned_yolo26s_batch3+4+5+6_SAM3_img1376",
+   "imgsz": 2048,
+   "box_map": 0.5167383362214271,
+   "box_map50": 0.7873630779329053,
+   "seg_map": 0.5268213977774757,
+   "seg_map50": 0.8039289531661304,
+   "seg_map75": 0.588844760542693,
+   "seg_p": 0.8838983968314958,
+   "seg_r": 0.7647059548006743,
+   "seg_f1": 0.8199934287770501
+  },
+  {
+   "name": "bee_model_finetuned_yolo26s_batch3+4+5+6_SAM3_img1376",
+   "imgsz": 1376,
+   "box_map": 0.5220537344190137,
+   "box_map50": 0.8127790645379103,
+   "seg_map": 0.5293194358275463,
+   "seg_map50": 0.8280179073859752,
+   "seg_map75": 0.5839430563140081,
+   "seg_p": 0.9080249747808494,
+   "seg_r": 0.7887798989246159,
+   "seg_f1": 0.8442123887404512
+  },
+  {
+   "name": "bee_model_finetuned_yolo26s_batch3+4+5+6_SAM3",
+   "imgsz": 1280,
+   "box_map": 0.5273858256275724,
+   "box_map50": 0.8128806522049384,
+   "seg_map": 0.5276040761943434,
+   "seg_map50": 0.8271897247474695,
+   "seg_map75": 0.5810582812847774,
+   "seg_p": 0.9028991963521678,
+   "seg_r": 0.7850265842793505,
+   "seg_f1": 0.8398472020443024
+  }
+ ],
+ "seg_eval_labels_originali": [
+  {
+   "name": "bee_model_finetuned_yolo26s_batch3+4+5+6_SAM3_img1376",
+   "imgsz": 2048,
+   "box_map": 0.4199141165540726,
+   "box_map50": 0.6552918173196416,
+   "seg_map": 0.424744532450375,
+   "seg_map50": 0.6514573369084188,
+   "seg_map75": 0.47228533447217175,
+   "seg_p": 0.7928675704761842,
+   "seg_r": 0.6769650811898261,
+   "seg_f1": 0.7303466263479828
+  },
+  {
+   "name": "bee_model_finetuned_yolo26s_batch3+4+5+6_SAM3_img1376",
+   "imgsz": 1376,
+   "box_map": 0.4001128778603891,
+   "box_map50": 0.6433329498615512,
+   "seg_map": 0.4002789236218546,
+   "seg_map50": 0.631230218947662,
+   "seg_map75": 0.44110073222676593,
+   "seg_p": 0.7942618060595004,
+   "seg_r": 0.6861618048570197,
+   "seg_f1": 0.7362650937962034
+  },
+  {
+   "name": "bee_model_finetuned_yolo26s_batch3+4+5+6_SAM3",
+   "imgsz": 1280,
+   "box_map": 0.40571642547611314,
+   "box_map50": 0.6425786869309333,
+   "seg_map": 0.3995453890102007,
+   "seg_map50": 0.6355551463960649,
+   "seg_map75": 0.43617342509224566,
+   "seg_p": 0.7857484736592911,
+   "seg_r": 0.688604684581118,
+   "seg_f1": 0.7339762211517897
+  }
+ ],
+ "seg_test_batch3_6": [
+  {
+   "name": "bee_model_finetuned_yolo26s_batch3+4+5+6_SAM3_img1376",
+   "imgsz": 1376,
+   "box_map": 0.6754698793986712,
+   "box_map50": 0.9027998178046821,
+   "seg_map": 0.645851228299554,
+   "seg_map50": 0.9141619509141263,
+   "seg_map75": 0.7429071180050257,
+   "seg_p": 0.9199644544762801,
+   "seg_r": 0.8646058920471004,
+   "seg_f1": 0.8914265434967735
+  },
+  {
+   "name": "bee_model_finetuned_yolo26s_batch3+4+5+6_SAM3_img1376",
+   "imgsz": 2048,
+   "box_map": 0.7032121885010201,
+   "box_map50": 0.9152610275224897,
+   "seg_map": 0.6920255076825133,
+   "seg_map50": 0.9271506729001078,
+   "seg_map75": 0.8025140291864024,
+   "seg_p": 0.9307050892514761,
+   "seg_r": 0.8814228132338068,
+   "seg_f1": 0.9053938156726989
+  }
+ ],
+ "seg_match_iou50": {
+  "sam3": 6959,
+  "yolo_c35": 5768,
+  "tp_c35": 5184,
+  "yolo_c10": 8467,
+  "tp_c10": 5796,
+  "precision_c35": 0.8987517337031901,
+  "recall_c35": 0.7449346170426785,
+  "precision_c10": 0.6845399787409945,
+  "recall_c10": 0.8328782871102169,
+  "iou_medio_c35_mediana_foto": 0.834
+ },
+ "fase1_soglia_non_assegnate": 0.674087,
+ "fase1_filtro": {
+  "b7": {
+   "api": 44810,
+   "Scarta": 8108,
+   "Ok": 34645,
+   "non assegnate": 2057,
+   "quota_non_assegnate": 0.045904931934835976,
+   "similarita_mediana": 0.7661724999999999
+  },
+  "phone": {
+   "api": 4689,
+   "Ok": 895,
+   "non assegnate": 3627,
+   "Scarta": 167,
+   "quota_non_assegnate": 0.7735124760076776,
+   "similarita_mediana": 0.625567
+  },
+  "batch3_6_similarita_mediana": 0.763828
+ },
+ "fase_telefono": {
+  "snapshot": "2026-10-23T14:21:38",
+  "status": {
+   "predicted": 3043,
+   "labeled": 106,
+   "rejected": 1221,
+   "unassigned": 219,
+   "validation": 100
+  },
+  "classi_finali": {
+   "Adulte": 3115,
+   "Giovane": 87,
+   "Non Classificabile": 1255,
+   "non assegnate": 219,
+   "Malata": 13
+  },
+  "a_mano": {
+   "Adulte": 77,
+   "Non Classificabile": 94,
+   "Giovane": 18,
+   "Malata": 11
+  },
+  "a_mano_per_query": {
+   "diversity": 44,
+   "random": 5,
+   "manual": 151
+  },
+  "predette": {
+   "Adulte": 2973,
+   "Non Classificabile": 1127,
+   "Giovane": 68,
+   "Malata": 2
+  },
+  "rounds": [
+   {
+    "timestamp": "2026-10-23T13:54:04",
+    "model_version": "v000",
+    "config_id": "a7084029",
+    "n_labels": 0,
+    "n_classes": 0,
+    "n_validation": 0,
+    "accuracy": null,
+    "macro_f1": null,
+    "knn_accuracy": null,
+    "knn_macro_f1": null,
+    "pred_change": null,
+    "model_changed": false,
+    "effective": false,
+    "n_events": 0,
+    "rounds_since_new_class": 0,
+    "novelty_queries": 0,
+    "novelty_new_class": 0,
+    "n_suspects": 0,
+    "round": 1
+   },
+   {
+    "timestamp": "2026-10-23T13:59:13",
+    "model_version": "v000",
+    "config_id": "a7084029",
+    "n_labels": 30,
+    "n_classes": 3,
+    "n_validation": 0,
+    "accuracy": null,
+    "macro_f1": null,
+    "knn_accuracy": null,
+    "knn_macro_f1": null,
+    "pred_change": null,
+    "model_changed": false,
+    "effective": true,
+    "n_events": 30,
+    "rounds_since_new_class": 0,
+    "novelty_queries": 0,
+    "novelty_new_class": 0,
+    "n_suspects": 2,
+    "round": 2
+   },
+   {
+    "timestamp": "2026-10-23T14:08:51",
+    "model_version": "v001",
+    "config_id": "a7084029",
+    "n_labels": 178,
+    "n_classes": 4,
+    "n_validation": 0,
+    "accuracy": null,
+    "macro_f1": null,
+    "knn_accuracy": null,
+    "knn_macro_f1": null,
+    "pred_change": 0.18721786647659777,
+    "model_changed": true,
+    "effective": true,
+    "n_events": 178,
+    "rounds_since_new_class": 0,
+    "novelty_queries": 0,
+    "novelty_new_class": 0,
+    "n_suspects": 1,
+    "round": 3
+   },
+   {
+    "timestamp": "2026-10-23T14:18:48",
+    "model_version": "v002",
+    "config_id": "a7084029",
+    "n_labels": 200,
+    "n_classes": 4,
+    "n_validation": 0,
+    "accuracy": null,
+    "macro_f1": null,
+    "knn_accuracy": null,
+    "knn_macro_f1": null,
+    "pred_change": 0.060143418922044875,
+    "model_changed": true,
+    "effective": true,
+    "n_events": 200,
+    "rounds_since_new_class": 1,
+    "novelty_queries": 0,
+    "novelty_new_class": 0,
+    "n_suspects": 1,
+    "round": 4
+   }
+  ],
+  "retrain": {
+   "v001": {
+    "n_labeled": 178,
+    "n_pseudo": 90,
+    "loss_first": 3.9379991769790648,
+    "loss_last": 2.1993728160858153,
+    "duration_s": 72.1
+   },
+   "v002": {
+    "n_labeled": 200,
+    "n_pseudo": 110,
+    "loss_first": 3.8928636789321898,
+    "loss_last": 2.2706546545028687,
+    "duration_s": 68.5
+   }
+  },
+  "review": {
+   "confirmed: Non Classificabile (suggerita Adulte)": 6,
+   "confirmed: Malata (suggerita Adulte)": 3,
+   "confirmed: Giovane (suggerita Adulte)": 4
+  },
+  "conf_mediana_predette": {
+   "Adulte": 0.667851,
+   "Non Classificabile": 0.697311,
+   "Malata": 0.4333695,
+   "Giovane": 0.436097
+  }
+ },
+ "batch_counts": [
+  {
+   "batch": "phone",
+   "photos": "22",
+   "bees": "4689",
+   "bees_in_classes": "3215",
+   "Adulte": "3115",
+   "Adulte %": "96.89",
+   "Adulte % lo": "96.19",
+   "Adulte % hi": "97.66",
+   "Adulte per photo": "141.59",
+   "Giovane": "87",
+   "Giovane %": "2.71",
+   "Giovane % lo": "2.09",
+   "Giovane % hi": "3.32",
+   "Giovane per photo": "3.95",
+   "Malata": "13",
+   "Malata %": "0.40",
+   "Malata % lo": "0.15",
+   "Malata % hi": "0.66",
+   "Malata per photo": "0.59",
+   "Adulte % profile": "97.28",
+   "Adulte % profile lo": "96.66",
+   "Adulte % profile hi": "97.90",
+   "Giovane % profile": "2.72",
+   "Giovane % profile lo": "2.10",
+   "Giovane % profile hi": "3.34",
+   "Non Classificabile": "1255",
+   "non assegnate": "219",
+   "Scarta ape": "0",
+   "senza predizione": "0",
+   "non assegnate % of bees": "4.67"
+  }
+ ],
+ "batch_counts_fase2_batch3_6": [
+  {
+   "batch": "batch_3",
+   "photos": "168",
+   "bees": "26548",
+   "bees_in_classes": "24468",
+   "Adulte": "24119",
+   "Adulte %": "98.57",
+   "Adulte % lo": "98.31",
+   "Adulte % hi": "98.82",
+   "Adulte per photo": "143.57",
+   "Fuco": "65",
+   "Fuco %": "0.27",
+   "Fuco % lo": "0.18",
+   "Fuco % hi": "0.35",
+   "Fuco per photo": "0.39",
+   "Giovane": "242",
+   "Giovane %": "0.99",
+   "Giovane % lo": "0.76",
+   "Giovane % hi": "1.23",
+   "Giovane per photo": "1.44",
+   "Malata": "42",
+   "Malata %": "0.17",
+   "Malata % lo": "0.12",
+   "Malata % hi": "0.23",
+   "Malata per photo": "0.25",
+   "Adulte % profile": "98.74",
+   "Adulte % profile lo": "98.48",
+   "Adulte % profile hi": "98.98",
+   "Fuco % profile": "0.27",
+   "Fuco % profile lo": "0.18",
+   "Fuco % profile hi": "0.35",
+   "Giovane % profile": "0.99",
+   "Giovane % profile lo": "0.76",
+   "Giovane % profile hi": "1.24",
+   "Non Classificabile": "685",
+   "non assegnate": "1392",
+   "Scarta ape": "3",
+   "senza predizione": "0",
+   "non assegnate % of bees": "5.24"
+  },
+  {
+   "batch": "batch_4",
+   "photos": "241",
+   "bees": "55850",
+   "bees_in_classes": "51831",
+   "Adulte": "49740",
+   "Adulte %": "95.97",
+   "Adulte % lo": "95.59",
+   "Adulte % hi": "96.35",
+   "Adulte per photo": "206.39",
+   "Fuco": "817",
+   "Fuco %": "1.58",
+   "Fuco % lo": "1.40",
+   "Fuco % hi": "1.73",
+   "Fuco per photo": "3.39",
+   "Giovane": "1076",
+   "Giovane %": "2.08",
+   "Giovane % lo": "1.78",
+   "Giovane % hi": "2.36",
+   "Giovane per photo": "4.46",
+   "Malata": "198",
+   "Malata %": "0.38",
+   "Malata % lo": "0.33",
+   "Malata % hi": "0.44",
+   "Malata per photo": "0.82",
+   "Adulte % profile": "96.33",
+   "Adulte % profile lo": "95.95",
+   "Adulte % profile hi": "96.72",
+   "Fuco % profile": "1.58",
+   "Fuco % profile lo": "1.41",
+   "Fuco % profile hi": "1.74",
+   "Giovane % profile": "2.08",
+   "Giovane % profile lo": "1.79",
+   "Giovane % profile hi": "2.37",
+   "Non Classificabile": "1713",
+   "non assegnate": "2303",
+   "Scarta ape": "3",
+   "senza predizione": "0",
+   "non assegnate % of bees": "4.12"
+  },
+  {
+   "batch": "batch_5",
+   "photos": "199",
+   "bees": "29761",
+   "bees_in_classes": "26934",
+   "Adulte": "26074",
+   "Adulte %": "96.81",
+   "Adulte % lo": "96.32",
+   "Adulte % hi": "97.22",
+   "Adulte per photo": "131.03",
+   "Fuco": "337",
+   "Fuco %": "1.25",
+   "Fuco % lo": "0.96",
+   "Fuco % hi": "1.63",
+   "Fuco per photo": "1.69",
+   "Giovane": "414",
+   "Giovane %": "1.54",
+   "Giovane % lo": "1.31",
+   "Giovane % hi": "1.80",
+   "Giovane per photo": "2.08",
+   "Malata": "109",
+   "Malata %": "0.40",
+   "Malata % lo": "0.32",
+   "Malata % hi": "0.49",
+   "Malata per photo": "0.55",
+   "Adulte % profile": "97.20",
+   "Adulte % profile lo": "96.71",
+   "Adulte % profile hi": "97.62",
+   "Fuco % profile": "1.26",
+   "Fuco % profile lo": "0.96",
+   "Fuco % profile hi": "1.64",
+   "Giovane % profile": "1.54",
+   "Giovane % profile lo": "1.31",
+   "Giovane % profile hi": "1.81",
+   "Non Classificabile": "898",
+   "non assegnate": "1921",
+   "Scarta ape": "8",
+   "senza predizione": "0",
+   "non assegnate % of bees": "6.45"
+  },
+  {
+   "batch": "batch_6",
+   "photos": "183",
+   "bees": "26629",
+   "bees_in_classes": "24742",
+   "Adulte": "23842",
+   "Adulte %": "96.36",
+   "Adulte % lo": "95.93",
+   "Adulte % hi": "96.74",
+   "Adulte per photo": "130.28",
+   "Fuco": "184",
+   "Fuco %": "0.74",
+   "Fuco % lo": "0.58",
+   "Fuco % hi": "0.90",
+   "Fuco per photo": "1.01",
+   "Giovane": "362",
+   "Giovane %": "1.46",
+   "Giovane % lo": "1.26",
+   "Giovane % hi": "1.71",
+   "Giovane per photo": "1.98",
+   "Malata": "354",
+   "Malata %": "1.43",
+   "Malata % lo": "1.13",
+   "Malata % hi": "1.78",
+   "Malata per photo": "1.93",
+   "Adulte % profile": "97.76",
+   "Adulte % profile lo": "97.53",
+   "Adulte % profile hi": "97.97",
+   "Fuco % profile": "0.75",
+   "Fuco % profile lo": "0.59",
+   "Fuco % profile hi": "0.91",
+   "Giovane % profile": "1.48",
+   "Giovane % profile lo": "1.28",
+   "Giovane % profile hi": "1.74",
+   "Non Classificabile": "658",
+   "non assegnate": "1226",
+   "Scarta ape": "3",
+   "senza predizione": "0",
+   "non assegnate % of bees": "4.60"
+  }
+ ],
+ "loo_knn": {
+  "v000": {
+   "classes": [
+    "Adulte",
+    "Giovane",
+    "Malata",
+    "Non Classificabile"
+   ],
+   "accuracy": 0.685,
+   "macro_f1": 0.46854206675201826,
+   "per_class": {
+    "Adulte": {
+     "n": 77,
+     "precision": 0.566,
+     "recall": 0.948,
+     "f1": 0.709
+    },
+    "Giovane": {
+     "n": 18,
+     "precision": 0.333,
+     "recall": 0.056,
+     "f1": 0.095
+    },
+    "Malata": {
+     "n": 11,
+     "precision": 1.0,
+     "recall": 0.182,
+     "f1": 0.308
+    },
+    "Non Classificabile": {
+     "n": 94,
+     "precision": 0.924,
+     "recall": 0.649,
+     "f1": 0.763
+    }
+   },
+   "confusion_rows_true_cols_pred": [
+    [
+     73,
+     1,
+     0,
+     3
+    ],
+    [
+     17,
+     1,
+     0,
+     0
+    ],
+    [
+     7,
+     0,
+     2,
+     2
+    ],
+    [
+     32,
+     1,
+     0,
+     61
+    ]
+   ]
+  },
+  "v002": {
+   "classes": [
+    "Adulte",
+    "Giovane",
+    "Malata",
+    "Non Classificabile"
+   ],
+   "accuracy": 0.72,
+   "macro_f1": 0.5095505649184007,
+   "per_class": {
+    "Adulte": {
+     "n": 77,
+     "precision": 0.613,
+     "recall": 0.948,
+     "f1": 0.745
+    },
+    "Giovane": {
+     "n": 18,
+     "precision": 0.25,
+     "recall": 0.056,
+     "f1": 0.091
+    },
+    "Malata": {
+     "n": 11,
+     "precision": 0.75,
+     "recall": 0.273,
+     "f1": 0.4
+    },
+    "Non Classificabile": {
+     "n": 94,
+     "precision": 0.918,
+     "recall": 0.713,
+     "f1": 0.802
+    }
+   },
+   "confusion_rows_true_cols_pred": [
+    [
+     73,
+     1,
+     0,
+     3
+    ],
+    [
+     15,
+     1,
+     0,
+     2
+    ],
+    [
+     7,
+     0,
+     3,
+     1
+    ],
+    [
+     24,
+     2,
+     1,
+     67
+    ]
+   ]
+  }
+ },
+ "fase1_vs_fase_telefono": {
+  "Ok in phase 1": {
+   "Adulte": 843,
+   "Non Classificabile": 34,
+   "Giovane": 18
+  },
+  "Discard in phase 1": {
+   "Non Classificabile": 96,
+   "Adulte": 68,
+   "Giovane": 2,
+   "non assegnate": 1
+  },
+  "Unassigned in phase 1": {
+   "Adulte": 2204,
+   "Giovane": 67,
+   "Non Classificabile": 1125,
+   "non assegnate": 218,
+   "Malata": 13
+  }
+ }
+}

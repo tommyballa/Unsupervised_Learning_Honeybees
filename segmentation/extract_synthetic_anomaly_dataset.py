@@ -21,17 +21,18 @@ import numpy as np
 from ultralytics import YOLO
 # Importiamo la funzione aggiornata dal nuovo script di pulizia ottimizzato
 from dataset_cleaning import TARGET_SIZE, clean_bee
+from bee_orientation import HeadOrienter
 
 
 # --- Configurazione ---
 # Cartella con le immagini sintetiche e maschere generate da varroa_generator.py
-SYNTHETIC_DIR = "/mnt/disk1/borsattifr/datasets/bees_datasets/DatasetApi_Ceschi/processed/test_merged/synthetic_varroa_output/images"
+SYNTHETIC_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_batch3+4/synthetic_varroa_output/images"
 
 # Modello YOLO per la segmentazione (lo stesso usato in extract_anomaly_dataset.py)
-YOLO_MODEL_PATH = "runs/segment/runs/segment/bee_model_finetuned_yolo26s_dominiuniti/weights/best.pt"
+YOLO_MODEL_PATH = "runs/segment/runs/segment/bee_model_finetuned_yolo26s_batch3+4_img1440/weights/best.pt"
 
 # Output
-OUTPUT_BASE = "/mnt/disk1/borsattifr/datasets/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee_merged"
+OUTPUT_BASE = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee_batch3+4_varroa/images"
 OUTPUT_NORMAL = os.path.join(OUTPUT_BASE, "normal")
 OUTPUT_ANOMALOUS = os.path.join(OUTPUT_BASE, "anomalous")
 OUTPUT_MASKS = os.path.join(OUTPUT_BASE, "masks")
@@ -71,7 +72,7 @@ def crop_raw_bee(image, varroa_full_mask, polygon_pts, bbox):
     return img_crop, bee_mask_crop, varroa_mask_crop
 
 
-def process_synthetic_image(syn_img_path, mask_path, model):
+def process_synthetic_image(syn_img_path, mask_path, model, orienter):
     """
     Processa una singola immagine sintetica: estrae tutte le api e le classifica
     come normali o anomale in base alla sovrapposizione con la maschera varroa.
@@ -121,8 +122,9 @@ def process_synthetic_image(syn_img_path, mask_path, model):
 
         # 2. Pulizia e normalizzazione dell'ape con la pipeline di dataset_cleaning.
         #    clean_bee restituisce anche l'affine usata (crop -> frame finale): la
-        #    applichiamo alla maschera varroa, che resta così allineata all'ape.
-        result = clean_bee(img_crop, bee_mask_crop, is_raw_polygon=True)
+        #    applichiamo alla maschera varroa, che resta così allineata all'ape
+        #    (anche quando l'ape viene ruotata di 180° per avere la testa in alto).
+        result = clean_bee(img_crop, bee_mask_crop, is_raw_polygon=True, orienter=orienter)
         if result.image is None:
             discarded += 1
             continue
@@ -146,6 +148,7 @@ def process_synthetic_image(syn_img_path, mask_path, model):
 def main():
     print(" Caricamento del modello YOLO...")
     model = YOLO(YOLO_MODEL_PATH)
+    orienter = HeadOrienter()
     
     # Crea le cartelle di output
     for d in [OUTPUT_NORMAL, OUTPUT_ANOMALOUS, OUTPUT_MASKS]:
@@ -179,7 +182,7 @@ def main():
             continue
 
         print(f"\nProcesso: {syn_file}")
-        results, discarded = process_synthetic_image(syn_path, mask_path, model)
+        results, discarded = process_synthetic_image(syn_path, mask_path, model, orienter)
         total_discarded += discarded
 
         for bee_crop, varroa_crop, is_anomalous, base_name, bee_idx in results:

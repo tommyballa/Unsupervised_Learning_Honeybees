@@ -1,0 +1,10 @@
+Crop totali: 127879
+  Adulte: 123682
+  Fuco: 1401
+  Giovane: 2093
+  Malata: 703
+  train: 102303
+  test:  25576  (con varroa: 1279 = 853 con una + 426 con due)
+
+Api su cui la varroa non entrava (rimaste normali): 3
+Dataset salvato in: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3_varroa_split

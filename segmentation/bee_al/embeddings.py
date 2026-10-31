@@ -156,11 +156,17 @@ def save_embeddings(
     paths: Sequence[str],
     X: np.ndarray,
     meta: Optional[dict[str, Any]] = None,
+    normalize: bool = True,
 ) -> None:
-    """Salva in un colpo solo embedding già calcolati (usato dai re-train e dai test)."""
+    """Salva in un colpo solo embedding già calcolati (usato dai re-train e dai test).
+
+    ``normalize=False`` per vettori già normalizzati: normalizzarli di nuovo cambia gli ultimi
+    bit, e con loro la chiave della cache del grafo kNN (che va riusato anche dopo un riavvio).
+    """
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    X = l2_normalize(X)
+    if normalize:
+        X = l2_normalize(X)
     _write_shard(out, "shard_00000.npz", ids, paths, X)
     manifest = {
         "meta": dict(meta or {}),
@@ -187,6 +193,36 @@ def load_embeddings(emb_dir: Union[str, Path]) -> Embeddings:
             chunks.append(z["embeddings"])
     X = np.ascontiguousarray(np.concatenate(chunks), dtype=np.float32)
     return Embeddings(ids=ids, paths=paths, X=X, meta=manifest["meta"])
+
+
+def restrict_to_datasets(emb: Embeddings, dataset_names: Sequence[str], separator: str = "__") -> Embeddings:
+    """Tiene solo le api delle cartelle di dataset indicate (il prefisso dell'image_id).
+
+    Gli embedding possono essere stati estratti per più cartelle di quelle che si vogliono
+    usare: basta togliere una cartella da ``paths.dataset_dirs`` per escluderne le api.
+    """
+    prefixes = tuple(f"{name}{separator}" for name in dataset_names)
+    keep = [i for i, image_id in enumerate(emb.ids) if image_id.startswith(prefixes)]
+    if len(keep) == len(emb.ids):
+        return emb
+    if not keep:
+        raise ValueError(f"Nessun embedding per le cartelle {list(dataset_names)}: esegui scripts/extract_embeddings.py")
+    return Embeddings([emb.ids[i] for i in keep], [emb.paths[i] for i in keep],
+                      np.ascontiguousarray(emb.X[keep]), {**emb.meta, "datasets": list(dataset_names)})
+
+
+def restrict_embeddings(emb: Embeddings, subset_path: Union[str, Path]) -> Embeddings:
+    """Tiene solo le api elencate in un file ``{"image_ids": [...]}``, nell'ordine degli embedding."""
+    path = Path(subset_path)
+    if not path.exists():
+        raise FileNotFoundError(f"File del sottoinsieme non trovato: {path}")
+    with open(path, "r", encoding="utf-8") as f:
+        wanted = set(json.load(f)["image_ids"])
+    keep = [i for i, image_id in enumerate(emb.ids) if image_id in wanted]
+    if not keep:
+        raise ValueError(f"{path} non elenca nessuna delle api di questo dataset")
+    return Embeddings([emb.ids[i] for i in keep], [emb.paths[i] for i in keep],
+                      np.ascontiguousarray(emb.X[keep]), {**emb.meta, "subset": str(path), "subset_of": len(emb)})
 
 
 # --------------------------------------------------------------------------- #

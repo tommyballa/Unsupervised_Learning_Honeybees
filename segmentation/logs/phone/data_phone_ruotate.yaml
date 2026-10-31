@@ -1,0 +1,7 @@
+# Come data_phone.yaml, ma con le etichette SAM 3 delle 4 foto con EXIF orientation 3 ruotate di 180° (vedi /mnt/disk1/tommaso_ballarin/phone_captured_labels_ruotate/LEGGIMI.txt).
+train: /mnt/disk1/tommaso_ballarin/phone_captured_labels_ruotate/images
+val: /mnt/disk1/tommaso_ballarin/phone_captured_labels_ruotate/images
+test: /mnt/disk1/tommaso_ballarin/phone_captured_labels_ruotate/images
+
+nc: 1
+names: ['bee']

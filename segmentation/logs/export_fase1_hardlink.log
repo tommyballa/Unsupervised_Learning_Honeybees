@@ -1,0 +1,13 @@
+11:29:52 1791 / 174210
+11:30:52 3840 / 174210
+11:31:52 6047 / 174210
+11:32:52 8299 / 174210
+11:33:52 10508 / 174210
+11:34:52 13877 / 174210
+11:35:52 31938 / 174210
+11:36:52 61733 / 174210
+11:37:52 113659 / 174210
+11:38:52 154701 / 174210
+11:39:52 174210 / 174210
+11:39:54 174210 / 174210
+Fatto: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3_clusters/fase1_finale_okvsscarta {'Ok': {'folder': 'Ok', 'human': 824, 'predicted': 137964, 'total': 138788}, 'Scarta': {'folder': 'Scarta', 'human': 737, 'predicted': 34685, 'total': 35422}} file mancanti: 0

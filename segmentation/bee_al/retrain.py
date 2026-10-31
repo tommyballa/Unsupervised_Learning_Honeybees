@@ -16,6 +16,7 @@ import yaml
 from .config import ALConfig, RetrainConfig
 from . import UNKNOWN_LABEL
 from .embeddings import Embeddings, l2_normalize, save_embeddings
+from .propagation import build_graph_cache_in_subprocess
 
 if TYPE_CHECKING:
     from .engine import ALEngine
@@ -243,7 +244,8 @@ class RetrainManager:
                 raise ValueError(blocked)
             bank = engine.bank
             lab = bank.labeled_indices()
-            unl = np.setdiff1d(np.arange(len(bank)), lab)
+            # Le api tenute da parte (validazione su un batch nuovo) non entrano nemmeno come non etichettate.
+            unl = np.setdiff1d(np.flatnonzero(~engine._holdout), lab)
             labeled = TrainingData([bank.ids[i] for i in lab], [bank.paths[i] for i in lab], bank.X[lab], bank.labels_at(lab))
 
             # Pseudo-label: predizioni correnti molto sicure, ricalcolate a ogni job.
@@ -265,6 +267,11 @@ class RetrainManager:
         self._thread = threading.Thread(target=self._run, args=(labeled, unlabeled, snapshot), daemon=True, name="bee-al-retrain")
         self._thread.start()
 
+    @property
+    def cache_dir(self) -> Path:
+        """Stessa cache dei grafi usata dal motore."""
+        return self.engine.cfg.results_dir / "cache"
+
     def _validation_score(self, snapshot: dict[str, Any], X: np.ndarray) -> Optional[dict[str, Optional[float]]]:
         """Metriche di validazione che si otterrebbero con gli embedding ``X`` e le etichette della fotografia."""
         from .engine import predict_all
@@ -282,7 +289,9 @@ class RetrainManager:
         spreader = None
         if cfg.propagation.enabled:
             p = cfg.propagation
-            spreader = LabelSpreader.from_bank(bank, p.n_neighbors, p.alpha, p.max_iter, p.tol)
+            # Grafo costruito fuori dal processo dell'hub (vedi build_graph_cache_in_subprocess)
+            build_graph_cache_in_subprocess(X, p.n_neighbors, self.cache_dir, cfg.knn.backend)
+            spreader = LabelSpreader.from_bank(bank, p.n_neighbors, p.alpha, p.max_iter, p.tol, cache_dir=self.cache_dir)
         predicted = predict_all(bank, spreader, cfg)[1].labels
         return classification_metrics([lbl for _, lbl in val], [predicted[bank.index_of(i)] for i, _ in val])
 
@@ -314,13 +323,16 @@ class RetrainManager:
             with open(out / "meta.json", "w", encoding="utf-8") as f:
                 json.dump(meta, f, indent=2, ensure_ascii=False)
             # Gli embedding per ultimi: una versione è "completa" solo quando ci sono loro.
-            save_embeddings(out / "embeddings", snapshot["ids"], snapshot["paths"], X, meta={"model": version})
+            # Già normalizzati: salvati identici a quelli in memoria, così al riavvio l'hub ritrova il grafo in cache
+            save_embeddings(out / "embeddings", snapshot["ids"], snapshot["paths"], X, meta={"model": version}, normalize=False)
 
             self.n_retrains += 1
             self.labels_at_last = snapshot["n_labels"]
             self.round_at_last = snapshot["round"]
             self.last_result = meta
             if accepted:
+                if cfg.propagation.enabled:  # così set_embeddings trova il grafo in cache e non blocca l'hub
+                    build_graph_cache_in_subprocess(X, cfg.propagation.n_neighbors, self.cache_dir, cfg.knn.backend)
                 self.engine.set_embeddings(Embeddings(snapshot["ids"], snapshot["paths"], X, {"model": version}), version)
             self.state = "idle"
         except Exception as e:  # il job non deve mai far cadere l'hub

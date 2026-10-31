@@ -1,4 +1,5 @@
 import os
+import argparse
 import cv2
 import glob
 import json
@@ -16,6 +17,9 @@ MIN_AREA_PIXELS = 1500      # Area minima della maschera (in pixel) per essere u
 MIN_FILL_RATIO = 0.30       # Un'ape riempie almeno il 30% del suo rettangolo minimo ruotato
 MAX_ASPECT_RATIO = 3.0      # Rapporto lunghezza/larghezza massimo (evita frammenti tipo ali/zampe)
 MIN_BBOX_SIDE = 25          # Lato corto minimo del rettangolo minimo ruotato (in pixel del crop originale)
+# Sotto ~100 px di lunghezza i crop sono quasi solo pezzi d'ape (addomi nelle celle, teste,
+# ali, api coperte) che passano area e aspect ratio; tra 100 e 120 px sono misti.
+MIN_BEE_LENGTH = 105        # Lunghezza minima dell'ape (lato lungo del rettangolo ruotato, pixel del crop originale)
 
 # Le api arrivano a scale molto diverse (da ~130 a ~490 px di lunghezza). I kernel
 # morfologici qui sotto sono espressi per un'ape lunga REF_BEE_LENGTH px e vengono
@@ -38,11 +42,13 @@ MAX_BORDER_PIXELS = 15      # Pixel di maschera tollerati in quella fascia
 TARGET_SIZE = 512           # Dimensione finale dell'immagine quadrata
 TARGET_FILL_RATIO = 0.85    # Il lato lungo dell'ape occupa ~85% del frame dopo la normalizzazione
 EDGE_FEATHER_PX = 12        # Pixel di sfumatura graduale ai bordi della maschera
-APPLY_CLAHE = True          # Equalizzazione locale del contrasto, applicata a scala normalizzata
+# Testa in alto (bee_orientation.py). In run_cleaning è un passaggio a parte, a batch su
+# GPU, sulle api già salvate: ha un suo registro nel manifesto e non invalida la pulizia.
+ORIENT_HEAD_UP = True
 
 # Da incrementare quando cambia la logica della pipeline (non solo i parametri):
 # insieme ai parametri decide se il manifesto di una run precedente è ancora valido.
-PIPELINE_VERSION = 2
+PIPELINE_VERSION = 4
 
 # Esecuzione: non influenzano l'output, quindi non invalidano il manifesto
 NUM_WORKERS = min(16, os.cpu_count() or 1)   # Processi in parallelo
@@ -69,6 +75,7 @@ def cleaning_params():
         "min_fill_ratio": MIN_FILL_RATIO,
         "max_aspect_ratio": MAX_ASPECT_RATIO,
         "min_bbox_side": MIN_BBOX_SIDE,
+        "min_bee_length": MIN_BEE_LENGTH,
         "ref_bee_length": REF_BEE_LENGTH,
         "kernel_scale_range": list(KERNEL_SCALE_RANGE),
         "close_kernel": CLOSE_KERNEL,
@@ -83,7 +90,6 @@ def cleaning_params():
         "target_size": TARGET_SIZE,
         "target_fill_ratio": TARGET_FILL_RATIO,
         "edge_feather_px": EDGE_FEATHER_PX,
-        "apply_clahe": APPLY_CLAHE,
     }
 
 
@@ -269,14 +275,6 @@ def normalization_matrix(mask, target_size=TARGET_SIZE, target_fill=TARGET_FILL_
     return M, scale
 
 
-def apply_clahe(img_bgr):
-    """Equalizzazione locale del contrasto sul canale L (LAB)."""
-    lab = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2LAB)
-    l, a, b = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    return cv2.cvtColor(cv2.merge((clahe.apply(l), a, b)), cv2.COLOR_LAB2BGR)
-
-
 def feather_edges(img_bgr, mask, feather_px=12):
     """
     Sfuma gradualmente i bordi della maschera per creare una transizione
@@ -314,7 +312,20 @@ def _discard(reason):
     return CleaningResult(None, None, None, reason)
 
 
-def clean_bee(img_bgr, mask, is_raw_polygon):
+def rotate_frame_180(result):
+    """
+    Ruota di 180° un'ape accettata: immagine, maschera e affine restano coerenti.
+
+    cv2.rotate porta il pixel (x, y) in (S-1-x, S-1-y); la stessa mappa composta con
+    l'affine fa sì che chi la riapplica (es. alle maschere varroa) resti allineato.
+    """
+    flip = np.array([[-1.0, 0.0, TARGET_SIZE - 1], [0.0, -1.0, TARGET_SIZE - 1], [0.0, 0.0, 1.0]])
+    matrix = (flip @ np.vstack([result.matrix, [0.0, 0.0, 1.0]]))[:2]
+    return CleaningResult(cv2.rotate(result.image, cv2.ROTATE_180), cv2.rotate(result.mask, cv2.ROTATE_180),
+                          matrix, None)
+
+
+def clean_bee(img_bgr, mask, is_raw_polygon, orienter=None):
     """
     Applica tutti i filtri di sanificazione e la normalizzazione su una singola ape.
 
@@ -323,6 +334,9 @@ def clean_bee(img_bgr, mask, is_raw_polygon):
         mask: maschera binaria (dal canale alpha RGBA o da threshold legacy)
         is_raw_polygon: True se la maschera è il poligono grezzo YOLO (RGBA),
                         False se è già stata pre-processata (legacy RGB)
+        orienter: bee_orientation.HeadOrienter per mettere la testa in alto; se None
+                  l'ape resta con l'asse verticale ma la testa può essere in basso
+                  (run_cleaning la orienta dopo, a batch)
 
     Returns:
         CleaningResult: immagine pulita e normalizzata, la sua maschera e l'affine
@@ -332,6 +346,7 @@ def clean_bee(img_bgr, mask, is_raw_polygon):
     # I kernel morfologici seguono la grandezza dell'ape (misurata sulla maschera in ingresso)
     length = bee_length(mask)
     if length <= 0: return _discard("empty_mask")
+    if length < MIN_BEE_LENGTH: return _discard("short")
     k = kernel_scale(length)
 
     # --- FILTRO 1: Ape tagliata ai bordi ---
@@ -417,16 +432,18 @@ def clean_bee(img_bgr, mask, is_raw_polygon):
     clean_mask = cv2.warpAffine(clean_mask, M, out_size, flags=cv2.INTER_NEAREST, borderValue=0)
     cleaned_img = cv2.bitwise_and(cleaned_img, cleaned_img, mask=clean_mask)
 
-    # 2. CLAHE: a scala normalizzata, così le tile coprono la stessa porzione di ape
-    #    qualunque fosse la risoluzione del crop.
-    if APPLY_CLAHE:
-        cleaned_img = apply_clahe(cleaned_img)
-        cleaned_img = cv2.bitwise_and(cleaned_img, cleaned_img, mask=clean_mask)
+    # Luminosità e contrasto non vengono toccati qui: sono già stati uniformati sull'intera
+    # foto in extract_anomaly_dataset.py, e una correzione per singola ape li annullerebbe.
 
-    # 3. SFUMATURA BORDI: transizione morbida ape → sfondo nero
+    # 2. SFUMATURA BORDI: transizione morbida ape → sfondo nero
     cleaned_img = feather_edges(cleaned_img, clean_mask, feather_px=EDGE_FEATHER_PX)
 
-    return CleaningResult(cleaned_img, clean_mask, M, None)
+    result = CleaningResult(cleaned_img, clean_mask, M, None)
+
+    # 3. TESTA IN ALTO: rotazione esatta di 180° se il classificatore vede la testa in basso
+    if orienter is not None and orienter.scores([cleaned_img])[0] < 0:
+        result = rotate_frame_180(result)
+    return result
 
 
 def clean_and_filter(img_bgr, mask, is_raw_polygon):
@@ -461,7 +478,55 @@ def _clean_file(job):
     return filename, status, reason, removed
 
 
-def run_cleaning(input_dir, output_dir, workers=NUM_WORKERS):
+def orient_saved_bees(output_dir, manifest, device="auto", batch_size=256, workers=NUM_WORKERS):
+    """
+    Mette la testa in alto alle api accettate e già salvate in output_dir.
+
+    Gira a batch su GPU dopo la pulizia, che lavora su CPU in più processi. Il passo è
+    idempotente (un'ape già raddrizzata ha score positivo e non viene toccata), quindi
+    un'interruzione a metà non può capovolgere due volte la stessa ape. Nel manifesto
+    resta lo score di ogni ape prima del raddrizzamento: negativo = è stata ruotata,
+    vicino a 0 = orientamento incerto.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from bee_orientation import HeadOrienter
+
+    orienter = HeadOrienter(device=device)
+    log = manifest.get("orientation")
+    if not log or log.get("weights_id") != orienter.weights_id:
+        # Pesi nuovi: si ricontrollano tutte le api (quelle già giuste restano come sono)
+        log = {"weights_id": orienter.weights_id, "scores": {}}
+    manifest["orientation"] = log
+
+    todo = sorted(f for f, status in manifest["processed_files"].items()
+                  if status == "accepted" and f not in log["scores"])
+    print(f"Orientamento testa in alto su {orienter.device}: {len(todo)} api da controllare.")
+
+    def rotate_and_save(item):
+        path, img = item
+        cv2.imwrite(path, cv2.rotate(img, cv2.ROTATE_180))
+
+    rotated = 0
+    with ThreadPoolExecutor(workers) as io:
+        for start in range(0, len(todo), batch_size):
+            names = todo[start:start + batch_size]
+            paths = [os.path.join(output_dir, f) for f in names]
+            loaded = [(f, p, img) for f, p, img in zip(names, paths, io.map(cv2.imread, paths)) if img is not None]
+            scores = orienter.scores([img for _, _, img in loaded])
+            to_rotate = [(p, img) for (_, p, img), score in zip(loaded, scores) if score < 0]
+            list(io.map(rotate_and_save, to_rotate))
+            rotated += len(to_rotate)
+            for (f, _, _), score in zip(loaded, scores):
+                log["scores"][f] = round(float(score), 3)
+            if (start // batch_size) % 10 == 9:
+                save_cleaning_manifest(output_dir, manifest)
+                print(f"  Orientate {start + len(names)}/{len(todo)} api...")
+
+    save_cleaning_manifest(output_dir, manifest)
+    print(f"Ruotate di 180° {rotated} api su {len(todo)} controllate.")
+
+
+def run_cleaning(input_dir, output_dir, workers=NUM_WORKERS, device="auto"):
     os.makedirs(output_dir, exist_ok=True)
     img_paths = glob.glob(os.path.join(input_dir, "*.png")) + glob.glob(os.path.join(input_dir, "*.jpg"))
 
@@ -514,10 +579,16 @@ def run_cleaning(input_dir, output_dir, workers=NUM_WORKERS):
             print(f"  {reason:<12} {count}")
     if removed:
         print(f"Rimosse da '{output_dir}' {removed} api accettate in precedenza e ora scartate.")
+
+    if ORIENT_HEAD_UP:
+        orient_saved_bees(output_dir, manifest, device=device, workers=workers)
     print(f"Api pulite e normalizzate salvate in '{output_dir}'")
 
 
 if __name__ == "__main__":
-    raw_dir = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee_batch3+4_novarroa/raw_bees"
-    clean_dir = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee_batch3+4_novarroa/cleaned_bees"
-    run_cleaning(raw_dir, clean_dir)
+    parser = argparse.ArgumentParser(description="Pulisce e normalizza le api estratte da extract_anomaly_dataset.py.")
+    parser.add_argument("--raw", default="/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee_batch3+4_novarroa/raw_bees")
+    parser.add_argument("--clean", default="/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee_batch3+4_novarroa/cleaned_bees")
+    parser.add_argument("--device", default="auto", help="Device per l'orientamento (es. cuda:1); auto = GPU più libera")
+    args = parser.parse_args()
+    run_cleaning(args.raw, args.clean, device=args.device)

@@ -1,0 +1,141 @@
+# Fase 'fase2': 59291 api con classe ['Ape Incompleta', 'Crop Utilizzabile'] nello snapshot 'Prova1'
+# di al_config.yaml. Scritta da scripts/new_stage.py; etichette e modelli sono separati.
+# Aggiunte 22436 api di 'test_b34_novarroa' filtrate con il modello v002 della fase precedente.
+
+seed: 42
+paths:
+  dataset_dir: /home/tommaso_ballarin/bee_segmentation/bee_segmentation/data/images
+  dataset_dirs:
+    train_b34: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_batch3+4/cleaned_bees
+    test_b34_novarroa: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee_batch3+4_novarroa/cleaned_bees
+  results_dir: /mnt/disk1/tommaso_ballarin/bee_al/results_fase2
+  embeddings_dir: /home/tommaso_ballarin/bee_segmentation/bee_segmentation/data/embeddings_batch3+4
+  models_dir: /mnt/disk1/tommaso_ballarin/bee_al/models_fase2
+  subset_file: /mnt/disk1/tommaso_ballarin/bee_al/results_fase2/subset.json
+labels:
+  classes: []
+  label_aliases: {}
+  reject_classes: []
+extractor:
+  model: dinov2_vits14
+  image_size: 224
+  batch_size: 128
+  num_workers: 4
+  shard_size: 2048
+  device: auto
+knn:
+  k: 10
+  temperature: 0.07
+  backend: auto
+  unassigned_fraction: 0.05
+propagation:
+  enabled: true
+  n_neighbors: 15
+  alpha: 0.8
+  max_iter: 30
+  tol: 0.0001
+query:
+  batch_size: 30
+  cold_start_threshold: 50
+  uncertainty: margin
+  uncertainty_source: propagation
+  candidate_multiplier: 10
+  random_fraction: 0.1
+  novelty_fraction: 0.2
+validation:
+  size: 100
+  seed: 123
+hub:
+  show_suggestion: false
+  assignment_timeout_s: 900.0
+retrain:
+  enabled: false
+  policy: label_count
+  initial_labels: 50
+  growth_factor: 2.0
+  plateau_rounds: 3
+  metric: macro_f1
+  min_delta: 0.0
+  trainer: contrastive
+  python: venv/bin/python
+  min_labels: 20
+  require_improvement: true
+  pseudo_label_threshold: 0.95
+  unfreeze_blocks: 2
+  steps: 300
+  batch_size: 96
+  labeled_fraction: 0.5
+  lr_backbone: 1.0e-05
+  lr_head: 0.001
+  temperature: 0.1
+  projection_dim: 128
+  num_workers: 8
+  device: auto
+stopping:
+  window: 3
+  max_pred_change: 0.01
+  f1_min_delta: 0.01
+frames:
+  manifests: {}
+  frame_pattern: ''
+  session_dirs:
+    batch_3: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_3
+    batch_4: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_4
+  colony: ''
+audit:
+  per_stratum: 40
+  large_stratum: 250
+  large_threshold: 5000
+  confidence_bins:
+  - 0.9
+  double_fraction: 0.1
+  anomaly_split_class: ''
+  anomaly_quantile: 0.9
+  seed: 7
+colony:
+  group_by: session
+  demographic_classes: []
+  disease_classes: []
+  min_detected: 3
+  reference_groups: []
+  time_order:
+    '*':
+    - batch_3
+    - batch_4
+  anomaly_threshold: 0.0
+  n_boot: 1000
+  seed: 11
+  light_rules:
+  - disease_detected
+  - profile_divergent
+  red_min_rules: 2
+  max_unexplained: 0.0
+stage:
+  name: fase2
+  title: Phase 2 of 2 - demographic profile and anomalies
+  description: Only usable and incomplete bees from phase 1. Say what each bee is;
+    use 'Scarta ape' for crops that cannot be judged.
+export:
+  clusters_dir: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_batch3+4_clusters
+  mode: copy
+review:
+  enabled: true
+  k: 0
+  min_disagreement: 0.8
+  min_class_size: 5
+  show_neighbors: 6
+simulation:
+  seeds:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  max_labels: 400
+  threshold_metric: macro_f1
+  threshold: 0.8
+  synthetic_n: 3000
+  synthetic_dim: 64
+  synthetic_classes: 6
+  synthetic_imbalance: 0.6
+  synthetic_noise: 2.0

@@ -162,39 +162,19 @@ def test_slow_start_shows_a_loading_page_instead_of_hanging(hub_app, cfg, synth,
     assert c.get("/al-status").status_code == 200 and "0 of 300 images" in c.get("/al-status").get_data(as_text=True)
 
 
-def test_clusters_page(client, synth):
-    X, y, ids = synth
-    truth = dict(zip(ids, y))
-    html = client.get("/al-clusters").get_data(as_text=True)
-    assert "No clusters yet" in html and 'href="/al-clusters"' in client.get("/").get_data(as_text=True)
+def _cluster_tiles(html):
+    return re.findall(r'name="image_(\d+)" value="([^"]+)"', html)
 
-    for _ in range(10):                                         # un batch intero: a fine batch si ricalcola
-        image_id = _image_id(client.get("/al-labeling").get_data(as_text=True))
-        client.post("/al-labeling", data={"image_id": image_id, "label": truth[image_id], "action": "label"})
-    html = client.get("/al-clusters?n=6&order=confident").get_data(as_text=True)
-    classes = client.engine.bank.classes
-    assert all(c in html for c in classes) and "predicted" in html
-    assert 0 < html.count("/al-image/") <= 6 * (len(classes) + 1)   # +1: gruppo "non assegnate"
-    assert html.count("/al-image/") > client.get("/al-clusters?n=1").get_data(as_text=True).count("/al-image/")
-    assert client.get("/al-clusters?n=abc&order=boh").status_code == 200
-    assert hub_app_rules(client) >= {"/al-clusters"}
+
+def _cluster_form(tiles, groups, labels=()):
+    data = {f"image_{k}": image_id for k, image_id in tiles}
+    data.update({f"group_{k}": groups.get(int(k), "") for k, _ in tiles})
+    data.update({f"label_{g}": label for g, label in enumerate(labels)})
+    return data
 
 
 def hub_app_rules(client):
     return {r.rule for r in client.application.url_map.iter_rules()}
-
-
-def test_clusters_page_shows_unassigned_group(client, synth):
-    X, y, ids = synth
-    truth = dict(zip(ids, y))
-    for _ in range(10):
-        image_id = _image_id(client.get("/al-labeling").get_data(as_text=True))
-        client.post("/al-labeling", data={"image_id": image_id, "label": truth[image_id], "action": "label"})
-    n = client.engine.status()["n_unassigned"]
-    assert n == round(0.05 * (290 - 20))                       # etichettate e validation set esclusi
-    html = client.get("/al-clusters?order=uncertain").get_data(as_text=True)
-    assert "possible new class" in html and f"{n} bees far from every labeled example" in html
-    assert "Unassigned (far from every label)" in client.get("/al-status").get_data(as_text=True)
 
 
 def _label_first_batch(client, truth):
@@ -206,38 +186,157 @@ def _label_first_batch(client, truth):
     return done
 
 
+def test_home_keeps_only_active_learning_and_groups_the_old_tools(client):
+    html = client.get("/").get_data(as_text=True)
+    before, old = html.split("<details>")
+    for url in ("/al-grid", "/al-labeling", "/al-labeling?mode=validation", "/al-labeling?mode=audit",
+                "/al-clusters", "/al-review", "/al-status"):
+        assert f'href="{url}"' in before
+    for url in ("/labeling", "/ab-test", "/grid-labeling", "/inspect", "/clean", "/results"):
+        assert f'href="{url}"' in old and f'href="{url}"' not in before
+    assert html.count("<summary") == 1                           # un solo tasto per tutte le sezioni vecchie
+
+
+def test_pages_do_not_wait_for_a_busy_engine(client):
+    """Il banner di fase gira a ogni pagina: con il motore occupato (re-train, ricalcoli lunghi) non deve bloccare."""
+    import threading
+
+    held, release = threading.Event(), threading.Event()
+
+    def busy():
+        with client.engine.lock:
+            held.set()
+            release.wait(10)
+
+    worker = threading.Thread(target=busy)
+    worker.start()
+    held.wait(5)
+    try:
+        result = {}
+        page = threading.Thread(target=lambda: result.setdefault("r", client.get("/")))
+        page.start()
+        page.join(5)
+        assert not page.is_alive() and result["r"].status_code == 200
+    finally:
+        release.set()
+        worker.join()
+
+
+def test_clusters_page_shows_one_group_chosen_from_a_dropdown(client, synth):
+    X, y, ids = synth
+    truth = dict(zip(ids, y))
+    html = client.get("/al-clusters").get_data(as_text=True)
+    assert "No clusters yet" in html and "<select" not in html
+
+    _label_first_batch(client, truth)                            # a fine batch si ricalcola
+    html = client.get("/al-clusters").get_data(as_text=True)
+    classes = client.engine.bank.classes
+    assert html.count('id="cluster_select"') == 1 and 'label="Model predictions"' in html and 'label="Labels given by hand"' in html
+    assert all(f"group=p:{c}" in html and f"group=h:{c}" in html for c in classes)
+    n = client.engine.status()["n_unassigned"]
+    assert n == round(0.05 * (290 - 20)) and f"Unassigned - possible new class ({n})" in html
+    assert 'class="grid-tiles"' in html and 0 < len(_cluster_tiles(html)) <= 12      # un gruppo solo, api grandi
+    assert "very similar" in html and "least similar" in html and "Second third: around the median" in html
+    assert "Remove label" not in html
+
+    big = max(client.engine.cluster_samples(0), key=lambda c: c["n_predicted"])
+    first = client.get(f"/al-clusters?group=p:{big['label']}").get_data(as_text=True)
+    second = client.get(f"/al-clusters?group=p:{big['label']}&page=1").get_data(as_text=True)
+    assert len(_cluster_tiles(first)) == 12 and "set 1 of" in first and "set 2 of" in second
+    assert not {i for _, i in _cluster_tiles(first)} & {i for _, i in _cluster_tiles(second)}
+    sims = [float(v) for v in re.findall(r"sim (-?\d\.\d\d)", first)]
+    assert sims == sorted(sims, reverse=True)                    # dalla più simile alla meno simile
+
+    unassigned = client.get("/al-clusters?group=u").get_data(as_text=True)
+    assert "far from every labeled example" in unassigned and "their closest labeled bee" in unassigned
+    assert client.get("/al-clusters?group=boh&page=abc").status_code == 200
+    assert "Unassigned (far from every label)" in client.get("/al-status").get_data(as_text=True)
+    assert hub_app_rules(client) >= {"/al-clusters"}
+
+
+def test_clusters_page_lets_you_choose_how_many_bees_and_their_order(client, synth):
+    X, y, ids = synth
+    _label_first_batch(client, dict(zip(ids, y)))
+    big = max(client.engine.cluster_samples(0), key=lambda c: c["n_predicted"])
+    url = f"/al-clusters?group=p:{big['label']}"
+    members = big["n_predicted"]
+
+    def page(extra=""):
+        html = client.get(url + extra).get_data(as_text=True)
+        caps = re.findall(r'class="cap">([^<]*)', html)
+        return html, caps, [float(re.search(r"sim (-?\d\.\d\d)", c).group(1)) for c in caps]
+
+    html, caps, _ = page()
+    assert len(caps) == 12 and all(f"n={k}" in html for k in (12, 24, 48, 96))
+    assert ".grid-left { max-height: 100%; overflow-y: auto;" in html          # scorrono solo le api
+    assert "overflow-y: auto" not in client.get("/al-grid").get_data(as_text=True)
+    assert all(f"order={o}" in html for o in ("bands", "similar", "dissimilar", "confident", "uncertain", "random"))
+
+    html, caps, sims = page("&n=24&order=uncertain")
+    conf = [int(re.search(r"conf (\d+)%", c).group(1)) for c in caps]
+    assert len(caps) == min(24, members) and conf == sorted(conf) and "very similar" not in html
+    html, caps, _ = page()                                         # la scelta resta, anche senza parametri
+    assert len(caps) == min(24, members) and 'order=uncertain" selected' in html
+    conf_top = [int(re.search(r"conf (\d+)%", c).group(1)) for c in page("&order=confident")[1]]
+    assert conf_top == sorted(conf_top, reverse=True)
+    assert page("&order=similar")[2] == sorted(page("&order=similar")[2], reverse=True)
+    assert page("&order=dissimilar")[2] == sorted(page("&order=dissimilar")[2])
+    first, second = page("&n=12&order=random")[0], page("&page=1")[0]
+    assert first == page()[0] and not {i for _, i in _cluster_tiles(first)} & {i for _, i in _cluster_tiles(second)}
+
+    # un gruppo senza confidenza ricade sulle fasce; valori strani ignorati
+    hand = client.get(f"/al-clusters?group=h:{big['label']}&order=uncertain").get_data(as_text=True)
+    assert "order=confident" not in hand and "order=bands\" selected" in hand
+    assert len(page("&n=7&order=boh")[1]) == 12
+
+    # con 24 api mostrate si salvano anche quelle oltre la dodicesima
+    tiles = _cluster_tiles(page("&n=24&order=similar")[0])
+    if len(tiles) > 12:
+        client.post(url, data=_cluster_form(tiles, {len(tiles) - 1: "0"}, ["Ultima"]))
+        assert client.engine.bank.label_of(tiles[-1][1]) == "Ultima"
+
+
 def test_clusters_page_edits_labels(client, synth):
     X, y, ids = synth
     truth = dict(zip(ids, y))
     done = _label_first_batch(client, truth)
+    label = truth[done[0]]
+    same = [i for i in done if truth[i] == label]
 
-    html = client.get("/al-clusters?view=labeled&n=2000").get_data(as_text=True)
-    assert all(f'value="{i}"' in html for i in done) and "Remove label" in html
+    html = client.get(f"/al-clusters?group=h:{label}").get_data(as_text=True)
+    tiles = _cluster_tiles(html)
+    assert {i for _, i in tiles} == set(same) and "Remove label" in html
     predicted = client.get("/al-clusters").get_data(as_text=True)
-    assert not any(f'value="{i}"' in predicted for i in done) and "Remove label" not in predicted
+    assert not {i for _, i in _cluster_tiles(predicted)} & set(done)
+    assert client.get("/al-clusters?view=labeled").get_data(as_text=True).count("Remove label") > 0
 
-    # cambio classe a due api etichettate
-    r = client.post("/al-clusters?view=labeled", data={"selected_images": done[:2], "label": "cambiata", "action": "label"})
-    assert r.status_code == 302 and "changed=2" in r.headers["Location"]
-    assert [client.engine.bank.label_of(i) for i in done[:2]] == ["Cambiata", "Cambiata"]
-    assert "2 bee(s) updated" in client.get(r.headers["Location"]).get_data(as_text=True)
+    # cambio classe a un'ape etichettata, con un colore
+    r = client.post(f"/al-clusters?group=h:{label}", data=_cluster_form(tiles, {0: "1"}, ["", "cambiata"]))
+    assert r.status_code == 302 and "changed=1" in r.headers["Location"]
+    assert client.engine.bank.label_of(tiles[0][1]) == "Cambiata"
+    assert "1 bee(s) updated" in client.get(r.headers["Location"]).get_data(as_text=True)
 
-    # un gruppo di api predette, scelte con le checkbox
-    group = re.findall(r'name="selected_images" value="([^"]+)"', client.get("/al-clusters?n=6").get_data(as_text=True))[:3]
-    client.post("/al-clusters", data={"selected_images": group, "label": "Nuovo Gruppo", "action": "label"})
-    assert all(client.engine.bank.label_of(i) == "Nuovo Gruppo" for i in group)
-    assert {e.query_type for e in client.engine.store.events()[-3:]} == {"manual"}
+    # più classi in un colpo su api predette, più una scartata
+    tiles = _cluster_tiles(client.get("/al-clusters").get_data(as_text=True))
+    client.post("/al-clusters",
+                data=_cluster_form(tiles, {0: "0", 1: "0", 2: "3", 3: "discard"}, ["Nuovo Gruppo", "", "", "Altro"]))
+    assert [client.engine.bank.label_of(tiles[k][1]) for k in range(3)] == ["Nuovo Gruppo", "Nuovo Gruppo", "Altro"]
+    assert tiles[3][1] in {client.engine.bank.ids[i] for i in client.engine.bank.unknown_indices()}
+    assert {e.query_type for e in client.engine.store.events()[-4:]} == {"manual"}
 
-    client.post("/al-clusters?view=labeled", data={"selected_images": done[2:3], "action": "remove"})
-    client.post("/al-clusters?view=labeled", data={"selected_images": done[3:4], "action": "unknown"})
-    assert client.engine.bank.label_of(done[2]) is None
-    assert "Non so (set aside)" in client.get("/al-clusters?view=labeled").get_data(as_text=True)
+    # rimozione: solo tra le etichette date a mano
+    tiles = _cluster_tiles(client.get("/al-clusters?group=h:Nuovo Gruppo").get_data(as_text=True))
+    client.post("/al-clusters?group=h:Nuovo Gruppo", data=_cluster_form(tiles, {0: "remove"}))
+    assert client.engine.bank.label_of(tiles[0][1]) is None
+    assert "Scarta ape (set aside)" in client.get("/al-clusters").get_data(as_text=True)
 
-    # errori: nessuna selezione, etichetta vuota
-    for data in ({"label": "X", "action": "label"}, {"selected_images": done[4:5], "label": " ", "action": "label"}):
-        r = client.post("/al-clusters?view=labeled", data=data)
+    # errori: nessuna selezione, colore senza classe, "remove" su api predette: non si scrive nulla
+    n_events = len(client.engine.store.events())
+    tiles = _cluster_tiles(client.get("/al-clusters").get_data(as_text=True))
+    for groups in ({}, {0: "2"}, {0: "remove"}):
+        r = client.post("/al-clusters", data=_cluster_form(tiles, groups, ["A", "B", ""]))
         assert r.status_code == 200 and "color: var(--btn-red)" in r.get_data(as_text=True)
-    assert client.engine.bank.label_of(done[4]) == truth[done[4]]
+    assert len(client.engine.store.events()) == n_events
     assert hub_app_rules(client) >= {"/al-clusters"} and client.get("/inspect").status_code == 200
 
 
@@ -262,3 +361,19 @@ def test_retrain_button(client, synth):
     html = client.get("/al-status").get_data(as_text=True)
     assert "v001" in html and "In use." in html and "button, t@x.it" not in html
     assert "/al-retrain" in hub_app_rules(client)
+
+
+def test_review_page_and_menu_entry(client):
+    """La pagina di revisione risponde anche senza sospette; i dettagli sono in test_review.py."""
+    r = client.get("/al-review")
+    html = r.get_data(as_text=True)
+    assert r.status_code == 200 and "Label review" in html and "No suspicious labels to review" in html
+    for url in ("/al-status", "/al-clusters", "/al-labeling", "/al-grid"):
+        page = client.get(url).get_data(as_text=True)
+        assert 'href="/al-review"' in page and "Review (" not in page          # voce di menu, senza conteggio a coda vuota
+    assert page.index('href="/al-clusters"') < page.index('href="/al-review"') < page.index('href="/al-status"')
+    assert "Label review" in client.get("/al-status").get_data(as_text=True)
+    assert client.get("/al-review-file/review_log.jsonl").get_data(as_text=True) == ""
+    assert client.post("/al-review", data={"image_id": "boh.png", "decision": "confirmed"}).status_code == 200
+    c2 = client.application.test_client()
+    assert c2.get("/al-review").status_code == 302 and c2.get("/al-review-file/review_log.jsonl").status_code == 403

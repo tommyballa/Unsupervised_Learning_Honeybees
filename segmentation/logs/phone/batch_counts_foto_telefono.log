@@ -1,0 +1,9 @@
+Conteggi del modello per batch, snapshot 'foto_telefono' (senza audit)
+
+batch     foto    api                  Adulte                 Giovane                  Malata  Non Classificabile       non assegnate
+phone       22   4689    3115  96.9% [96.2-97.7]      87   2.7% [ 2.1- 3.3]      13   0.4% [ 0.2- 0.7]                1255                 219
+
+Profilo demografico (% sul totale di Giovane, Adulte, Fuco):
+phone    Adulte  97.3% [96.7-97.9]  Giovane   2.7% [ 2.1- 3.3]
+
+File in /mnt/disk1/tommaso_ballarin/bee_al/results_fase2_phone/snapshots/foto_telefono/batch_counts
