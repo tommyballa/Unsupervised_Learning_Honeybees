@@ -48,8 +48,8 @@ class RD4AD(VADModel):
     def __init__(self, backbone_name, input_size=(224, 224), blur_sigma=4.0, layers=None):
         """
         Args:
-            blur_sigma: sigma del blur gaussiano sulla mappa (a input_size); 0 = nessun blur
-            layers: indici dei layer sommati nella mappa (None = tutti)
+            blur_sigma: sigma of the Gaussian blur on the map (at input_size); 0 = no blur
+            layers: indices of the layers summed into the map (None = all)
         """
         super().__init__()
 

@@ -1,11 +1,11 @@
 """
-Valutazione degli esperimenti full-image durante il training (scelta della best).
+Evaluation of the full-image experiments during training (best-checkpoint selection).
 
-La valutazione usa la sliding window e lo score immagine dello script (passati
-come funzioni) su un sottoinsieme fisso del test set: le prime N immagini
-pulite e le prime N con varroa sintetica, in ordine alfabetico. Le metriche
-pixel sono calcolate su un pixel ogni pixel_stride per lato, come nei plot
-finali di RD4AD.
+The evaluation uses the script's sliding window and image score (passed in
+as functions) on a fixed subset of the test set: the first N clean images
+and the first N with synthetic varroa, in alphabetical order. Pixel metrics
+are computed on one pixel every pixel_stride per side, as in the final
+RD4AD plots.
 """
 
 import re
@@ -27,7 +27,7 @@ def image_paths(directory):
 
 
 def eval_items(clean_dir, varroa_dir, per_class=None):
-    """[(path, label)] con le prime per_class immagini pulite (0) e con varroa (1); None = tutte."""
+    """[(path, label)] with the first per_class clean (0) and varroa (1) images; None = all."""
     clean, varroa = image_paths(clean_dir), image_paths(varroa_dir)
     if per_class is not None:
         clean, varroa = clean[:per_class], varroa[:per_class]
@@ -35,13 +35,13 @@ def eval_items(clean_dir, varroa_dir, per_class=None):
 
 
 def load_gt_mask(img_path, label, shape, masks_dir):
-    """Maschera GT binaria (uint8): DSC_5286_syn.jpg -> DSC_5286_mask.png."""
+    """Binary GT mask (uint8): DSC_5286_syn.jpg -> DSC_5286_mask.png."""
     if label == 0:
         return np.zeros(shape, dtype=np.uint8)
     base = re.sub(r"_syn$", "", Path(img_path).stem)
     mask_path = Path(masks_dir) / f"{base}_mask.png"
     if not mask_path.exists():
-        print(f"    ⚠ Maschera non trovata per {Path(img_path).name}, uso maschera vuota")
+        print(f"    ⚠ Mask not found for {Path(img_path).name}, using an empty mask")
         return np.zeros(shape, dtype=np.uint8)
     mask = (cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE) > 127).astype(np.uint8)
     if mask.shape != tuple(shape):
@@ -52,14 +52,14 @@ def load_gt_mask(img_path, label, shape, masks_dir):
 def evaluate_full_images(infer_fn, score_fn, items, masks_dir, pixel_stride=4):
     """
     Args:
-        infer_fn: path immagine -> anomaly map (H, W), come nella valutazione finale
-        score_fn: anomaly map -> score immagine
-        items: [(path, label)] da eval_items
+        infer_fn: image path -> anomaly map (H, W), as in the final evaluation
+        score_fn: anomaly map -> image score
+        items: [(path, label)] from eval_items
     Returns:
-        metriche img/pxl (AUROC, AvgPrec, F1), senza AU-PRO
+        img/pxl metrics (AUROC, AvgPrec, F1), without AU-PRO
     """
     labels, scores, pixel_pred, pixel_gt = [], [], [], []
-    for img_path, label in tqdm(items, desc="Valutazione"):
+    for img_path, label in tqdm(items, desc="Evaluation"):
         amap = np.asarray(infer_fn(img_path), dtype=np.float32)
         labels.append(label)
         scores.append(float(score_fn(amap)))

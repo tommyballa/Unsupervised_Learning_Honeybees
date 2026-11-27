@@ -1,30 +1,30 @@
 """
-VarroaDataset — Dataset per il rilevamento di varroa su api (Ceschi).
+VarroaDataset — Dataset for varroa detection on bees (Ceschi).
 
-Struttura del dataset su disco:
+Dataset layout on disk:
 
     Training:
         .../train_single_bee/train_single_bee_clustered/categoria_1/
             ├── bee_00000_conf0.96.png
             ├── bee_00011_conf0.93.png
             └── ...
-        Tutte le immagini sono normali (nessun CSV necessario).
+        All images are normal (no CSV needed).
 
     Test:
         .../test_single_bee/anomaly_dataset_synthetic/
             ├── labels.csv          (bee_id, label, image_path, mask_path)
-            ├── normal/             immagini sane
-            ├── anomalous/          immagini con varroa
-            └── masks/              maschere pixel-level per le anomale
+            ├── normal/             healthy images
+            ├── anomalous/          images with varroa
+            └── masks/              pixel-level masks for the anomalous images
 
     labels.csv:
         bee_id,label,image_path,mask_path
-        - label: 0=normale, 1=anomala
-        - mask_path: vuoto per le normali
+        - label: 0=normal, 1=anomalous
+        - mask_path: empty for the normal images
 
-Due modalità di utilizzo:
-    1. Singola task:  category="varroa"  → usa i path hardcoded
-    2. Per-video CL:  non più supportato (dataset singolo)
+Two usage modes:
+    1. Single task:   category="varroa"  → uses the hardcoded paths
+    2. Per-video CL:  no longer supported (single dataset)
 """
 
 from moviad.datasets.varroa.paths import DATA_ROOT
@@ -49,22 +49,22 @@ _DEFAULT_TEST_DIR = Path(
     DATA_ROOT + "/processed/test_single_bee_batch3+4_varroa/images"
 )
 
-# Test set alleggerito: tutte le anomale + un sottoinsieme fisso di normali
-# (le mappe a 512x512 di tutto il test set non stanno in tempi/RAM ragionevoli).
-# None = usa tutte le normali; DatasetArguments.full_test=True lo disattiva per uno script.
+# Reduced test set: all anomalous images + a fixed subset of normal ones
+# (512x512 maps for the whole test set do not fit in reasonable time/RAM).
+# None = use all normal images; DatasetArguments.full_test=True disables it for a script.
 _MAX_TEST_NORMALS = 5000
 _TEST_SUBSAMPLE_SEED = 0
 
-# Categoria speciale che aggrega tutti i dati
+# Special category that aggregates all the data
 _AGGREGATE_CATEGORY = "varroa"
 
 
 class VarroaDataset(VADDataset):
-    """Dataset per il rilevamento di varroa su api (Ceschi).
+    """Dataset for varroa detection on bees (Ceschi).
 
-    - TRAIN: carica tutte le immagini da categoria_1 (tutte normali).
-    - TEST/VAL: carica da anomaly_dataset_synthetic con labels.csv,
-      usando le maschere pixel-level per le immagini anomale.
+    - TRAIN: loads all images from categoria_1 (all normal).
+    - TEST/VAL: loads from anomaly_dataset_synthetic with labels.csv,
+      using the pixel-level masks for the anomalous images.
     """
 
     def __init__(
@@ -87,14 +87,14 @@ class VarroaDataset(VADDataset):
     # ------------------------------------------------------------------
 
     def _load_dataset(self):
-        """Carica i sample in base allo split."""
+        """Loads the samples according to the split."""
         if self.split == Split.TRAIN:
             self._load_train()
         else:
             self._load_test()
 
     def _load_train(self):
-        """Carica tutte le immagini da categoria_1 come sample normali."""
+        """Loads all images from categoria_1 as normal samples."""
         if self.dataset_arguments.dataset_path:
             train_dir = Path(self.dataset_arguments.dataset_path)
         else:
@@ -102,7 +102,7 @@ class VarroaDataset(VADDataset):
 
         if not train_dir.exists():
             raise FileNotFoundError(
-                f"Directory di training non trovata: {train_dir}"
+                f"Training directory not found: {train_dir}"
             )
 
         image_extensions = {".png", ".jpg", ".jpeg", ".bmp", ".tiff"}
@@ -113,7 +113,7 @@ class VarroaDataset(VADDataset):
 
         if not image_files:
             raise RuntimeError(
-                f"Nessuna immagine trovata in {train_dir}"
+                f"No images found in {train_dir}"
             )
 
         rows = []
@@ -130,24 +130,24 @@ class VarroaDataset(VADDataset):
         self.labels = self.samples["label_index"].tolist()
         self.mask_paths = self.samples["mask_path"].tolist()
         print(
-            f"[VarroaDataset] TRAIN: {len(self.samples)} immagini normali "
-            f"da {train_dir.name}"
+            f"[VarroaDataset] TRAIN: {len(self.samples)} normal images "
+            f"from {train_dir.name}"
         )
 
     def _load_test(self):
-        """Carica i sample da anomaly_dataset_synthetic usando labels.csv."""
+        """Loads the samples from anomaly_dataset_synthetic using labels.csv."""
         test_path = getattr(self.dataset_arguments, "test_path", None)
         test_dir = Path(test_path) if test_path else _DEFAULT_TEST_DIR
         csv_path = test_dir / "labels.csv"
 
         if not csv_path.exists():
             raise FileNotFoundError(
-                f"Labels CSV non trovato: {csv_path}"
+                f"Labels CSV not found: {csv_path}"
             )
 
         df = pd.read_csv(csv_path)
 
-        # Sottoinsieme deterministico delle normali (stesso per tutti i modelli)
+        # Deterministic subset of the normal images (the same for all models)
         normal_idx = df.index[df["label"] == 0]
         full_test = getattr(self.dataset_arguments, "full_test", False)
         if not full_test and _MAX_TEST_NORMALS is not None and len(normal_idx) > _MAX_TEST_NORMALS:
@@ -165,8 +165,8 @@ class VarroaDataset(VADDataset):
                 else LabelName.ABNORMAL
             )
 
-            # I path nel CSV potrebbero puntare alla vecchia directory;
-            # ricostruiamo i path corretti dalla directory effettiva.
+            # The paths in the CSV may point to the old directory;
+            # rebuild the correct paths from the actual directory.
             bee_id = row["bee_id"]
             if label_int == 0:
                 img_path = str(test_dir / "normal" / f"{bee_id}.png")
@@ -183,7 +183,7 @@ class VarroaDataset(VADDataset):
 
         if not rows:
             raise RuntimeError(
-                f"Nessun sample trovato in {csv_path}"
+                f"No samples found in {csv_path}"
             )
 
         self.samples = pd.DataFrame(rows)
@@ -195,8 +195,8 @@ class VarroaDataset(VADDataset):
         n_normal = (self.samples.label_index == LabelName.NORMAL.value).sum()
         n_anomal = (self.samples.label_index == LabelName.ABNORMAL.value).sum()
         print(
-            f"[VarroaDataset] TEST: {len(self.samples)} sample totali "
-            f"({n_normal} normali, {n_anomal} anomali)"
+            f"[VarroaDataset] TEST: {len(self.samples)} total samples "
+            f"({n_normal} normal, {n_anomal} anomalous)"
         )
 
     # ------------------------------------------------------------------
@@ -212,13 +212,13 @@ class VarroaDataset(VADDataset):
     def __getitem__(self, index: int):
         """
         Returns:
-            Se split == TRAIN:
+            If split == TRAIN:
                 image (Tensor): (C, H, W)
-            Altrimenti:
+            Otherwise:
                 image (Tensor): (C, H, W)
-                label (int): 0 o 1
-                mask (Tensor): (1, H, W) — mask pixel-level o zero mask
-                path (str): path assoluto dell'immagine
+                label (int): 0 or 1
+                mask (Tensor): (1, H, W) — pixel-level mask or zero mask
+                path (str): absolute path of the image
         """
         img_path = self.image_paths[index]
 
@@ -234,7 +234,7 @@ class VarroaDataset(VADDataset):
         if label == LabelName.ABNORMAL.value and mask_path:
             mask = Image.open(mask_path).convert("L")
             mask = self.transform_mask(mask)
-            # Binarizza la mask (threshold 0.5)
+            # Binarize the mask (threshold 0.5)
             mask = (mask > 0.5).int()
         else:
             mask = torch.zeros(1, *self.dataset_arguments.gt_mask_size)
@@ -242,19 +242,19 @@ class VarroaDataset(VADDataset):
         return (image, label, mask.int(), img_path)
 
     # ------------------------------------------------------------------
-    # Abstract methods da VADDataset
+    # Abstract methods from VADDataset
     # ------------------------------------------------------------------
 
     def split_dataset(self, train_size, valid_size):
-        """Non utilizzato — gli split sono già definiti dalla struttura su disco."""
+        """Unused — the splits are already defined by the layout on disk."""
         pass
 
     def contaminate(self, ratio: float, seed: int = 42) -> int:
-        """Non implementato per VarroaDataset."""
-        raise NotImplementedError("Contamination non supportata per VarroaDataset")
+        """Not implemented for VarroaDataset."""
+        raise NotImplementedError("Contamination not supported for VarroaDataset")
 
     def compute_contamination_ratio(self) -> float:
-        """Calcola la percentuale di sample anomali."""
+        """Computes the fraction of anomalous samples."""
         if self.samples is None:
             return 0.0
         n_abnormal = (self.samples.label_index == LabelName.ABNORMAL.value).sum()
@@ -266,5 +266,5 @@ class VarroaDataset(VADDataset):
 
     @staticmethod
     def get_categories() -> list:
-        """Restituisce la lista delle category disponibili."""
+        """Returns the list of available categories."""
         return [_AGGREGATE_CATEGORY]

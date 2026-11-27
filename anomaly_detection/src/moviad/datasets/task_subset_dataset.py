@@ -1,11 +1,11 @@
 """
-TaskSubsetDataset — Wrapper che seleziona un subset di un dataset
-e applica una trasformazione aggiuntiva post-caricamento.
+TaskSubsetDataset — Wrapper that selects a subset of a dataset
+and applies an additional post-loading transform.
 
-Utilizzo:
+Usage:
     from moviad.datasets.task_subset_dataset import TaskSubsetDataset
 
-    # Prende i primi 1000 sample del dataset e applica una trasformazione
+    # Takes the first 1000 samples of the dataset and applies a transform
     subset_ds = TaskSubsetDataset(
         dataset=original_dataset,
         indices=range(0, 1000),
@@ -19,17 +19,17 @@ from typing import Callable, Sequence
 
 
 class TaskSubsetDataset(Dataset):
-    """Dataset wrapper che seleziona un sottoinsieme e applica trasformazioni extra.
+    """Dataset wrapper that selects a subset and applies extra transforms.
 
-    Compatibile sia con dataset che restituiscono solo immagini (training)
-    sia con quelli che restituiscono tuple (image, label, mask, path) per test/val.
+    Works both with datasets that return only images (training)
+    and with those that return tuples (image, label, mask, path) for test/val.
 
     Args:
-        dataset: Il dataset originale da cui estrarre il subset.
-        indices: Lista/sequenza di indici da selezionare.
-        extra_transform: Trasformazione aggiuntiva da applicare al tensore immagine
-                         (opera sul tensore già trasformato dal dataset originale).
-                         Se None, non viene applicata nessuna trasformazione aggiuntiva.
+        dataset: The original dataset to extract the subset from.
+        indices: List/sequence of indices to select.
+        extra_transform: Additional transform applied to the image tensor
+                         (operates on the tensor already transformed by the original dataset).
+                         If None, no additional transform is applied.
     """
 
     def __init__(
@@ -51,13 +51,13 @@ class TaskSubsetDataset(Dataset):
         if self.extra_transform is None:
             return item
 
-        # Il dataset può restituire:
-        # - solo l'immagine (Tensor) durante il training
-        # - una tupla (image, label, mask, path) durante test/val
+        # The dataset may return:
+        # - only the image (Tensor) during training
+        # - a tuple (image, label, mask, path) during test/val
         if isinstance(item, torch.Tensor):
             return self.extra_transform(item)
         elif isinstance(item, (tuple, list)):
-            # Il primo elemento è sempre l'immagine
+            # The first element is always the image
             items = list(item)
             items[0] = self.extra_transform(items[0])
             return tuple(items)

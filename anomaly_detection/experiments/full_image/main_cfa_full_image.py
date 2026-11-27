@@ -1,15 +1,15 @@
 """
-CFA - Anomaly detection su immagini full-frame con molte api.
+CFA - Anomaly detection on full-frame images with many bees.
 
-Addestramento: crop casuali dalle immagini ad alta risoluzione di training.
-Inferenza: sliding window sull'immagine intera, con blending delle sovrapposizioni.
-Valutazione: metriche a livello di immagine e pixel (AUROC, AvgPrec, F1).
+Training: random crops from the high-resolution training images.
+Inference: sliding window over the whole image, blending the overlaps.
+Evaluation: image- and pixel-level metrics (AUROC, AvgPrec, F1).
 
-Best: ogni EVAL_INTERVAL epoche (e all'ultima) metriche sulle prime
-EVAL_IMAGES_PER_CLASS immagini pulite e con varroa del test set; la
-configurazione migliore (img_roc_auc, a parità pxl_avg_prec) viene salvata in
+Best: every EVAL_INTERVAL epochs (and at the last one) metrics on the first
+EVAL_IMAGES_PER_CLASS clean and varroa images of the test set; the
+best configuration (img_roc_auc, then pxl_avg_prec on ties) is saved in
 checkpoints/full_image/cfa/ (best.pth + config.json).
-Heatmap e metriche su tutto il test set dalla best:
+Heatmaps and metrics on the whole test set from the best:
     python experiments/plot_heatmaps.py full_image cfa
 """
 
@@ -34,7 +34,7 @@ from moviad.utilities.evaluation.report import print_metrics
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Configurazione
+# Configuration
 # ──────────────────────────────────────────────────────────────────────
 TRAIN_DIR       = DATA_ROOT + "/processed/train/images"
 TEST_CLEAN_DIR  = DATA_ROOT + "/processed/test/images"
@@ -46,8 +46,8 @@ EPOCHS     = 30
 BATCH_SIZE = 8
 SEED       = 1
 
-EVAL_INTERVAL = 5           # valuta ogni N epoche (e sempre all'ultima) per la best
-EVAL_IMAGES_PER_CLASS = 5    # prime N immagini pulite + N con varroa del test usate per la best
+EVAL_INTERVAL = 5           # evaluate every N epochs (and always at the last one) for the best
+EVAL_IMAGES_PER_CLASS = 5    # first N clean + N varroa test images used to pick the best
 
 MODEL_NAME = "cfa"
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -56,7 +56,7 @@ CHECKPOINT_DIR = REPO_ROOT / "checkpoints" / "full_image" / MODEL_NAME
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Utilità
+# Utilities
 # ──────────────────────────────────────────────────────────────────────
 def set_seed(seed: int):
     torch.manual_seed(seed)
@@ -68,7 +68,7 @@ def set_seed(seed: int):
 
 
 def get_image_paths(directory):
-    """Restituisce i path delle immagini ordinati."""
+    """Returns the sorted image paths."""
     return sorted([
         str(p) for p in Path(directory).rglob("*")
         if p.is_file() and p.suffix.lower() in [".jpg", ".jpeg", ".png"]
@@ -77,8 +77,8 @@ def get_image_paths(directory):
 
 def find_mask_for_image(img_path, masks_dir):
     """
-    Dato un path immagine varroa (es. DSC_5286_syn.jpg),
-    trova la maschera corrispondente (es. DSC_5286_mask.png).
+    Given a varroa image path (e.g. DSC_5286_syn.jpg),
+    finds the matching mask (e.g. DSC_5286_mask.png).
     """
     img_name = Path(img_path).stem
     base_name = re.sub(r"_syn$", "", img_name)
@@ -90,10 +90,10 @@ def find_mask_for_image(img_path, masks_dir):
 
 class FullImageCropDataset(Dataset):
     """
-    Carica immagini ad alta risoluzione e restituisce crop casuali.
-    Poiché il server ha molta RAM libera, pre-carica tutte le immagini in memoria
-    durante l'__init__ per evitare il gravissimo collo di bottiglia I/O 
-    (lettura da disco di 24MP a ogni singola iterazione).
+    Loads high-resolution images and returns random crops.
+    Since the server has plenty of free RAM, pre-loads all images into memory
+    during __init__ to avoid the severe I/O bottleneck 
+    (reading a 24MP image from disk at every single iteration).
     """
 
     def __init__(self, root_dir, crop_size=384, crops_per_image=10, transform=None):
@@ -101,18 +101,18 @@ class FullImageCropDataset(Dataset):
         self.crops_per_image = crops_per_image
         self.transform = transform
         self.image_paths = get_image_paths(root_dir)
-        print(f"[Dataset] Trovate {len(self.image_paths)} immagini in {root_dir}")
-        print(f"[Dataset] {self.crops_per_image} crop/immagine → {len(self)} campioni/epoca")
+        print(f"[Dataset] Found {len(self.image_paths)} images in {root_dir}")
+        print(f"[Dataset] {self.crops_per_image} crops/image → {len(self)} samples/epoch")
         
-        print("[Dataset] Pre-caricamento in RAM delle immagini originali (4000x6016)...")
+        print("[Dataset] Pre-loading the original images into RAM (4000x6016)...")
         self.images = []
         for path in self.image_paths:
             img = cv2.imread(path)
             if img is None:
-                raise ValueError(f"Impossibile leggere: {path}")
+                raise ValueError(f"Cannot read: {path}")
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             self.images.append(img)
-        print("[Dataset] Pre-caricamento completato!")
+        print("[Dataset] Pre-loading complete!")
 
     def __len__(self):
         return len(self.image_paths) * self.crops_per_image
@@ -137,12 +137,12 @@ class FullImageCropDataset(Dataset):
 def sliding_window_inference(model, image_path, device,
                              window_size=384, stride=192, batch_size=8):
     """
-    Taglia l'immagine in tile, esegue CFA su ciascuna,
-    e ricostruisce la heatmap globale mediando le sovrapposizioni.
+    Slices the image into tiles, runs CFA on each one,
+    and rebuilds the global heatmap by averaging the overlaps.
     """
     img = cv2.imread(image_path)
     if img is None:
-        raise ValueError(f"Impossibile leggere: {image_path}")
+        raise ValueError(f"Cannot read: {image_path}")
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     H, W, _ = img.shape
 
@@ -170,9 +170,9 @@ def sliding_window_inference(model, image_path, device,
     def process_batch(tiles, coords):
         batch_tensor = torch.stack(tiles).to(device)
         with torch.no_grad():
-            # CFA restituisce (heatmaps [B, 1, H, W] su CPU, img_scores [B] su CPU)
+            # CFA returns (heatmaps [B, 1, H, W] on CPU, img_scores [B] on CPU)
             batch_amaps, _ = model(batch_tensor)
-            batch_amaps = batch_amaps.numpy()  # già su CPU
+            batch_amaps = batch_amaps.numpy()  # already on CPU
 
         for i, (y, x) in enumerate(coords):
             amap = np.squeeze(batch_amaps[i])  # (window_size, window_size)
@@ -197,12 +197,12 @@ def sliding_window_inference(model, image_path, device,
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Test + Metriche + Visualizzazione
+# Test + Metrics + Visualization
 # ──────────────────────────────────────────────────────────────────────
 def evaluate_and_visualize(model, device, output_dir, window_size=384):
     """
-    Esegue il test su immagini pulite e con varroa sintetica,
-    calcola le metriche a livello immagine e pixel, e salva le heatmap overlay.
+    Runs the test on clean images and images with synthetic varroa,
+    computes image- and pixel-level metrics, and saves the heatmap overlays.
     """
     os.makedirs(output_dir, exist_ok=True)
 
@@ -218,16 +218,16 @@ def evaluate_and_visualize(model, device, output_dir, window_size=384):
     clean_paths = get_image_paths(TEST_CLEAN_DIR)
     varroa_paths = get_image_paths(TEST_VARROA_DIR)
 
-    print(f"\nImmagini pulite (label=0): {len(clean_paths)}")
-    print(f"Immagini varroa (label=1): {len(varroa_paths)}")
+    print(f"\nClean images (label=0): {len(clean_paths)}")
+    print(f"Varroa images (label=1): {len(varroa_paths)}")
 
     all_image_labels = []
     all_image_scores = []
     all_pixel_gt = []
     all_pixel_pred = []
 
-    # --- Inferenza su immagini PULITE (label=0) ---
-    print("\n--- Inferenza immagini pulite ---")
+    # --- Inference on CLEAN images (label=0) ---
+    print("\n--- Inference on clean images ---")
     for img_path in clean_paths:
         img_name = os.path.basename(img_path)
         print(f"  {img_name}...")
@@ -248,8 +248,8 @@ def evaluate_and_visualize(model, device, output_dir, window_size=384):
 
         _save_overlay(img_rgb, amap, output_dir, img_name)
 
-    # --- Inferenza su immagini VARROA (label=1) ---
-    print("\n--- Inferenza immagini varroa sintetica ---")
+    # --- Inference on VARROA images (label=1) ---
+    print("\n--- Inference on synthetic varroa images ---")
     for img_path in varroa_paths:
         img_name = os.path.basename(img_path)
         print(f"  {img_name}...")
@@ -272,7 +272,7 @@ def evaluate_and_visualize(model, device, output_dir, window_size=384):
                 gt_mask = cv2.resize(gt_mask, (amap.shape[1], amap.shape[0]),
                                      interpolation=cv2.INTER_NEAREST)
         else:
-            print(f"    ⚠ Maschera non trovata per {img_name}, uso maschera vuota")
+            print(f"    ⚠ Mask not found for {img_name}, using an empty mask")
             gt_mask = np.zeros_like(amap, dtype=np.float32)
 
         all_pixel_gt.append(gt_mask.flatten())
@@ -280,14 +280,14 @@ def evaluate_and_visualize(model, device, output_dir, window_size=384):
 
         _save_overlay(img_rgb, amap, output_dir, img_name)
 
-    # --- Calcolo metriche ---
+    # --- Metric computation ---
     all_image_labels = np.array(all_image_labels)
     all_image_scores = np.array(all_image_scores)
     all_pixel_gt = np.concatenate(all_pixel_gt)
     all_pixel_pred = np.concatenate(all_pixel_pred)
 
     print(f"\n{'='*60}")
-    print("RISULTATI METRICHE — CFA Full Image")
+    print("METRIC RESULTS — CFA Full Image")
     print(f"{'='*60}")
 
     for metric in metrics:
@@ -298,14 +298,14 @@ def evaluate_and_visualize(model, device, output_dir, window_size=384):
                 value = metric.compute(all_pixel_gt, all_pixel_pred)
             print(f"  {metric.name:>20s}: {value:.4f}")
         except Exception as e:
-            print(f"  {metric.name:>20s}: ERRORE — {e}")
+            print(f"  {metric.name:>20s}: ERROR — {e}")
 
     print(f"{'='*60}\n")
-    print(f"Heatmap salvate in {output_dir}")
+    print(f"Heatmaps saved to {output_dir}")
 
 
 def _save_overlay(img_rgb, amap, output_dir, img_name):
-    """Salva l'overlay heatmap sull'immagine originale."""
+    """Saves the heatmap overlay on the original image."""
     amap_norm = (amap - amap.min()) / (amap.max() - amap.min() + 1e-8)
     heatmap = cv2.applyColorMap((amap_norm * 255).astype(np.uint8), cv2.COLORMAP_JET)
     heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
@@ -315,7 +315,7 @@ def _save_overlay(img_rgb, amap, output_dir, img_name):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Modello, best e heatmap (usati anche da experiments/plot_heatmaps.py)
+# Model, best and heatmaps (also used by experiments/plot_heatmaps.py)
 # ──────────────────────────────────────────────────────────────────────
 def build_model(device):
     feature_extractor = CustomFeatureExtractor(
@@ -333,19 +333,19 @@ def build_model(device):
 
 
 def model_state(model):
-    # patch descriptor, raggio r e memory bank (il backbone congelato non è nello state dict)
+    # patch descriptor, radius r and memory bank (the frozen backbone is not in the state dict)
     return clean_state_dict(model.state_dict())
 
 
 def load_model_state(model, state):
-    # in un modello nuovo la memory bank non esiste ancora (viene creata all'epoca 0)
+    # in a new model the memory bank does not exist yet (it is created at epoch 0)
     model.memory_bank = torch.nn.Parameter(state["memory_bank"].clone().to(model.device),
                                            requires_grad=False)
     model.load_state_dict(state)
 
 
 def infer_image(model, device, img_path):
-    """Anomaly map dell'immagine intera, come in evaluate_and_visualize."""
+    """Anomaly map of the whole image, as in evaluate_and_visualize."""
     _, amap = sliding_window_inference(model, img_path, device, window_size=TILE_SIZE,
                                        stride=TILE_SIZE // 2, batch_size=8)
     return amap
@@ -356,7 +356,7 @@ def image_score(amap):
 
 
 def evaluate_subset(model, device):
-    """Metriche (senza plot) sulle prime EVAL_IMAGES_PER_CLASS immagini pulite e con varroa."""
+    """Metrics (no plots) on the first EVAL_IMAGES_PER_CLASS clean and varroa images."""
     model.eval()
     items = eval_items(TEST_CLEAN_DIR, TEST_VARROA_DIR, EVAL_IMAGES_PER_CLASS)
     with torch.no_grad():
@@ -365,8 +365,8 @@ def evaluate_subset(model, device):
 
 
 def plot_heatmaps(model, device):
-    """Metriche e heatmap su tutto il test set."""
-    print(f"\nTest con sliding window (tile {TILE_SIZE}x{TILE_SIZE})...")
+    """Metrics and heatmaps on the whole test set."""
+    print(f"\nTest with sliding window (tile {TILE_SIZE}x{TILE_SIZE})...")
     evaluate_and_visualize(model, device, output_dir=OUTPUT_DIR, window_size=TILE_SIZE)
 
 
@@ -382,7 +382,7 @@ def main():
 
     model = build_model(device)
 
-    # --- Dataset di training con crop casuali ---
+    # --- Training dataset with random crops ---
     imagenet_normalize = transforms.Normalize(
         mean=[0.485, 0.456, 0.406],
         std=[0.229, 0.224, 0.225],
@@ -407,18 +407,18 @@ def main():
     training_args.init_train(model)
     tracker = BestTracker(
         CHECKPOINT_DIR, script_config(globals()),
-        selection_data=(f"test set: prime {EVAL_IMAGES_PER_CLASS} immagini pulite "
-                        f"+ {EVAL_IMAGES_PER_CLASS} con varroa"),
+        selection_data=(f"test set: first {EVAL_IMAGES_PER_CLASS} clean images "
+                        f"+ {EVAL_IMAGES_PER_CLASS} with varroa"),
     )
 
-    # --- Training (all'epoca 0 train_epoch inizializza la memory bank) ---
+    # --- Training (at epoch 0 train_epoch initializes the memory bank) ---
     print(f"\n{'='*60}")
-    print(f"Training CFA full-image | {EPOCHS} epoche | {len(train_dataloader)} batch/epoca")
+    print(f"Training CFA full-image | {EPOCHS} epochs | {len(train_dataloader)} batches/epoch")
     print(f"{'='*60}\n")
 
     for epoch in range(EPOCHS):
         loss = model.train_epoch(epoch, train_dataloader, training_args)
-        print(f"Epoca {epoch + 1}/{EPOCHS} — loss: {loss:.6f}")
+        print(f"Epoch {epoch + 1}/{EPOCHS} — loss: {loss:.6f}")
 
         if (epoch + 1) % EVAL_INTERVAL == 0 or epoch == EPOCHS - 1:
             results = evaluate_subset(model, device)
@@ -426,7 +426,7 @@ def main():
             tracker.update(epoch + 1, results, lambda: model_state(model))
 
     print(f"\nBest {MODEL_NAME} full-image — {tracker.summary()}")
-    print(f"Heatmap e metriche su tutto il test: python experiments/plot_heatmaps.py full_image {MODEL_NAME}")
+    print(f"Heatmaps and metrics on the whole test set: python experiments/plot_heatmaps.py full_image {MODEL_NAME}")
 
 
 if __name__ == "__main__":

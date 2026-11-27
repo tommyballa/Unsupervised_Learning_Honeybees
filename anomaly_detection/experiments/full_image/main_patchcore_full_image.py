@@ -1,12 +1,12 @@
 """
-PatchCore - Anomaly detection su immagini full-frame con molte api.
+PatchCore - Anomaly detection on full-frame images with many bees.
 
-Addestramento: crop casuali dalle immagini ad alta risoluzione di training.
-Inferenza: sliding window sull'immagine intera, con blending delle sovrapposizioni.
-Valutazione: metriche a livello di immagine e pixel (AUROC, AvgPrec, F1).
+Training: random crops from the high-resolution training images.
+Inference: sliding window over the whole image, blending the overlaps.
+Evaluation: image- and pixel-level metrics (AUROC, AvgPrec, F1).
 
-La memory bank viene salvata in checkpoints/full_image/patchcore/
-(best.pth + config.json). Heatmap e metriche su tutto il test set:
+The memory bank is saved in checkpoints/full_image/patchcore/
+(best.pth + config.json). Heatmaps and metrics on the whole test set:
     python experiments/plot_heatmaps.py full_image patchcore
 """
 
@@ -31,7 +31,7 @@ from moviad.utilities.evaluation.checkpoints import save_checkpoint, script_conf
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Configurazione
+# Configuration
 # ──────────────────────────────────────────────────────────────────────
 TRAIN_DIR       = DATA_ROOT + "/processed/train/images/original"
 TEST_CLEAN_DIR  = DATA_ROOT + "/processed/test/images"
@@ -48,7 +48,7 @@ CHECKPOINT_DIR = REPO_ROOT / "checkpoints" / "full_image" / MODEL_NAME
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Utilità
+# Utilities
 # ──────────────────────────────────────────────────────────────────────
 def set_seed(seed: int = 1):
     """Set random seeds for reproducibility."""
@@ -62,7 +62,7 @@ def set_seed(seed: int = 1):
 
 
 def get_image_paths(directory):
-    """Restituisce i path delle immagini ordinati."""
+    """Returns the sorted image paths."""
     return sorted([
         str(p) for p in Path(directory).rglob("*")
         if p.is_file() and p.suffix.lower() in [".jpg", ".jpeg", ".png"]
@@ -71,8 +71,8 @@ def get_image_paths(directory):
 
 def find_mask_for_image(img_path, masks_dir):
     """
-    Dato un path immagine varroa (es. DSC_5286_syn.jpg),
-    trova la maschera corrispondente (es. DSC_5286_mask.png).
+    Given a varroa image path (e.g. DSC_5286_syn.jpg),
+    finds the matching mask (e.g. DSC_5286_mask.png).
     """
     img_name = Path(img_path).stem
     base_name = re.sub(r"_syn$", "", img_name)
@@ -185,12 +185,12 @@ def sliding_window_inference(model, image_path, device,
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Test + Metriche + Visualizzazione
+# Test + Metrics + Visualization
 # ──────────────────────────────────────────────────────────────────────
 def evaluate_and_visualize(model, device, output_dir, window_size=512):
     """
-    Esegue il test su immagini pulite e con varroa sintetica,
-    calcola le metriche a livello immagine e pixel, e salva le heatmap overlay.
+    Runs the test on clean images and images with synthetic varroa,
+    computes image- and pixel-level metrics, and saves the heatmap overlays.
     """
     os.makedirs(output_dir, exist_ok=True)
 
@@ -206,16 +206,16 @@ def evaluate_and_visualize(model, device, output_dir, window_size=512):
     clean_paths = get_image_paths(TEST_CLEAN_DIR)
     varroa_paths = get_image_paths(TEST_VARROA_DIR)
 
-    print(f"\nImmagini pulite (label=0): {len(clean_paths)}")
-    print(f"Immagini varroa (label=1): {len(varroa_paths)}")
+    print(f"\nClean images (label=0): {len(clean_paths)}")
+    print(f"Varroa images (label=1): {len(varroa_paths)}")
 
     all_image_labels = []
     all_image_scores = []
     all_pixel_gt = []
     all_pixel_pred = []
 
-    # --- Inferenza su immagini PULITE (label=0) ---
-    print("\n--- Inferenza immagini pulite ---")
+    # --- Inference on CLEAN images (label=0) ---
+    print("\n--- Inference on clean images ---")
     for img_path in clean_paths:
         img_name = os.path.basename(img_path)
         print(f"  {img_name}...")
@@ -236,8 +236,8 @@ def evaluate_and_visualize(model, device, output_dir, window_size=512):
 
         _save_overlay(img_rgb, amap, output_dir, img_name)
 
-    # --- Inferenza su immagini VARROA (label=1) ---
-    print("\n--- Inferenza immagini varroa sintetica ---")
+    # --- Inference on VARROA images (label=1) ---
+    print("\n--- Inference on synthetic varroa images ---")
     for img_path in varroa_paths:
         img_name = os.path.basename(img_path)
         print(f"  {img_name}...")
@@ -260,7 +260,7 @@ def evaluate_and_visualize(model, device, output_dir, window_size=512):
                 gt_mask = cv2.resize(gt_mask, (amap.shape[1], amap.shape[0]),
                                      interpolation=cv2.INTER_NEAREST)
         else:
-            print(f"    ⚠ Maschera non trovata per {img_name}, uso maschera vuota")
+            print(f"    ⚠ Mask not found for {img_name}, using an empty mask")
             gt_mask = np.zeros_like(amap, dtype=np.float32)
 
         all_pixel_gt.append(gt_mask.flatten())
@@ -268,14 +268,14 @@ def evaluate_and_visualize(model, device, output_dir, window_size=512):
 
         _save_overlay(img_rgb, amap, output_dir, img_name)
 
-    # --- Calcolo metriche ---
+    # --- Metric computation ---
     all_image_labels = np.array(all_image_labels)
     all_image_scores = np.array(all_image_scores)
     all_pixel_gt = np.concatenate(all_pixel_gt)
     all_pixel_pred = np.concatenate(all_pixel_pred)
 
     print(f"\n{'='*60}")
-    print("RISULTATI METRICHE — PatchCore Full Image")
+    print("METRIC RESULTS — PatchCore Full Image")
     print(f"{'='*60}")
 
     for metric in metrics:
@@ -286,14 +286,14 @@ def evaluate_and_visualize(model, device, output_dir, window_size=512):
                 value = metric.compute(all_pixel_gt, all_pixel_pred)
             print(f"  {metric.name:>20s}: {value:.4f}")
         except Exception as e:
-            print(f"  {metric.name:>20s}: ERRORE — {e}")
+            print(f"  {metric.name:>20s}: ERROR — {e}")
 
     print(f"{'='*60}\n")
-    print(f"Heatmap salvate in {output_dir}")
+    print(f"Heatmaps saved to {output_dir}")
 
 
 def _save_overlay(img_rgb, amap, output_dir, img_name):
-    """Salva l'overlay heatmap sull'immagine originale."""
+    """Saves the heatmap overlay on the original image."""
     amap_norm = (amap - amap.min()) / (amap.max() - amap.min() + 1e-8)
     heatmap = cv2.applyColorMap((amap_norm * 255).astype(np.uint8), cv2.COLORMAP_JET)
     heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
@@ -303,7 +303,7 @@ def _save_overlay(img_rgb, amap, output_dir, img_name):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Modello, best e heatmap (usati anche da experiments/plot_heatmaps.py)
+# Model, best and heatmaps (also used by experiments/plot_heatmaps.py)
 # ──────────────────────────────────────────────────────────────────────
 def build_model(device):
     # Use shallower layers (layer1, layer2) to capture fine textural details like varroa
@@ -323,14 +323,14 @@ def model_state(model):
 
 
 def load_model_state(model, state):
-    # fp32 sul device del modello: compute_anomaly_score_old confronta le feature (fp32)
-    # con le righe della memory bank indicizzate da tensori sul device
+    # fp32 on the model's device: compute_anomaly_score_old compares the features (fp32)
+    # with the memory bank rows indexed by tensors on the device
     model.memory_bank = state["memory_bank"].float().to(model.device)
 
 
 def plot_heatmaps(model, device):
-    """Metriche e heatmap su tutto il test set."""
-    print(f"\nTest con sliding window (tile {TILE_SIZE}x{TILE_SIZE})...")
+    """Metrics and heatmaps on the whole test set."""
+    print(f"\nTest with sliding window (tile {TILE_SIZE}x{TILE_SIZE})...")
     evaluate_and_visualize(model, device, output_dir=OUTPUT_DIR, window_size=TILE_SIZE)
 
 
@@ -366,13 +366,13 @@ def main():
     print("\nTraining PatchCore...")
     model.train()
     model.train_epoch(0, train_dataloader, TrainingArgs(batch_size=8, epochs=1))
-    # train_epoch estrae le feature in autocast: memory bank in mezza precisione e su CPU
+    # train_epoch extracts the features under autocast: memory bank in half precision and on CPU
     load_model_state(model, model_state(model))
 
     save_checkpoint(CHECKPOINT_DIR, model_state(model), script_config(globals()),
-                    best_epoch=None, note="memory bank costruita in un solo passaggio")
-    print(f"\nMemory bank PatchCore salvata in {CHECKPOINT_DIR}")
-    print(f"Heatmap e metriche su tutto il test: python experiments/plot_heatmaps.py full_image {MODEL_NAME}")
+                    best_epoch=None, note="memory bank built in a single pass")
+    print(f"\nPatchCore memory bank saved to {CHECKPOINT_DIR}")
+    print(f"Heatmaps and metrics on the whole test set: python experiments/plot_heatmaps.py full_image {MODEL_NAME}")
 
 
 if __name__ == "__main__":

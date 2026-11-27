@@ -1,12 +1,12 @@
 """
-Heatmap full-image di Dinomaly con i pesi addestrati sulle singole api.
+Full-image Dinomaly heatmaps using the weights trained on single bees.
 
-Carica la best di experiments/single_bee/main_dinomaly.py (bottleneck +
-decoder: l'encoder DINOv2 congelato è lo stesso e il decoder non dipende dalla
-dimensione del tile) nel modello full-image e genera metriche e heatmap sulle
-immagini intere in heatmaps/full_image/dinomaly_from_single_bee/.
+Loads the best of experiments/single_bee/main_dinomaly.py (bottleneck +
+decoder: the frozen DINOv2 encoder is the same and the decoder does not depend
+on the tile size) into the full-image model and generates metrics and heatmaps
+on the whole images in heatmaps/full_image/dinomaly_from_single_bee/.
 
-Per il Dinomaly addestrato direttamente sulle immagini intere:
+For the Dinomaly trained directly on the whole images:
     python experiments/plot_heatmaps.py full_image dinomaly
 """
 
@@ -32,16 +32,16 @@ def main():
         else "cpu"
     )
 
-    print("Inizializzazione modello...")
+    print("Initializing model...")
     model = build_model(device)
 
     state, info = load_checkpoint(CHECKPOINT_DIR)
     load_model_state(model, state)
-    print(f"Pesi single-bee caricati da {CHECKPOINT_DIR} (best: epoca {info.get('best_epoch')})")
+    print(f"Single-bee weights loaded from {CHECKPOINT_DIR} (best: epoch {info.get('best_epoch')})")
 
-    print("Generazione heatmaps...")
+    print("Generating heatmaps...")
     evaluate_and_visualize(model, device, output_dir=OUTPUT_DIR, window_size=TILE_SIZE)
-    print("Fatto! Puoi controllare le immagini generate in", OUTPUT_DIR)
+    print("Done! You can check the generated images in", OUTPUT_DIR)
 
 
 if __name__ == "__main__":

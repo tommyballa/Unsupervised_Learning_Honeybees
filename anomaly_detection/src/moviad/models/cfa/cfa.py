@@ -166,8 +166,8 @@ class CFA(VADModel):
         if self.blur_sigma > 0:
             heatmaps = CFA.gaussian_smooth_torch(heatmaps, sigma=self.blur_sigma)
 
-        # score immagine = massimo della heatmap smussata, come nel paper CFA
-        # (su tutta l'immagine, senza margine), oppure media dei top-k pixel
+        # image score = maximum of the smoothed heatmap, as in the CFA paper
+        # (over the whole image, no margin), or mean of the top-k pixels
         flat = heatmaps.reshape(x.size(0), -1)
         if self.score_top_k > 0:
             img_scores = flat.topk(self.score_top_k, dim=1).values.mean(dim=1)
@@ -219,19 +219,19 @@ class CFA(VADModel):
     def patch_distance(self, phi_p: torch.Tensor, chunk: int = 2 ** 28) -> torch.Tensor:
         """Anomaly score of the patches phi_p (b, n, c), shape (b, n)."""
 
-        # al più chunk distanze (patch x memory bank) alla volta
+        # at most chunk distances (patch x memory bank) at a time
         n = max(1, chunk // (phi_p.size(0) * self.memory_bank.size(1)))
         if phi_p.size(1) > n:
             return torch.cat([self.patch_distance(part, chunk) for part in phi_p.split(n, dim=1)], dim=1)
 
         features = torch.sum(torch.pow(phi_p, 2), 2, keepdim=True)
         centers  = torch.sum(torch.pow(self.memory_bank, 2), 0, keepdim=True)
-        # operazioni in-place: una sola matrice (patch x memory bank) in memoria
+        # in-place operations: a single (patch x memory bank) matrix in memory
         dist     = torch.matmul(phi_p, (self.memory_bank)).mul_(-2).add_(features).add_(centers)
 
-        # la radice è monotona: basta calcolarla sui K vicini
+        # the square root is monotonic: computing it on the K nearest is enough
         dist     = dist.topk(self.K, largest=False).values
-        dist     = torch.sqrt(dist.clamp_min(0))  # evita NaN da cancellazione numerica
+        dist     = torch.sqrt(dist.clamp_min(0))  # avoids NaN from numerical cancellation
 
         return (F.softmin(dist, dim=-1)[:, :, 0]) * dist[:, :, 0]
 
@@ -251,13 +251,13 @@ class CFA(VADModel):
         phi_p = self(batch)
         foreground = self.patch_foreground(batch)
         if foreground is not None:
-            # loss solo sulle patch dell'oggetto
+            # loss only on the object's patches
             phi_p = phi_p[foreground].unsqueeze(0)
         training_args.optimizer.zero_grad()
 
-        # al più 2**28 distanze (patch x memory bank) alla volta: il gradiente
-        # rispetto a phi_p viene accumulato a pezzi e poi propagato al descriptor
-        # (stesso gradiente della loss calcolata in una volta sola)
+        # at most 2**28 distances (patch x memory bank) at a time: the gradient
+        # w.r.t. phi_p is accumulated in chunks and then propagated to the descriptor
+        # (same gradient as the loss computed in one go)
         n = max(1, 2 ** 28 // (phi_p.size(0) * self.memory_bank.size(1)))
         if phi_p.size(1) <= n:
             loss = training_args.loss_function(phi_p, self.memory_bank, self.K, self.J, self.r, self.alpha, self.nu)
@@ -337,7 +337,7 @@ class CFA(VADModel):
             self.scale = p[0].size(2)
             phi_p = rearrange(self.Descriptor(p), 'b c h w -> b (h w) c')
 
-            # patch casuali di ogni immagine (solo sull'oggetto se c'è foreground_fn)
+            # random patches of every image (only on the object if foreground_fn is set)
             order = torch.rand(phi_p.shape[:2], device=phi_p.device)
             foreground = self.patch_foreground(x)
             if foreground is not None:
@@ -366,7 +366,7 @@ class CFA(VADModel):
                 nearest = torch.cdist(batch, centers).argmin(dim=1)
                 sums.index_add_(0, nearest, batch)
                 counts.index_add_(0, nearest, torch.ones_like(nearest, dtype=counts.dtype))
-            # i centroidi rimasti senza punti non vengono spostati
+            # centroids left without points are not moved
             filled = counts > 0
             centers[filled] = sums[filled] / counts[filled].unsqueeze(1)
 
@@ -487,10 +487,10 @@ class CFA(VADModel):
         if x.ndim == 2:
             x = x.unsqueeze(0) # if processing (working on) one image
 
-        # kernel 2*int(4*sigma+0.5)+1 (33 per sigma=4), come gaussian_filter di scipy:
-        # con kernel 3 il filtro era di fatto un box 3x3.
-        # Filtro separabile (righe, poi colonne) con bordo riflesso: stesso
-        # risultato di torchvision GaussianBlur, ma molto più veloce
+        # kernel 2*int(4*sigma+0.5)+1 (33 for sigma=4), like scipy's gaussian_filter:
+        # with kernel 3 the filter was effectively a 3x3 box.
+        # Separable filter (rows, then columns) with reflected border: same
+        # result as torchvision GaussianBlur, but much faster
         radius = int(4.0 * sigma + 0.5)
         t = torch.arange(-radius, radius + 1, device=x.device, dtype=x.dtype)
         kernel = torch.exp(-0.5 * (t / sigma) ** 2)

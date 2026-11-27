@@ -34,8 +34,8 @@ class FastFlowTrainArgs(TrainingArgs):
 
 def create_fastflow(img_shape, backbone_name, device, normalize=True, flow_steps=8, hidden_ratio=1.0,
                     conv3x3_only=False, **model_kwargs):
-    # normalize=True: LayerNorm addestrabili per scala sulle feature ResNet, come nel paper/anomalib
-    # model_kwargs: opzioni di CompleteFastFlowModel (mappa, foreground, loss mascherata, ...)
+    # normalize=True: trainable per-scale LayerNorm on the ResNet features, as in the paper/anomalib
+    # model_kwargs: CompleteFastFlowModel options (map, foreground, masked loss, ...)
     fast_flow_model = CompleteFastFlowModel(backbone_name, input_size=img_shape, normalize=normalize, device=device,
                                             **model_kwargs)
     fast_flow_module = FastflowModel(
@@ -356,7 +356,7 @@ class AllInOneBlock(InvertibleModule):
         sub_jac = self.clamp * torch.tanh(a[:, :ch])
         if self.GIN:
             sub_jac -= torch.mean(sub_jac, dim=self.sum_dims, keepdim=True)
-        # log-det dell'accoppiamento per pixel (somma sui canali), usato da pixel_log_jacobian
+        # per-pixel log-det of the coupling (sum over channels), used by pixel_log_jacobian
         self.pixel_jac = (-1) ** rev * sub_jac.sum(1)
 
         if not rev:
@@ -545,11 +545,11 @@ def create_fast_flow_block(
     return nodes
 
 def pixel_log_jacobian(flow_block) -> Tensor:
-    """Log-det per pixel (B, h, w) dell'ultimo forward di un blocco FastFlow (SequenceINN di AllInOneBlock).
+    """Per-pixel log-det (B, h, w) of the last forward pass of a FastFlow block (SequenceINN of AllInOneBlock).
 
-    Le permutazioni sono ortogonali (log-det nullo): restano l'accoppiamento affine
-    (salvato per pixel in AllInOneBlock._affine) e lo scaling globale, uguale per ogni pixel.
-    La somma sui pixel coincide con il log-det restituito dal flow.
+    The permutations are orthogonal (zero log-det): what remains is the affine coupling
+    (saved per pixel in AllInOneBlock._affine) and the global scaling, the same for every pixel.
+    The sum over the pixels equals the log-det returned by the flow.
     """
     total = 0
     for block in flow_block.module_list:
@@ -559,14 +559,14 @@ def pixel_log_jacobian(flow_block) -> Tensor:
 
 
 def foreground_mask(images: Tensor, threshold: float, mean, std) -> Tensor:
-    """Maschera (B,1,H,W) dei pixel non di sfondo: crop con sfondo nero (es. singole api segmentate)."""
+    """Mask (B,1,H,W) of the non-background pixels: crops with a black background (e.g. single segmented bees)."""
     mean = torch.as_tensor(mean, device=images.device, dtype=images.dtype).view(1, -1, 1, 1)
     std = torch.as_tensor(std, device=images.device, dtype=images.dtype).view(1, -1, 1, 1)
     return ((images * std + mean).amax(1, keepdim=True) > threshold).float()
 
 
 def resize_mask(mask: Tensor, pixels: int) -> Tensor:
-    """Dilata (pixels > 0) o erode (pixels < 0) una maschera binaria (B,1,H,W)."""
+    """Dilates (pixels > 0) or erodes (pixels < 0) a binary mask (B,1,H,W)."""
     if pixels > 0:
         return F.max_pool2d(mask, 2 * pixels + 1, stride=1, padding=pixels)
     if pixels < 0:
@@ -575,8 +575,8 @@ def resize_mask(mask: Tensor, pixels: int) -> Tensor:
 
 
 def gaussian_blur(x: Tensor, sigma: float) -> Tensor:
-    """Come TF.gaussian_blur (kernel 2*round(4 sigma)+1, padding reflect) ma separabile:
-    con sigma grandi (immagini 512) il kernel 2D sarebbe molto lento."""
+    """Like TF.gaussian_blur (kernel 2*round(4 sigma)+1, reflect padding) but separable:
+    with large sigmas (512 images) the 2D kernel would be very slow."""
     radius = int(round(4 * sigma))
     t = torch.arange(-radius, radius + 1, device=x.device, dtype=x.dtype)
     kernel = torch.exp(-0.5 * (t / sigma) ** 2)
@@ -590,10 +590,10 @@ class AnomalyMapGenerator(nn.Module):
     """Generate Anomaly Heatmap.
 
     Args:
-        sigma: sigma del blur gaussiano finale (pixel alla risoluzione di input).
-        map_type: "z2" (FastFlow: media sui canali di z^2) oppure "nll" (NLL per pixel e
-            per canale, 0.5 z^2 - log-det/C: tiene conto anche dello Jacobiano locale).
-        scales: indici delle scale da mediare (None = tutte).
+        sigma: sigma of the final Gaussian blur (pixels at the input resolution).
+        map_type: "z2" (FastFlow: mean of z^2 over the channels) or "nll" (NLL per pixel and
+            per channel, 0.5 z^2 - log-det/C: also accounts for the local Jacobian).
+        scales: indices of the scales to average (None = all).
     """
 
     def __init__(self, input_size, sigma: float = 4.0, map_type: str = "z2", scales=None):
@@ -624,7 +624,7 @@ class AnomalyMapGenerator(nn.Module):
         anomaly_map = torch.mean(flow_maps, dim=-1)
 
         if foreground is not None:
-            # fuori dal foreground la mappa vale il minimo sul foreground (lo sfondo non è mai anomalo)
+            # outside the foreground the map takes the minimum over the foreground (the background is never anomalous)
             low = anomaly_map.masked_fill(foreground == 0, float("inf")).amin(dim=(2, 3), keepdim=True)
             low = torch.where(torch.isinf(low), torch.zeros_like(low), low)
             anomaly_map = torch.where(foreground > 0, anomaly_map, low)
@@ -633,16 +633,16 @@ class AnomalyMapGenerator(nn.Module):
 
 class CompleteFastFlowModel(VADModel):
     """
-    Opzioni oltre al FastFlow standard (default = comportamento originale):
-        blur_sigma, map_type, map_scales: post-processing della mappa (vedi AnomalyMapGenerator).
-        foreground_threshold: se impostato, lo sfondo è nero (crop segmentati): un pixel è
-            foreground se la sua intensità RGB massima (0-1) supera la soglia.
-        foreground_erode: px di erosione (>0) della maschera di foreground per la mappa:
-            il bordo della sagoma ha feature instabili.
-        masked_loss_dilate: se impostato, la loss è la NLL per pixel mediata sui soli pixel di
-            foreground (dilatati di N px): il flow non spreca capacità sullo sfondo, quasi
-            costante, che altrimenti domina la loss (log-det enormi).
-        backbone_amp: estrazione delle feature (backbone congelato) in bfloat16.
+    Options beyond standard FastFlow (default = original behaviour):
+        blur_sigma, map_type, map_scales: post-processing of the map (see AnomalyMapGenerator).
+        foreground_threshold: if set, the background is black (segmented crops): a pixel is
+            foreground if its maximum RGB intensity (0-1) exceeds the threshold.
+        foreground_erode: px of erosion (>0) of the foreground mask for the map:
+            the silhouette border has unstable features.
+        masked_loss_dilate: if set, the loss is the per-pixel NLL averaged only over the
+            foreground pixels (dilated by N px): the flow does not waste capacity on the
+            nearly constant background, which would otherwise dominate the loss (huge log-dets).
+        backbone_amp: feature extraction (frozen backbone) in bfloat16.
     """
 
     def __init__(self, backbone_name, input_size, normalize, device, blur_sigma=4.0, map_type="z2",
@@ -730,7 +730,7 @@ class CompleteFastFlowModel(VADModel):
                                self.image_mean, self.image_std)
 
     def masked_loss(self, input_tensor: Tensor, hidden_variables: List[Tensor]) -> Tensor:
-        """NLL media per pixel e per canale sui soli pixel di foreground (dilatati)."""
+        """Mean NLL per pixel and per channel over the (dilated) foreground pixels only."""
         mask = resize_mask(self.foreground(input_tensor), self.masked_loss_dilate)
         loss = 0
         for hidden_variable, flow_block in zip(hidden_variables, self.fast_flow_module.fast_flow_blocks):

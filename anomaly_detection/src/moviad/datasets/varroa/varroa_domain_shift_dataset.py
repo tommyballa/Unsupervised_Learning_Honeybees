@@ -1,18 +1,18 @@
 """
-VarroaDomainShiftDataset — Dataset per CL con domain shift progressivo.
+VarroaDomainShiftDataset — Dataset for CL with progressive domain shift.
 
-Estende VarroaDataset per creare automaticamente 3 task con condizioni
-di acquisizione diverse, a partire dallo stesso dataset:
+Extends VarroaDataset to automatically create 3 tasks with different
+acquisition conditions, starting from the same dataset:
 
-    - varroa_clean:      Immagini originali (nessuna trasformazione)
-    - varroa_dirty_lens: Blur + macchie (simula lente sporca)
-    - varroa_low_light:  Bassa luminosità + rumore (simula cambio luce)
+    - varroa_clean:      Original images (no transform)
+    - varroa_dirty_lens: Blur + spots (simulates a dirty lens)
+    - varroa_low_light:  Low brightness + noise (simulates a lighting change)
 
-Il dataset viene diviso internamente in 3 parti uguali usando un seed
-fisso per garantire la riproducibilità. Ogni category corrisponde a
-una porzione diversa del dataset con la propria trasformazione.
+The dataset is split internally into 3 equal parts using a fixed
+seed to ensure reproducibility. Each category corresponds to a
+different portion of the dataset with its own transform.
 
-Utilizzo con ContinualDataset:
+Usage with ContinualDataset:
     from moviad.datasets.varroa.varroa_domain_shift_dataset import VarroaDomainShiftDataset
     from moviad.scenarios.continual.continual_dataset import ContinualDataset
 
@@ -33,14 +33,14 @@ from moviad.datasets.domain_shift_transforms import DirtyLensTransform, LowLight
 from moviad.utilities.configurations import Split
 
 
-# Seed fisso per la divisione del dataset — garantisce che le stesse
-# immagini finiscano sempre nello stesso task indipendentemente dallo split.
+# Fixed seed for splitting the dataset — ensures the same images always
+# end up in the same task regardless of the split.
 _PARTITION_SEED = 42
 
-# Numero di parti in cui dividere il dataset
+# Number of parts to split the dataset into
 _N_PARTITIONS = 3
 
-# Mapping category → (indice partizione, trasformazione da applicare)
+# Mapping category → (partition index, transform to apply)
 _TASK_DEFINITIONS = {
     "varroa_clean": {
         "partition_index": 0,
@@ -63,18 +63,18 @@ _TASK_DEFINITIONS = {
 
 
 class VarroaDomainShiftDataset(VarroaDataset):
-    """Dataset Varroa con domain shift automatico.
+    """Varroa dataset with automatic domain shift.
 
-    Quando viene istanziato con una delle category di domain shift
-    (varroa_clean, varroa_dirty_lens, varroa_low_light), carica l'intero
-    dataset e poi seleziona automaticamente solo il sottoinsieme
-    corrispondente alla propria partizione, applicando la trasformazione
-    corretta.
+    When instantiated with one of the domain-shift categories
+    (varroa_clean, varroa_dirty_lens, varroa_low_light), it loads the whole
+    dataset and then automatically selects only the subset
+    corresponding to its own partition, applying the right
+    transform.
 
     Args:
-        dataset_arguments: Argomenti del dataset (path, size, transforms).
-        category: Una tra "varroa_clean", "varroa_dirty_lens", "varroa_low_light".
-        split: Lo split da caricare (TRAIN, VAL, TEST).
+        dataset_arguments: Dataset arguments (path, size, transforms).
+        category: One of "varroa_clean", "varroa_dirty_lens", "varroa_low_light".
+        split: The split to load (TRAIN, VAL, TEST).
     """
 
     def __init__(
@@ -85,8 +85,8 @@ class VarroaDomainShiftDataset(VarroaDataset):
     ) -> None:
         if category not in _TASK_DEFINITIONS:
             raise ValueError(
-                f"Category '{category}' non supportata. "
-                f"Usa una tra: {list(_TASK_DEFINITIONS.keys())}"
+                f"Category '{category}' not supported. "
+                f"Use one of: {list(_TASK_DEFINITIONS.keys())}"
             )
 
         self._domain_shift_category = category
@@ -94,26 +94,26 @@ class VarroaDomainShiftDataset(VarroaDataset):
         self._extra_transform = task_def["transform"]
         self._partition_index = task_def["partition_index"]
 
-        # Carica TUTTO il dataset aggregato ("varroa") tramite la classe base
+        # Load the WHOLE aggregated dataset ("varroa") through the base class
         super().__init__(dataset_arguments, category="varroa", split=split)
 
-        # Dopo il caricamento, seleziona solo la partizione corretta
+        # After loading, select only the right partition
         self._select_partition()
 
     def _select_partition(self):
-        """Divide il DataFrame dei sample in N parti uguali e seleziona
-        solo quella corrispondente al proprio partition_index."""
+        """Splits the sample DataFrame into N equal parts and selects
+        only the one matching its own partition_index."""
         n_total = len(self.samples)
 
-        # Genera gli indici mescolati con seed fisso
+        # Generate the indices shuffled with a fixed seed
         indices = list(range(n_total))
         rng = _random.Random(_PARTITION_SEED)
         rng.shuffle(indices)
 
-        # Calcola i confini della partizione
+        # Compute the partition bounds
         chunk_size = n_total // _N_PARTITIONS
         start = self._partition_index * chunk_size
-        # L'ultimo task prende anche il resto
+        # The last task also takes the remainder
         if self._partition_index < _N_PARTITIONS - 1:
             end = start + chunk_size
         else:
@@ -121,25 +121,25 @@ class VarroaDomainShiftDataset(VarroaDataset):
 
         selected_indices = indices[start:end]
 
-        # Filtra il DataFrame mantenendo solo i sample della partizione
+        # Filter the DataFrame keeping only the partition's samples
         self.samples = self.samples.iloc[selected_indices].reset_index(drop=True)
 
         print(
             f"  [{self._domain_shift_category}] {self.split.value}: "
-            f"{len(self.samples)}/{n_total} immagini selezionate, "
+            f"{len(self.samples)}/{n_total} images selected, "
             f"transform={self._extra_transform}"
         )
 
     def __getitem__(self, index: int):
-        """Restituisce l'item applicando la trasformazione di domain shift."""
+        """Returns the item with the domain-shift transform applied."""
         item = super().__getitem__(index)
 
         if self._extra_transform is None:
             return item
 
-        # Il dataset può restituire:
-        # - solo l'immagine (Tensor) durante il training
-        # - una tupla (image, label, mask, path) durante test/val
+        # The dataset may return:
+        # - only the image (Tensor) during training
+        # - a tuple (image, label, mask, path) during test/val
         if isinstance(item, torch.Tensor):
             return self._extra_transform(item)
         elif isinstance(item, (tuple, list)):
@@ -151,7 +151,7 @@ class VarroaDomainShiftDataset(VarroaDataset):
 
     @staticmethod
     def get_categories() -> list:
-        """Restituisce le 3 category di domain shift."""
+        """Returns the 3 domain-shift categories."""
         return list(_TASK_DEFINITIONS.keys())
 
     def __repr__(self) -> str:

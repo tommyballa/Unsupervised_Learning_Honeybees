@@ -87,7 +87,7 @@ class PatchCore(VADModel):
             features = list(features.values())
 
         # Apply smoothing (3x3 average pooling) to the features.
-        # Reintrodotto per richiedere una dimensione minima dell'anomalia e ridurre falsi positivi
+        # Reintroduced to require a minimum anomaly size and reduce false positives
         smoothing = torch.nn.AvgPool2d(kernel_size=3, stride=1, padding=1)
         features  = [smoothing(feature) for feature in features]
 
@@ -198,14 +198,14 @@ class PatchCore(VADModel):
                         images = batch
                     embedding = self(images.to(self.device))
                     
-                    # Estrai una percentuale (10%) di patch da ogni immagine per garantire una visione 
-                    # completa senza esplodere in memoria, e rendere il k-center greedy molto più veloce.
+                    # Sample a fraction (10%) of the patches of each image to keep full 
+                    # coverage without blowing up memory, and to make the greedy k-center much faster.
                     num_patches = embedding.shape[0]
                     keep_n = max(1, int(num_patches * 0.10))
                     indices = torch.randperm(num_patches, device=embedding.device)[:keep_n]
                     embedding = embedding[indices]
                     
-                    embeddings.append(embedding.cpu()) # spostiamo su CPU per non riempire la VRAM
+                    embeddings.append(embedding.cpu()) # move to CPU so as not to fill the VRAM
 
             embeddings = torch.cat(embeddings, dim = 0)
             torch.cuda.empty_cache()
@@ -471,31 +471,31 @@ class PatchCore(VADModel):
             batch_size, num_patches = patch_scores.shape
             grid_size = int(num_patches ** 0.5)
             
-            # 1. Ricostruisci la griglia 2D spaziale
+            # 1. Rebuild the 2D spatial grid
             scores_2d = patch_scores.reshape(batch_size, grid_size, grid_size)
             
-            # 2. Crea la maschera per ignorare il 25% di bordo esterno (Sfondo)
-            # Modificato per immagini con api ammassate: valutiamo l'intera immagine
+            # 2. Create the mask that ignores the outer 25% border (background)
+            # Changed for images with crowded bees: we evaluate the whole image
             margin = 0 
             mask = torch.ones_like(scores_2d)
             
-            # Attiviamo (1.0) l'intera immagine
+            # Enable (1.0) the whole image
             if margin > 0:
                 mask[:, margin:-margin, margin:-margin] = 1.0
             
-            # 3. Applica la maschera ai punteggi (azzera i bordi)
+            # 3. Apply the mask to the scores (zero out the borders)
             scores_2d_masked = scores_2d * mask
             patch_scores_masked = scores_2d_masked.reshape(batch_size, num_patches)
             
-            # 4. Calcola il Top-K solo sulla zona centrale
-            # Modificato a k=3: la varroa è molto piccola e occupa poche patch.
-            # Se usiamo valori alti (es. k=12) il picco della varroa viene "diluito" con
-            # patch sane circostanti, avvicinando gli score delle immagini sane a quelle anomale.
+            # 4. Compute the Top-K only on the central area
+            # Changed to k=3: the varroa mite is very small and covers few patches.
+            # With high values (e.g. k=12) the varroa peak is "diluted" by the
+            # surrounding healthy patches, bringing healthy-image scores closer to anomalous ones.
             k = 3
             k = min(k, patch_scores_masked.shape[1])
             topk_scores, _ = torch.topk(patch_scores_masked, k=k, dim=1)
             
-            # Il punteggio finale è la media delle k patch peggiori (se k=1, è semplicemente il massimo)
+            # The final score is the mean of the k worst patches (if k=1, it is simply the maximum)
             image_score = topk_scores.mean(dim=1)
             
             return image_score

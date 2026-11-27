@@ -67,10 +67,10 @@ class Dinomaly(VADModel):
     ) -> None:
         """
         Args:
-            max_ratio: lo score immagine è la media della frazione max_ratio dei
-                pixel più alti della mappa (0 -> massimo della mappa).
-            gaussian_sigma, gaussian_kernel_size: smoothing gaussiano della mappa.
-                I default (0.01, sigma 4, kernel 5) sono quelli del repo ufficiale.
+            max_ratio: the image score is the mean of the max_ratio fraction of the
+                highest pixels of the map (0 -> maximum of the map).
+            gaussian_sigma, gaussian_kernel_size: Gaussian smoothing of the map.
+                The defaults (0.01, sigma 4, kernel 5) are those of the official repo.
         """
         super(Dinomaly, self).__init__()
 
@@ -203,7 +203,7 @@ class Dinomaly(VADModel):
         else:
             out_size = (H, W)
 
-            # la mappa è calcolata sempre in fp32, anche se il forward gira in autocast
+            # the map is always computed in fp32, even if the forward pass runs under autocast
             with torch.autocast(device_type=x.device.type, enabled=False):
                 a_map_list = []
                 for i in range(len(en)):

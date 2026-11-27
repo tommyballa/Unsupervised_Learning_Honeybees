@@ -8,9 +8,9 @@ class DatasetArguments:
     img_size: Optional[Union[tuple, list]] = None
     gt_mask_size: Optional[Union[tuple, list]] = None
     image_transform_list: Optional[list] = None
-    # cartella del test set (labels.csv, normal/, anomalous/, masks/), se il
-    # dataset la supporta (VarroaDataset); None = default del dataset
+    # test set folder (labels.csv, normal/, anomalous/, masks/), if the
+    # dataset supports it (VarroaDataset); None = dataset default
     test_path: Optional[str] = None
-    # True = usa tutte le normali del test set, senza il sottoinsieme di
-    # _MAX_TEST_NORMALS di VarroaDataset
+    # True = use all normal images of the test set, without the
+    # _MAX_TEST_NORMALS subset of VarroaDataset
     full_test: bool = False

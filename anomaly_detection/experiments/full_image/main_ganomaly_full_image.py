@@ -1,35 +1,35 @@
 """
-GANomaly - Anomaly detection su immagini full-frame con molte api.
+GANomaly - Anomaly detection on full-frame images with many bees.
 
-Addestramento: crop casuali dalle immagini ad alta risoluzione di training.
-Inferenza: sliding window sull'immagine intera, con blending delle sovrapposizioni.
-Valutazione: metriche a livello di immagine e pixel (AUROC, AvgPrec, F1).
-Visualizzazione: heatmap normalizzate globalmente con percentili
-                 per evidenziare le anomalie in rosso.
+Training: random crops from the high-resolution training images.
+Inference: sliding window over the whole image, blending the overlaps.
+Evaluation: image- and pixel-level metrics (AUROC, AvgPrec, F1).
+Visualization: heatmaps normalized globally with percentiles
+               to highlight anomalies in red.
 
-Correzioni rispetto alla versione precedente:
-  - Input normalizzato in [-1, 1] (mean=std=0.5). Il decoder di GANomaly
-    termina con una Tanh, quindi non può ricostruire valori fuori da [-1, 1]:
-    con la normalizzazione ImageNet (range ~[-2.1, 2.6]) tutti i pixel chiari
-    e scuri avevano un errore di ricostruzione irriducibile, e la anomaly map
-    rilevava la luminosità invece della varroa.
-  - Inizializzazione DCGAN effettivamente applicata ai pesi (vedi ganomaly.py).
-  - Tile 128x128 invece di 256x256: GANomaly comprime l'intero tile in un
-    vettore latente di 100 valori; a 256 la ricostruzione è così sfocata che
-    l'errore è alto su ogni bordo/texture delle api. A 128 la ricostruzione è
-    più fedele, la varroa occupa una frazione maggiore del tile e il modello
-    passa da ~188M a ~50M parametri (training GAN più stabile).
-  - Score image-level anche con lo score latente nativo di GANomaly
-    (||z - z'||^2, massimo sui tile), oltre al top-k della anomaly map.
-  - Reinizializzazione del discriminatore quando collassa (come nel paper).
-  - Stesso test set (synthetic_varroa_output) degli altri script full-image.
-  - Le immagini non vengono più tenute tutte in RAM per le heatmap.
+Fixes compared to the previous version:
+  - Input normalized to [-1, 1] (mean=std=0.5). The GANomaly decoder
+    ends with a Tanh, so it cannot reconstruct values outside [-1, 1]:
+    with ImageNet normalization (range ~[-2.1, 2.6]) all bright and dark
+    pixels had an irreducible reconstruction error, and the anomaly map
+    detected brightness instead of varroa.
+  - DCGAN initialization actually applied to the weights (see ganomaly.py).
+  - 128x128 tiles instead of 256x256: GANomaly compresses the whole tile into a
+    latent vector of 100 values; at 256 the reconstruction is so blurry that
+    the error is high on every edge/texture of the bees. At 128 the reconstruction is
+    more faithful, the varroa covers a larger fraction of the tile and the model
+    goes from ~188M to ~50M parameters (more stable GAN training).
+  - Image-level score also with GANomaly's native latent score
+    (||z - z'||^2, maximum over the tiles), besides the top-k of the anomaly map.
+  - Discriminator re-initialization when it collapses (as in the paper).
+  - Same test set (synthetic_varroa_output) as the other full-image scripts.
+  - The images are no longer all kept in RAM for the heatmaps.
 
-Best: ogni EVAL_INTERVAL epoche (e all'ultima) metriche sulle prime
-EVAL_IMAGES_PER_CLASS immagini pulite e con varroa del test set; la
-configurazione migliore (img_roc_auc, a parità pxl_avg_prec) viene salvata in
+Best: every EVAL_INTERVAL epochs (and at the last one) metrics on the first
+EVAL_IMAGES_PER_CLASS clean and varroa images of the test set; the
+best configuration (img_roc_auc, then pxl_avg_prec on ties) is saved in
 checkpoints/full_image/ganomaly/ (best.pth + config.json).
-Heatmap e metriche su tutto il test set dalla best:
+Heatmaps and metrics on the whole test set from the best:
     python experiments/plot_heatmaps.py full_image ganomaly
 """
 
@@ -57,7 +57,7 @@ import matplotlib.pyplot as plt
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Configurazione
+# Configuration
 # ──────────────────────────────────────────────────────────────────────
 TRAIN_DIR       = DATA_ROOT + "/processed/train/images"
 TEST_CLEAN_DIR  = DATA_ROOT + "/processed/test/images"
@@ -66,7 +66,7 @@ TEST_MASKS_DIR  = DATA_ROOT + "/processed/test/synthetic_varroa_output/masks"
 
 TILE_SIZE        = 128
 LATENT_VEC_SIZE  = 100
-# 80 crop da 128 coprono per epoca la stessa area di 20 crop da 256
+# 80 crops of 128 cover the same area per epoch as 20 crops of 256
 CROPS_PER_IMAGE  = 80
 EPOCHS           = 100
 BATCH_SIZE       = 64
@@ -79,12 +79,12 @@ INFER_STRIDE     = TILE_SIZE // 2
 INFER_BATCH_SIZE = 128
 TOP_K            = 100
 
-# Il decoder termina con Tanh: input e ricostruzione devono stare in [-1, 1]
+# The decoder ends with Tanh: input and reconstruction must lie in [-1, 1]
 GANOMALY_MEAN = [0.5, 0.5, 0.5]
 GANOMALY_STD  = [0.5, 0.5, 0.5]
 
-EVAL_INTERVAL = 10           # valuta ogni N epoche (e sempre all'ultima) per la best
-EVAL_IMAGES_PER_CLASS = 5    # prime N immagini pulite + N con varroa del test usate per la best
+EVAL_INTERVAL = 10           # evaluate every N epochs (and always at the last one) for the best
+EVAL_IMAGES_PER_CLASS = 5    # first N clean + N varroa test images used to pick the best
 
 MODEL_NAME = "ganomaly"
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -93,7 +93,7 @@ CHECKPOINT_DIR = REPO_ROOT / "checkpoints" / "full_image" / MODEL_NAME
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Utilità
+# Utilities
 # ──────────────────────────────────────────────────────────────────────
 def set_seed(seed: int):
     torch.manual_seed(seed)
@@ -105,7 +105,7 @@ def set_seed(seed: int):
 
 
 def get_image_paths(directory):
-    """Restituisce i path delle immagini ordinati."""
+    """Returns the sorted image paths."""
     return sorted([
         str(p) for p in Path(directory).rglob("*")
         if p.is_file() and p.suffix.lower() in [".jpg", ".jpeg", ".png"]
@@ -114,11 +114,11 @@ def get_image_paths(directory):
 
 def find_mask_for_image(img_path, masks_dir):
     """
-    Dato un path immagine varroa (es. DSC_5286_syn.jpg),
-    trova la maschera corrispondente (es. DSC_5286_mask.png).
+    Given a varroa image path (e.g. DSC_5286_syn.jpg),
+    finds the matching mask (e.g. DSC_5286_mask.png).
     """
-    img_name = Path(img_path).stem  # es. "DSC_5286_syn"
-    base_name = re.sub(r"_syn$", "", img_name)  # es. "DSC_5286"
+    img_name = Path(img_path).stem  # e.g. "DSC_5286_syn"
+    base_name = re.sub(r"_syn$", "", img_name)  # e.g. "DSC_5286"
     mask_path = os.path.join(masks_dir, f"{base_name}_mask.png")
     if os.path.exists(mask_path):
         return mask_path
@@ -128,12 +128,12 @@ def find_mask_for_image(img_path, masks_dir):
 def read_rgb(path):
     img = cv2.imread(path)
     if img is None:
-        raise ValueError(f"Impossibile leggere: {path}")
+        raise ValueError(f"Cannot read: {path}")
     return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
 
 def top_k_mean(amap, k=TOP_K):
-    """Media dei k pixel più alti: score robusto a singoli spike di rumore."""
+    """Mean of the k highest pixels: a score robust to single noise spikes."""
     flat = amap.ravel()
     if flat.size <= k:
         return float(flat.max())
@@ -142,8 +142,8 @@ def top_k_mean(amap, k=TOP_K):
 
 class FullImageCropDataset(Dataset):
     """
-    Carica immagini ad alta risoluzione e restituisce crop casuali.
-    Pre-carica tutte le immagini in memoria per evitare collo di bottiglia I/O.
+    Loads high-resolution images and returns random crops.
+    Pre-loads all images into memory to avoid an I/O bottleneck.
     """
 
     def __init__(self, root_dir, crop_size=128, crops_per_image=80, transform=None):
@@ -151,13 +151,13 @@ class FullImageCropDataset(Dataset):
         self.crops_per_image = crops_per_image
         self.transform = transform
         self.image_paths = get_image_paths(root_dir)
-        print(f"[Dataset] Trovate {len(self.image_paths)} immagini in {root_dir}")
-        print(f"[Dataset] {self.crops_per_image} crop/immagine → {len(self)} campioni/epoca")
+        print(f"[Dataset] Found {len(self.image_paths)} images in {root_dir}")
+        print(f"[Dataset] {self.crops_per_image} crops/image → {len(self)} samples/epoch")
 
-        # Pre-carica tutte le immagini in RAM
-        print("[Dataset] Pre-caricamento in RAM delle immagini originali...")
+        # Pre-load all images into RAM
+        print("[Dataset] Pre-loading the original images into RAM...")
         self.images = [read_rgb(path) for path in self.image_paths]
-        print("[Dataset] Pre-caricamento completato!")
+        print("[Dataset] Pre-loading complete!")
 
     def __len__(self):
         return len(self.image_paths) * self.crops_per_image
@@ -166,7 +166,7 @@ class FullImageCropDataset(Dataset):
         img_idx = idx // self.crops_per_image
         img = self.images[img_idx]
 
-        # Crop casuale
+        # Random crop
         H, W, _ = img.shape
         y = random.randint(0, max(0, H - self.crop_size))
         x = random.randint(0, max(0, W - self.crop_size))
@@ -184,11 +184,11 @@ def sliding_window_inference(model, image_path, device,
                              window_size=TILE_SIZE, stride=INFER_STRIDE,
                              batch_size=INFER_BATCH_SIZE):
     """
-    Taglia l'immagine in tile, esegue GANomaly su ciascuna,
-    e ricostruisce la heatmap globale con Hanning window blending.
+    Slices the image into tiles, runs GANomaly on each one,
+    and rebuilds the global heatmap with Hanning window blending.
 
-    Restituisce l'immagine RGB, la anomaly map (errore di ricostruzione)
-    e gli score latenti di GANomaly di tutti i tile.
+    Returns the RGB image, the anomaly map (reconstruction error)
+    and the GANomaly latent scores of all tiles.
     """
     img = read_rgb(image_path)
     H, W, _ = img.shape
@@ -202,7 +202,7 @@ def sliding_window_inference(model, image_path, device,
     weight_map = np.zeros((H, W), dtype=np.float32)
     tile_scores = []
 
-    # Coordinate dei tile, assicurando copertura completa dei bordi
+    # Tile coordinates, ensuring full coverage of the borders
     y_coords = list(range(0, H - window_size + 1, stride))
     if not y_coords or y_coords[-1] + window_size < H:
         y_coords.append(max(0, H - window_size))
@@ -211,7 +211,7 @@ def sliding_window_inference(model, image_path, device,
     if not x_coords or x_coords[-1] + window_size < W:
         x_coords.append(max(0, W - window_size))
 
-    # Hanning window per transizioni morbide tra tile sovrapposti
+    # Hanning window for smooth transitions between overlapping tiles
     hanning_1d = np.hanning(window_size + 2)[1:-1]
     hanning_2d = np.outer(hanning_1d, hanning_1d).astype(np.float32)
 
@@ -222,14 +222,14 @@ def sliding_window_inference(model, image_path, device,
     def process_batch(tiles, coords):
         batch_tensor = torch.stack(tiles).to(device)
         with torch.no_grad():
-            # GANomaly restituisce (anomaly_maps [B, 1, H, W], scores [B])
+            # GANomaly returns (anomaly_maps [B, 1, H, W], scores [B])
             batch_amaps, batch_scores = model(batch_tensor)
             batch_amaps = batch_amaps.cpu().numpy()
             tile_scores.extend(batch_scores.cpu().numpy().tolist())
 
         for i, (y, x) in enumerate(coords):
             amap = np.squeeze(batch_amaps[i])  # (H_pad, W_pad)
-            amap = amap[:window_size, :window_size]  # crop eventuale padding
+            amap = amap[:window_size, :window_size]  # crop any padding
             full_anomaly_map[y:y + window_size, x:x + window_size] += amap * hanning_2d
             weight_map[y:y + window_size, x:x + window_size] += hanning_2d
 
@@ -248,19 +248,19 @@ def sliding_window_inference(model, image_path, device,
 
     full_anomaly_map /= (weight_map + 1e-8)
 
-    # Gaussian smoothing per ridurre il rumore pixel-level
+    # Gaussian smoothing to reduce pixel-level noise
     full_anomaly_map = cv2.GaussianBlur(full_anomaly_map, (21, 21), 0)
 
     return img, full_anomaly_map, np.asarray(tile_scores, dtype=np.float32)
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Test + Metriche + Visualizzazione
+# Test + Metrics + Visualization
 # ──────────────────────────────────────────────────────────────────────
 def load_gt_mask(img_path, shape):
     mask_path = find_mask_for_image(img_path, TEST_MASKS_DIR)
     if mask_path is None:
-        print(f"    ⚠ Maschera non trovata per {os.path.basename(img_path)}, uso maschera vuota")
+        print(f"    ⚠ Mask not found for {os.path.basename(img_path)}, using an empty mask")
         return np.zeros(shape, dtype=np.uint8)
     gt_mask = (cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE) > 127).astype(np.uint8)
     if gt_mask.shape != shape:
@@ -270,28 +270,28 @@ def load_gt_mask(img_path, shape):
 
 def evaluate_and_visualize(model, device, output_dir):
     """
-    Esegue il test su immagini pulite e con varroa sintetica,
-    calcola le metriche a livello immagine e pixel, e salva le heatmap overlay.
+    Runs the test on clean images and images with synthetic varroa,
+    computes image- and pixel-level metrics, and saves the heatmap overlays.
     """
     os.makedirs(output_dir, exist_ok=True)
 
     clean_paths = get_image_paths(TEST_CLEAN_DIR)
     varroa_paths = get_image_paths(TEST_VARROA_DIR)
 
-    print(f"\nImmagini pulite (label=0): {len(clean_paths)}")
-    print(f"Immagini varroa (label=1): {len(varroa_paths)}")
+    print(f"\nClean images (label=0): {len(clean_paths)}")
+    print(f"Varroa images (label=1): {len(varroa_paths)}")
 
     image_labels = []
-    map_scores = []      # top-k della anomaly map di ricostruzione
-    latent_scores = []   # score latente GANomaly, massimo sui tile
+    map_scores = []      # top-k of the reconstruction anomaly map
+    latent_scores = []   # GANomaly latent score, maximum over the tiles
     amaps = []
     gt_masks = []
 
     for split_name, paths, label in [
-        ("pulite", clean_paths, 0),
-        ("varroa sintetica", varroa_paths, 1),
+        ("clean", clean_paths, 0),
+        ("synthetic varroa", varroa_paths, 1),
     ]:
-        print(f"\n--- Inferenza immagini {split_name} ---")
+        print(f"\n--- Inference on {split_name} images ---")
         for img_path in paths:
             print(f"  {os.path.basename(img_path)}...")
             _, amap, tile_scores = sliding_window_inference(model, img_path, device)
@@ -305,10 +305,10 @@ def evaluate_and_visualize(model, device, output_dir):
             else:
                 gt_masks.append(np.zeros(amap.shape, dtype=np.uint8))
 
-    # --- Normalizzazione globale con percentili e salvataggio overlay ---
-    # Percentili (non min/max) calcolati su tutte le mappe, così le immagini
-    # pulite restano "fredde" e il rosso indica una risposta fuori scala.
-    # Sottocampioniamo per non copiare in RAM decine di immagini da 24MP.
+    # --- Global percentile normalization and overlay saving ---
+    # Percentiles (not min/max) computed over all maps, so clean images
+    # stay "cold" and red marks an out-of-scale response.
+    # Subsample so as not to copy dozens of 24MP images into RAM.
     sample = np.concatenate([a.ravel()[::97] for a in amaps])
     p_low = np.percentile(sample, 2)
     p_high = np.percentile(sample, 99.5)
@@ -319,7 +319,7 @@ def evaluate_and_visualize(model, device, output_dir):
         _save_overlay(read_rgb(img_path), amap, output_dir,
                       os.path.basename(img_path), p_low, p_high)
 
-    # --- Calcolo metriche ---
+    # --- Metric computation ---
     image_labels = np.array(image_labels)
     pixel_gt = np.concatenate([m.ravel() for m in gt_masks])
     del gt_masks
@@ -330,12 +330,12 @@ def evaluate_and_visualize(model, device, output_dir):
     pixel_level = [RocAuc(MetricLvl.PIXEL), AvgPrec(MetricLvl.PIXEL), F1(MetricLvl.PIXEL)]
 
     print(f"\n{'='*60}")
-    print("RISULTATI METRICHE — GANomaly Full Image")
+    print("METRIC RESULTS — GANomaly Full Image")
     print(f"{'='*60}")
 
     for score_name, scores in [
-        ("score immagine = top-k anomaly map", np.array(map_scores)),
-        ("score immagine = latente GANomaly (max tile)", np.array(latent_scores)),
+        ("image score = top-k anomaly map", np.array(map_scores)),
+        ("image score = GANomaly latent (max tile)", np.array(latent_scores)),
     ]:
         print(f"  [{score_name}]")
         for metric in image_level:
@@ -346,25 +346,25 @@ def evaluate_and_visualize(model, device, output_dir):
         _print_metric(metric, pixel_gt, pixel_pred)
 
     print(f"{'='*60}\n")
-    print(f"Heatmap salvate in {output_dir}")
+    print(f"Heatmaps saved to {output_dir}")
 
 
 def _print_metric(metric, gt, pred):
     try:
         print(f"  {metric.name:>20s}: {metric.compute(gt, pred):.4f}")
     except Exception as e:
-        print(f"  {metric.name:>20s}: ERRORE — {e}")
+        print(f"  {metric.name:>20s}: ERROR — {e}")
 
 
 def _save_overlay(img_rgb, amap, output_dir, img_name, p_low, p_high):
     """
-    Salva l'overlay heatmap sull'immagine originale.
-    Normalizzazione con percentili + gamma moderato per evidenziare anomalie in rosso.
+    Saves the heatmap overlay on the original image.
+    Percentile normalization + moderate gamma to highlight anomalies in red.
     """
-    # Normalizzazione con percentili globali
+    # Normalization with global percentiles
     amap_norm = np.clip((amap - p_low) / (p_high - p_low + 1e-8), 0, 1)
 
-    # Gamma moderato: amplifica le differenze senza schiacciare tutto a 0
+    # Moderate gamma: amplifies differences without crushing everything to 0
     gamma = 1.5
     amap_norm = amap_norm ** gamma
 
@@ -374,15 +374,15 @@ def _save_overlay(img_rgb, amap, output_dir, img_name, p_low, p_high):
     overlay_bgr = cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR)
     cv2.imwrite(os.path.join(output_dir, f"overlay_{img_name}"), overlay_bgr)
 
-    # Plot con le 3 viste
+    # Plot with the 3 views
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))
 
     axes[0].imshow(img_rgb)
-    axes[0].set_title("Originale")
+    axes[0].set_title("Original")
     axes[0].axis("off")
 
     im = axes[1].imshow(amap_norm, cmap="jet", vmin=0, vmax=1)
-    axes[1].set_title("Heatmap (normalizzata)")
+    axes[1].set_title("Heatmap (normalized)")
     axes[1].axis("off")
     plt.colorbar(im, ax=axes[1], fraction=0.046, pad=0.04)
 
@@ -399,7 +399,7 @@ def _save_overlay(img_rgb, amap, output_dir, img_name, p_low, p_high):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Modello, best e heatmap (usati anche da experiments/plot_heatmaps.py)
+# Model, best and heatmaps (also used by experiments/plot_heatmaps.py)
 # ──────────────────────────────────────────────────────────────────────
 def build_model(device):
     model = Ganomaly(
@@ -422,18 +422,18 @@ def load_model_state(model, state):
 
 
 def infer_image(model, device, img_path):
-    """Anomaly map dell'immagine intera, come in evaluate_and_visualize."""
+    """Anomaly map of the whole image, as in evaluate_and_visualize."""
     _, amap, _ = sliding_window_inference(model, img_path, device)
     return amap
 
 
 def image_score(amap):
-    # top-k della mappa di ricostruzione (primo score riportato da evaluate_and_visualize)
+    # top-k of the reconstruction map (first score reported by evaluate_and_visualize)
     return top_k_mean(amap)
 
 
 def evaluate_subset(model, device):
-    """Metriche (senza plot) sulle prime EVAL_IMAGES_PER_CLASS immagini pulite e con varroa."""
+    """Metrics (no plots) on the first EVAL_IMAGES_PER_CLASS clean and varroa images."""
     model.eval()
     items = eval_items(TEST_CLEAN_DIR, TEST_VARROA_DIR, EVAL_IMAGES_PER_CLASS)
     with torch.no_grad():
@@ -442,8 +442,8 @@ def evaluate_subset(model, device):
 
 
 def plot_heatmaps(model, device):
-    """Metriche e heatmap su tutto il test set."""
-    print(f"\nTest con sliding window (tile {TILE_SIZE}x{TILE_SIZE}, stride {INFER_STRIDE})...")
+    """Metrics and heatmaps on the whole test set."""
+    print(f"\nTest with sliding window (tile {TILE_SIZE}x{TILE_SIZE}, stride {INFER_STRIDE})...")
     evaluate_and_visualize(model, device, output_dir=OUTPUT_DIR)
 
 
@@ -461,12 +461,12 @@ def main():
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
-    # --- Modello ---
+    # --- Model ---
     model = build_model(device)
     n_params = sum(p.numel() for p in model.parameters())
-    print(f"Parametri GANomaly: {n_params / 1e6:.1f}M")
+    print(f"GANomaly parameters: {n_params / 1e6:.1f}M")
 
-    # --- Dataset di training con crop casuali ---
+    # --- Training dataset with random crops ---
     train_transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.RandomHorizontalFlip(p=0.5),
@@ -486,7 +486,7 @@ def main():
         pin_memory=True, drop_last=True,
     )
 
-    # --- Optimizer e loss (training GAN custom) ---
+    # --- Optimizer and loss (training GAN custom) ---
     g_opt = Adam(model.generator.parameters(), lr=LR, betas=(BETA1, BETA2))
     d_opt = Adam(model.discriminator.parameters(), lr=LR, betas=(BETA1, BETA2))
 
@@ -494,13 +494,13 @@ def main():
     d_loss_fn = DiscriminatorLoss()
     tracker = BestTracker(
         CHECKPOINT_DIR, script_config(globals()),
-        selection_data=(f"test set: prime {EVAL_IMAGES_PER_CLASS} immagini pulite "
-                        f"+ {EVAL_IMAGES_PER_CLASS} con varroa"),
+        selection_data=(f"test set: first {EVAL_IMAGES_PER_CLASS} clean images "
+                        f"+ {EVAL_IMAGES_PER_CLASS} with varroa"),
     )
 
     # --- Training ---
     print(f"\n{'='*60}")
-    print(f"Training GANomaly full-image | {EPOCHS} epoche | {len(train_dataloader)} batch/epoca")
+    print(f"Training GANomaly full-image | {EPOCHS} epochs | {len(train_dataloader)} batches/epoch")
     print(f"Tile: {TILE_SIZE}x{TILE_SIZE} | Batch: {BATCH_SIZE} | LR: {LR}")
     print(f"{'='*60}\n")
 
@@ -518,7 +518,7 @@ def main():
 
             # Generator update
             pred_fake_score, feat_fake = model.discriminator(fake)
-            # GeneratorLoss usa "feature matching", quindi passiamo feat_real e feat_fake
+            # GeneratorLoss uses "feature matching", so we pass feat_real and feat_fake
             g_loss = g_loss_fn(latent_i, latent_o, padded, fake, feat_real, feat_fake)
 
             g_opt.zero_grad()
@@ -531,17 +531,17 @@ def main():
             d_loss = d_loss_fn(pred_real_score, pred_fake_score)
 
             d_opt.zero_grad()
-            d_loss.backward()  # rimosso retain_graph=True per liberare memoria
+            d_loss.backward()  # removed retain_graph=True to free memory
             d_opt.step()
             avg_d_loss += d_loss.item()
 
-            # Se il discriminatore collassa lo si reinizializza (come nel paper)
+            # If the discriminator collapses it is re-initialized (as in the paper)
             if d_loss.item() < 1e-5:
                 model.discriminator.apply(Ganomaly.weights_init)
 
         avg_g_loss /= len(train_dataloader)
         avg_d_loss /= len(train_dataloader)
-        print(f"Epoca {epoch+1}/{EPOCHS} — G_loss: {avg_g_loss:.6f} | D_loss: {avg_d_loss:.6f}")
+        print(f"Epoch {epoch+1}/{EPOCHS} — G_loss: {avg_g_loss:.6f} | D_loss: {avg_d_loss:.6f}")
 
         if (epoch + 1) % EVAL_INTERVAL == 0 or epoch == EPOCHS - 1:
             results = evaluate_subset(model, device)
@@ -549,7 +549,7 @@ def main():
             tracker.update(epoch + 1, results, lambda: model_state(model))
 
     print(f"\nBest {MODEL_NAME} full-image — {tracker.summary()}")
-    print(f"Heatmap e metriche su tutto il test: python experiments/plot_heatmaps.py full_image {MODEL_NAME}")
+    print(f"Heatmaps and metrics on the whole test set: python experiments/plot_heatmaps.py full_image {MODEL_NAME}")
 
 
 if __name__ == "__main__":

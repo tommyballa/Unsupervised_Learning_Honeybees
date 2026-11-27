@@ -1,18 +1,18 @@
 """
-Salvataggio della configurazione migliore (best) di un modello e caricamento
-per experiments/plot_heatmaps.py.
+Saving the best configuration of a model and loading it
+for experiments/plot_heatmaps.py.
 
-Ogni modello ha la sua cartella:
+Each model has its own folder:
 
-    checkpoints/<single_bee|full_image>/<modello>/
-        best.pth      stato del modello all'epoca migliore (o dopo il fitting)
-        config.json   iperparametri dello script, epoca e metriche della best
+    checkpoints/<single_bee|full_image>/<model>/
+        best.pth      model state at the best epoch (or after fitting)
+        config.json   script hyperparameters, epoch and metrics of the best
 
-Durante il training la best viene scelta con BestTracker confrontando le
-metriche in ordine lessicografico (default: img_roc_auc, a parità
-pxl_avg_prec) sui dati di selezione (selection_data): gli script single_bee
-usano il validation set, così le metriche finali sul test held-out non sono
-ottimistiche; con il test set quelle della best lo sono (stessi dati).
+During training the best is chosen by BestTracker, comparing the metrics
+in lexicographic order (default: img_roc_auc, then pxl_avg_prec on ties)
+on the selection data (selection_data): the single_bee scripts use the
+validation set, so the final metrics on the held-out test set are not
+optimistic; with the test set, the best's metrics are (same data).
 """
 
 import json
@@ -28,7 +28,7 @@ CONFIG_FILE = "config.json"
 
 
 def script_config(namespace: dict) -> dict:
-    """Costanti MAIUSCOLE di uno script (i suoi iperparametri) serializzabili in JSON."""
+    """UPPERCASE constants of a script (its hyperparameters) that are JSON-serializable."""
     config = {}
     for key, value in namespace.items():
         if not key.isupper() or key.startswith("_"):
@@ -46,13 +46,13 @@ def script_config(namespace: dict) -> dict:
 
 
 def clean_state_dict(state: dict) -> dict:
-    """Copia su CPU dello state dict, senza il prefisso "_orig_mod." di torch.compile."""
+    """CPU copy of the state dict, without the "_orig_mod." prefix added by torch.compile."""
     return {k.replace("_orig_mod.", ""): v.detach().cpu().clone() if torch.is_tensor(v) else v
             for k, v in state.items()}
 
 
 def save_checkpoint(ckpt_dir, state, config: dict, **info):
-    """Scrive best.pth e config.json in ckpt_dir (info: epoca, metriche, ...)."""
+    """Writes best.pth and config.json to ckpt_dir (info: epoch, metrics, ...)."""
     ckpt_dir = Path(ckpt_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     torch.save(state, ckpt_dir / STATE_FILE)
@@ -61,12 +61,12 @@ def save_checkpoint(ckpt_dir, state, config: dict, **info):
 
 
 def load_checkpoint(ckpt_dir, map_location="cpu"):
-    """Restituisce (state, info) salvati da save_checkpoint."""
+    """Returns (state, info) saved by save_checkpoint."""
     ckpt_dir = Path(ckpt_dir)
     state_path = ckpt_dir / STATE_FILE
     if not state_path.exists():
-        raise FileNotFoundError(f"Checkpoint non trovato: {state_path} (lanciare prima il training)")
-    # weights_only=False: alcuni stati contengono array numpy (es. PaDiM)
+        raise FileNotFoundError(f"Checkpoint not found: {state_path} (run the training first)")
+    # weights_only=False: some states contain numpy arrays (e.g. PaDiM)
     state = torch.load(state_path, map_location=map_location, weights_only=False)
     info = {}
     if (ckpt_dir / CONFIG_FILE).exists():
@@ -77,9 +77,9 @@ def load_checkpoint(ckpt_dir, map_location="cpu"):
 
 class BestTracker:
     """
-    Tiene traccia dell'epoca migliore e salva il suo checkpoint.
+    Keeps track of the best epoch and saves its checkpoint.
 
-    Esempio:
+    Example:
         tracker = BestTracker(CHECKPOINT_DIR, script_config(globals()))
         ...
         tracker.update(epoch + 1, results, lambda: model_state(model))
@@ -102,10 +102,10 @@ class BestTracker:
         return tuple(values)
 
     def update(self, epoch: int, results: dict, state_fn) -> bool:
-        """Se results è la migliore finora salva state_fn() come best. Restituisce True se migliora."""
+        """If results is the best so far, saves state_fn() as best. Returns True if it improves."""
         key = self._key(results)
         if self.best_key is not None and key <= self.best_key:
-            print(f"  best invariata: epoca {self.best_epoch} "
+            print(f"  best unchanged: epoch {self.best_epoch} "
                   f"({', '.join(f'{m}={v:.4f}' for m, v in zip(self.metrics, self.best_key))})")
             return False
 
@@ -117,12 +117,12 @@ class BestTracker:
             selection_data=self.selection_data,
             metrics=self.best_results,
         )
-        print(f"  ↑ nuova best all'epoca {epoch} "
+        print(f"  ↑ new best at epoch {epoch} "
               f"({', '.join(f'{m}={v:.4f}' for m, v in zip(self.metrics, key))}) -> {self.ckpt_dir}")
         return True
 
     def summary(self):
         if self.best_epoch is None:
-            return "nessuna valutazione eseguita"
-        return (f"epoca {self.best_epoch}: "
+            return "no evaluation run"
+        return (f"epoch {self.best_epoch}: "
                 + ", ".join(f"{k}={v:.4f}" for k, v in self.best_results.items()))

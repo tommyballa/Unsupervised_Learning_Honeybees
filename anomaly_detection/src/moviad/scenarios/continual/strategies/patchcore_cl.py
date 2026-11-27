@@ -19,18 +19,18 @@ class PatchCoreCL(ContinualModel):
         # change the patchcore memory bank with a set of memory banks, one per task
         self.vad_model.memory_bank = {}
         self.n_samples_per_task = self.vad_model.memory_bank_size
-        # tetto sulle patch candidate al coreset (tenute in fp16 su CPU): con una
-        # percentuale fissa per immagine la RAM cresce con il dataset (23k api a
-        # 512x512, layer1-3 → ~38M patch, ~270GB in fp32 + la copia di torch.cat)
+        # cap on the coreset candidate patches (kept in fp16 on CPU): with a fixed
+        # fraction per image the RAM grows with the dataset (23k bees at
+        # 512x512, layer1-3 → ~38M patches, ~270GB in fp32 + the torch.cat copy)
         self.max_train_patches = max_train_patches
-        # foreground_fn(images) -> maschera (B,1,H,W) dell'oggetto alla risoluzione
-        # dell'input. Se data: nel training le patch si campionano prima
-        # sull'oggetto (la memory bank non si spreca sullo sfondo), in inferenza
-        # score immagine e mappa ignorano lo sfondo
+        # foreground_fn(images) -> object mask (B,1,H,W) at the input
+        # resolution. If given: during training patches are sampled from the
+        # object first (the memory bank is not wasted on the background); at inference
+        # the image score and the map ignore the background
         self.foreground_fn = foreground_fn
 
     def _grid_mask(self, images: torch.Tensor, pixel_mask: torch.Tensor, grid_hw: tuple) -> torch.Tensor:
-        """Maschera (B, h*w) sulla griglia delle feature: patch che toccano l'oggetto."""
+        """Mask (B, h*w) on the feature grid: patches that touch the object."""
         grid = F.adaptive_max_pool2d(pixel_mask.float(), grid_hw)
         return grid.reshape(images.shape[0], -1).to(self.vad_model.device) > 0
 
@@ -58,8 +58,8 @@ class PatchCoreCL(ContinualModel):
             prefetch_factor=2
         )
 
-        # stesso numero di patch casuali per ogni immagine, entro max_train_patches
-        # in totale, scritte in un buffer fp16 preallocato (niente torch.cat)
+        # same number of random patches for each image, within max_train_patches
+        # in total, written to a preallocated fp16 buffer (no torch.cat)
         patches_per_image = max(1, self.max_train_patches // len(train_dataset))
         embeddings = None
         n_filled = 0
@@ -73,8 +73,8 @@ class PatchCoreCL(ContinualModel):
                 embedding = embedding.reshape(batch_size, -1, embedding.shape[-1])
                 num_patches = embedding.shape[1]
                 keep = min(patches_per_image, num_patches)
-                # ordine casuale; con foreground_fn le patch dell'oggetto vengono prima
-                # (se l'oggetto ha meno di keep patch si completa con lo sfondo)
+                # random order; with foreground_fn the object's patches come first
+                # (if the object has fewer than keep patches, the background fills the rest)
                 priority = torch.rand(batch_size, num_patches, device=embedding.device)
                 if self.foreground_fn is not None:
                     fg = self._grid_mask(images, self.foreground_fn(images.to(embedding.device)),
@@ -86,7 +86,7 @@ class PatchCoreCL(ContinualModel):
 
                 if embeddings is None:
                     embeddings = torch.empty((len(train_dataset) * keep, sampled.shape[1]), dtype=torch.float16)
-                    print(f"  {keep} patch per immagine, buffer {tuple(embeddings.shape)} "
+                    print(f"  {keep} patches per image, buffer {tuple(embeddings.shape)} "
                           f"({embeddings.numel() * 2 / 1e9:.1f} GB fp16)")
                 embeddings[n_filled:n_filled + sampled.shape[0]] = sampled
                 n_filled += sampled.shape[0]
@@ -129,13 +129,13 @@ class PatchCoreCL(ContinualModel):
           patch_scores_2d = patch_scores.reshape(batch_size, -1)       # (batch, H*W)
           locations_2d   = locations.reshape(batch_size, -1)           # (batch, H*W)
 
-          # Anomaly score (solo sulle patch dell'oggetto, se c'è la maschera)
+          # Anomaly score (only on the object's patches, if there is a mask)
           score_patches = patch_scores_2d * grid_mask if self.foreground_fn is not None else patch_scores_2d
           pred_score = self.vad_model.compute_anomaly_score_old(
               score_patches, locations_2d, embedding, task_memory_bank
           )
 
-          # Anomaly map, azzerata fuori dall'oggetto (bordo del crop e alone sullo sfondo)
+          # Anomaly map, zeroed outside the object (crop border and halo on the background)
           patch_scores_spatial = patch_scores_2d.reshape(batch_size, 1, width, height)
           batch_anomaly_maps = self.vad_model.anomaly_map_generator(
               patch_scores_spatial, image_size=image_size
