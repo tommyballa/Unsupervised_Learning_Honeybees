@@ -1,5 +1,5 @@
-"""Stesso protocollo di logs/ablation_sam3/abl_eval.py, ma sulle 22 foto del telefono (logs/phone/data_phone.yaml).
-Uso: python logs/phone/phone_eval.py <device> <out.json> <data.yaml> <nome_run>:<imgsz> ..."""
+"""Same protocol as logs/ablation_sam3/abl_eval.py, but on the 22 phone photos (logs/phone/data_phone.yaml).
+Usage: python logs/phone/phone_eval.py <device> <out.json> <data.yaml> <run_name>:<imgsz> ..."""
 import sys, json, numpy as np
 from ultralytics import YOLO
 dev, out = int(sys.argv[1]), sys.argv[2]

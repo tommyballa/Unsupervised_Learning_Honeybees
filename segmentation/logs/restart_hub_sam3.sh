@@ -8,7 +8,7 @@ NEW_CFG=$REPO/logs/al_config_sam3_b3456.yaml
 cd $REPO
 echo "[$(date)] waiting for the cleaning to finish (PID 2004521)"
 while kill -0 2004521 2>/dev/null; do sleep 60; done
-grep -q "Pulizia terminata con codice 0" logs/cleaning_single_bee3+4+5+6_SAM3.log || { echo "Cleaning did not finish correctly: stopping"; exit 1; }
+grep -qE "(Pulizia terminata con codice|Cleaning finished with code) 0" logs/cleaning_single_bee3+4+5+6_SAM3.log || { echo "Cleaning did not finish correctly: stopping"; exit 1; }
 venv/bin/python - <<PY || { echo "Orientation incomplete: stopping"; exit 1; }
 import json, sys
 m = json.load(open("$CLEAN/_cleaning_manifest.json"))

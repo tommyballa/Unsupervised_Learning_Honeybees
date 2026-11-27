@@ -1,5 +1,5 @@
 #!/bin/bash
-# uso: queue.sh <file con una run per riga: tag args...>
+# usage: queue.sh <file with one run per line: tag args...>
 cd "$(dirname "$0")/../.."   # anomaly_detection/
 while read -r tag args; do
   [ -z "$tag" ] && continue

@@ -1,4 +1,4 @@
-"""Conteggi del modello per batch (scripts/batch_counts.py)."""
+"""Per-batch model counts (scripts/batch_counts.py)."""
 import importlib.util
 
 import pytest
@@ -18,7 +18,7 @@ def test_counts_per_batch_follow_time_order_and_keep_extras_apart():
     rows = [
         bee("b2", "f3", "predicted", "A"), bee("b2", "f3", "predicted", "B"),
         bee("b1", "f1", "labeled", "A"), bee("b1", "f1", "predicted", "A"), bee("b1", "f2", "predicted", "B"),
-        bee("b1", "f2", "validation", propagation="A"),            # validation: conta con la classe predetta
+        bee("b1", "f2", "validation", propagation="A"),            # validation: counts with the predicted class
         bee("b1", "f2", "unassigned"), bee("b1", "f1", "unknown"), bee("b1", "f1", "no_prediction"),
     ]
     frames = [{"session": "b1", "frame": "f1"}, {"session": "b1", "frame": "f2"}, {"session": "b1", "frame": "vuota"},
@@ -28,7 +28,7 @@ def test_counts_per_batch_follow_time_order_and_keep_extras_apart():
 
     assert classes == ["A", "B"] and [b["batch"] for b in by_batch] == ["b2", "b1"]
     b1 = by_batch[1]
-    assert b1["photos"] == 3 and b1["bees"] == 7 and b1["bees_in_classes"] == 4      # la foto vuota conta come foto
+    assert b1["photos"] == 3 and b1["bees"] == 7 and b1["bees_in_classes"] == 4      # the empty photo still counts as a photo
     assert (b1["A"], b1["B"]) == (3, 1) and b1["A %"] == pytest.approx(75.0)
     assert b1[bc.UNASSIGNED] == b1[bc.SET_ASIDE] == b1[bc.NO_PREDICTION] == 1
     assert b1["A % lo"] <= 75.0 <= b1["A % hi"] and b1["A per photo"] == pytest.approx(1.0)

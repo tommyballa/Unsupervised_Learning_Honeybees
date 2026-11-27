@@ -356,8 +356,8 @@ class Padim(VADModel):
         ), "The model must be trained first."
 
         if not hasattr(self, "inv_cov_tensor") or self.inv_cov_tensor is None:
-            # Calcoliamo l'inversa su CPU una sola volta per evitare picchi di memoria VRAM (>37GB)
-            # e spostiamo solo il risultato finale (float32) su GPU (circa 18.5 GB)
+            # Compute the inverse on CPU only once to avoid VRAM memory spikes (>37GB)
+            # and move only the final result (float32) to GPU (about 18.5 GB)
             cov_np = np.transpose(self.gauss_cov, (2, 0, 1)).astype(np.float32)
             cov_inv = np.linalg.inv(cov_np)
             self.inv_cov_tensor = torch.from_numpy(cov_inv).to(self.device)

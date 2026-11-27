@@ -107,17 +107,17 @@ class CoresetExtractor:
 
         print(f"   Fitting random projections. Start dim = {z_lib.shape}.")
         try:
-            # Sostituiamo scikit-learn con una proiezione casuale nativa in PyTorch
-            # per evitare i crash di memoria RAM in float64 ed essere estremamente veloci
+            # Replace scikit-learn with a native PyTorch random projection
+            # to avoid float64 RAM out-of-memory crashes and to be much faster
             target_dim = 128
             if target_dim >= z_lib.shape[1]:
                 print(f"   Skipping projection: original dim ({z_lib.shape[1]}) is already small enough.")
             else:
                 print(f"   PyTorch Random Projection from {z_lib.shape[1]} to {target_dim}...")
-                # Generiamo la matrice di proiezione Gaussiana
+                # Generate the Gaussian projection matrix
                 proj_matrix = torch.randn(z_lib.shape[1], target_dim, device=self.device) / (target_dim ** 0.5)
-                # Proiezione a blocchi sul device, in fp32: z_lib può essere fp16 su CPU
-                # e troppo grande per essere convertito tutto insieme
+                # Chunked projection on the device, in fp32: z_lib may be fp16 on CPU
+                # and too large to be converted all at once
                 chunk = 262144
                 z_lib = torch.cat([
                     (z_lib[i:i + chunk].to(self.device).float() @ proj_matrix).cpu()

@@ -384,9 +384,9 @@ def global_cosine_hm_percent(a, b, p=0.9, factor=0.):
         # std_dist = point_dist.reshape(-1).std()
         thresh = torch.topk(point_dist.reshape(-1), k=int(point_dist.numel() * (1 - p)))[0][-1]
 
-        # coseno GLOBALE sull'intera feature map (loss ufficiale di Dinomaly):
-        # ricostruzione "lasca" che non forza la corrispondenza punto per punto
-        # e riduce la generalizzazione del decoder alle anomalie
+        # GLOBAL cosine over the whole feature map (official Dinomaly loss):
+        # a "loose" reconstruction that does not enforce point-to-point correspondence
+        # and reduces the decoder's generalization to anomalies
         loss += torch.mean(1 - cos_loss(a_.reshape(a_.shape[0], -1),
                                         b_.reshape(b_.shape[0], -1)))
 

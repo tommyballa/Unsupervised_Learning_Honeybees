@@ -152,9 +152,9 @@ class StructCore(VADModel):
     @staticmethod
     def get_structural_descriptor(anomaly_map: torch.Tensor) -> torch.Tensor:
         # expect a 2d tensor map (H, W)
-        # il descrittore usa tutta la mappa (come nel paper): una varroa sul bordo
-        # del crop deve poter alzare lo score quanto una al centro
-        # fp32: in calibrazione la mappa arriva in bf16 (autocast) e std/TV perderebbero precisione
+        # the descriptor uses the whole map (as in the paper): a varroa on the border
+        # of the crop must be able to raise the score as much as one in the centre
+        # fp32: during calibration the map arrives in bf16 (autocast) and std/TV would lose precision
         active_region = anomaly_map.float()
         flat_map = active_region.flatten()
         

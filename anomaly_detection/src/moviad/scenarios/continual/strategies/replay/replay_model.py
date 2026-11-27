@@ -39,7 +39,7 @@ class Replay(ContinualModel):
         train_args.init_train(self.vad_model)
         best_metrics = {metric.name: 0.0 for metric in metrics}
 
-        # Calcola quanti campioni di replay inserire per batch
+        # Compute how many replay samples to insert per batch
         n_replay_samples = int(train_args.batch_size * self.replay_ratio)
 
         for epoch in range(train_args.epochs):
