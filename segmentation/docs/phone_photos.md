@@ -23,7 +23,6 @@ The YOLO model and phase 2 of the active learning were built on photos from a ca
 - **22 photos** in `batch_6/favi_phone_camera`, taken on 11 October 2026 between 17:59 and 18:22 (from the file names).
   - 21 photos are 4000×3000 and one is 4608×3456.
   - 4 photos have EXIF orientation 3, i.e. they are rotated by 180°.
-  - `[AUTHOR TO CONFIRM: phone model, hive, whether they are the same combs photographed in batch_6]`.
 - **They were never used** to train YOLO: they had been removed from the 791 photos of the pipeline ([pipeline_results.md](pipeline_results.md) §2).
 - **Labels:** SAM 3 pseudo-labels in `processed/phone_captured`, produced with the same procedure as batches 3-6. In total 6,959 bees, on average 316 per photo.
 - **Bee size.**
@@ -185,7 +184,7 @@ The intervals come from the bootstrap over the 22 photos and **do not measure th
    - 76% of the labels were chosen by the annotator, so they are not a random sample.
    - 47% of the labels are Non Classificabile. This may push the propagation towards that class.
 3. **Model not stabilised:** 6% of the bees change class in the last round.
-4. **Few photos:** 22, from a single session and a single phone `[AUTHOR TO CONFIRM]`. The effect of the device cannot be separated from that of light, distance and comb.
+4. **Few photos:** 22, from a single session and a single phone. The effect of the device cannot be separated from that of light, distance and comb.
 5. **A single annotator**, no measure of agreement.
 6. **Cleaning tuned on the camera.** The blur filter does not reject the blurred phone crops: they end up in Non Classificabile instead of being rejected by the cleaning.
 

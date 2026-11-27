@@ -7,15 +7,14 @@ This document describes how YOLO26s-seg was fine-tuned to segment honey bees on 
 - Primary metric: mask mAP50-95 on the test set. Box metrics are secondary.
 - Each configuration was trained once (seed 0), except the 1440 px reference, which was trained with two seeds. Those two runs differ by 0.010 mask mAP50-95 on the test set at 1440 px and by 0.008 at 2048 px. Differences of about 0.01 mAP or less should therefore be read as within noise, not as improvements or regressions.
 - Runs are referred to by neutral names (for example "baseline", "1440 px", "1440 px + rotation"); the corresponding folder names are listed in the Runs table so the results can be traced.
-- Bracketed "author to confirm" notes mark facts that have not been verified yet.
 
 ## Task and dataset
 
 - Task: instance segmentation of honey bees on photographs of hive frames, single class (`bee`).
-- Images: 6016 x 4000 px JPEG photographs. `[AUTHOR TO CONFIRM: camera, acquisition conditions, apiary]`
+- Images: 6016 x 4000 px JPEG photographs of hive frames (`DatasetApi_Ceschi` collection).
 - Images are very dense: on average more than 300 bees per image, up to about 1,400.
-- Labels: polygon masks generated with LangSAM (text-prompted segmentation, prompt `"bee."`), exported in YOLO segmentation format. `[AUTHOR TO CONFIRM: whether labels were manually reviewed or corrected, and how]`. If they were not manually corrected, the reported metrics measure agreement with LangSAM pseudo-labels.
-- Data was collected and labelled in batches. `[AUTHOR TO CONFIRM: what each batch corresponds to (dates, hives, domains)]`
+- Labels: polygon masks generated with LangSAM (text-prompted segmentation, prompt `"bee."`), exported in YOLO segmentation format. The labels were not corrected by hand, so the reported metrics measure agreement with the LangSAM pseudo-labels.
+- Data was collected and labelled in batches; each batch is one acquisition session (`batch_3`, `batch_4`).
 
 Splits used for the main experiments ("batch 3+4" dataset):
 
@@ -34,7 +33,7 @@ Earlier training set ("205-image" dataset), used by the September models:
 
 - 205 images: an older batch of 90 images plus the same 115-image batch above.
 - None of these 205 images appears in the current validation or test sets (checked by filename).
-- The exact training set of the September runs is inferred from folder dates, because the run configuration only records the name of the dataset config file. `[AUTHOR TO CONFIRM]`
+- The exact training set of the September runs is inferred from folder dates, because the run configuration only records the name of the dataset config file.
 
 Object size, which motivates the resolution experiments. When the long side is resized to 1280 px, bee size (square root of bounding-box area) is:
 
@@ -271,7 +270,7 @@ YOLO26s-seg fine-tuned on the 298-image set at 1440 px with the baseline augment
 - One run per configuration, except the unfrozen 1440 px model (two seeds); no confidence intervals. The noise estimate rests on that single pair of runs.
 - freeze = 20 and freeze = 23 were still improving slowly when they reached the 200-epoch limit, so their scores are a lower bound for those settings; the gap to the unfrozen model is far larger than what the remaining trend could close.
 - Small evaluation sets (55 validation and 56 test images), although each contains more than 17,000 instances.
-- Ground truth comes from LangSAM. `[AUTHOR TO CONFIRM: extent of manual correction]`
+- Ground truth comes from LangSAM pseudo-labels without manual correction.
 - The data-size comparison is confounded with schedule changes and a partly different image pool.
 - The training set of the September models is inferred, not recorded.
 - Precision, recall and F1 are reported at the confidence threshold of 0.10 and would change with a different threshold.

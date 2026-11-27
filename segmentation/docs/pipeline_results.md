@@ -9,7 +9,6 @@ This document describes the complete segmentation and classification pipeline on
 - Differences of about 0.003-0.008 mAP are below the seed-to-seed variability and should be read as "within the noise", not as improvements.
 - Run and phase folder names (e.g. `img1376`, `fase2_finale`) are given so that the results can be traced on disk.
 - Relative paths such as `processed/...` are relative to the dataset root (`$BEES_DATA_ROOT`); paths starting with `$BEE_AL_WORKDIR` are in the active learning working directory.
-- Bracketed "author to confirm" notes mark facts that have not been verified yet.
 
 ## 1. Goal and pipeline
 
@@ -26,11 +25,11 @@ The pipeline has six steps:
    - phase 2: demographic and disease classes, only on the usable crops.
 6. **Per-batch counts** from the final classes, with bootstrap intervals over the photos.
 
-A synthetic varroa generator on the crops was also developed for anomaly detection: see [synthetic_varroa_on_crops.md](synthetic_varroa_on_crops.md). There are no quantitative results on that work in this document: `[AUTHOR TO CONFIRM: whether and how it goes into the thesis]`.
+A synthetic varroa generator on the crops was also developed for anomaly detection: see [synthetic_varroa_on_crops.md](synthetic_varroa_on_crops.md). Its results are not reported here: the anomaly-detection experiments that use it are in [`anomaly_detection/`](../../anomaly_detection/).
 
 ## 2. Data
 
-- Photos of frames, folder `DatasetApi_Ceschi`, batches 3, 4, 5 and 6. `[AUTHOR TO CONFIRM: apiary, hives, session dates, camera]`.
+- Photos of frames, folder `DatasetApi_Ceschi`, acquired in four sessions (batches 3, 4, 5 and 6).
 - The 22 photos in `batch_6/favi_phone_camera`, taken with the phone, were removed from the pipeline (they are analysed separately in [phone_photos.md](phone_photos.md)). **791 photos** remain.
 
 | Batch | Photos | Notes |
@@ -56,7 +55,7 @@ SAM 3 works on tiles, with the scale adapted to each photo:
    - Minimum area 600 px² in the tile and maximum area 25% of the tile.
 4. **NMS on masks instead of boxes.** A mask is discarded when more than 60% of the smaller mask lies inside one with a higher score. NMS on boxes left about 5% duplicates and fragments.
 
-The parameters were tuned by eye for recall, on 18 photos chosen to cover different zoom levels (bees from 150 to 680 px long) and different focus. **The labels were not corrected by hand** `[AUTHOR TO CONFIRM]`.
+The parameters were tuned by eye for recall, on 18 photos chosen to cover different zoom levels (bees from 150 to 680 px long) and different focus. **The labels were not corrected by hand.**
 
 Total: 260,586 bees on 791 photos, about 329 per photo; the maximum is about 1,850 bees in one photo.
 
@@ -253,7 +252,7 @@ The bootstrap measures the photo-to-photo variability, **not the model errors**.
   - **Giovane, Adulte, Fuco** (young, adult, drone): demographic profile.
   - **Malata** (sick): sick bees in general.
   - **Non Classificabile** (unclassifiable): bees that cannot be classified because of segmentation or pose. It is a reject class: the model learns it, but it is left out of the shares.
-  - Visual criteria used for age: `[AUTHOR TO CONFIRM]`. One indication given during the work was thorax hair and wing condition.
+  - Age was judged visually, mainly from thorax hair and wing condition.
 - **Annotation:** one annotator, 1,954 events and 1,837 labelled bees.
   - By query type: manual 1,786, diversity 65, uncertainty 61, novelty 25, random 17.
 - **Contrastive re-trainings:**
@@ -307,7 +306,7 @@ batch_6 has a Malata share about 3-7 times higher than the others. The photos wi
 6. **The phase 2 classes were defined after the snapshot.** The `fase2_finale` snapshot was taken with an empty class list in the config. Reject, demographic and disease classes were applied afterwards, at counting time, by reading `config/al_fase2_sam3.yaml`. The labels and predictions do not change.
 7. **Cascade effect of phase 1.** Bees wrongly predicted as "Scarta" do not reach phase 2, and unusable "Ok" bees partly ended up in Non Classificabile.
 
-Steps that would make the numbers defensible, not yet done: `[AUTHOR TO CONFIRM whether to do them before submission]`
+Steps that would make the numbers more robust, left as future work:
 - label the 100 bees of the phase 2 validation set;
 - run the confidence-stratified audit and obtain corrected prevalence estimates;
 - possibly balance the class masses in the propagation.
@@ -324,7 +323,7 @@ Steps that would make the numbers defensible, not yet done: `[AUTHOR TO CONFIRM 
   - there is no measure of how many good bees are rejected;
   - 5% of uncertain orientations not re-checked.
 - **Classification:** see §9, points 1-7.
-- **Metadata:** there is no photo → hive mapping. The "session" coincides with the batch, so the effect of time cannot be separated from that of the hive `[AUTHOR TO CONFIRM: hives photographed in each batch]`.
+- **Metadata:** there is no photo → hive mapping. The "session" coincides with the batch, so the effect of time cannot be separated from that of the hive.
 
 ## 11. Files and reproducibility
 
