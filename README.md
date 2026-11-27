@@ -136,8 +136,8 @@ Released under the Apache License 2.0 (see [`LICENSE`](LICENSE)), the same licen
 ```bibtex
 @mastersthesis{ballarin_honeybees,
   author = {Ballarin, Tommaso},
-  title  = {TODO},
-  school = {TODO},
-  year   = {TODO}
+  title  = {Deep Learning for Apicultural Health Assessement: Honeybee Segmentation and Visual Anomaly Detection},
+  school = {University of Padova},
+  year   = {2026}
 }
 ```
