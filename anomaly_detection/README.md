@@ -1,8 +1,74 @@
+# Varroa detection with unsupervised visual anomaly detection
+
+The thesis experiments on detecting the *Varroa destructor* mite on single-bee crops, built on a fork of the
+**MoViAD** library (`src/moviad`, described [below](#about-moviad)). The models learn only from healthy bees and
+are evaluated on bees with synthetic varroa produced by [`../segmentation`](../segmentation)
+(`build_varroa_split.py`).
+
+## Setup
+
+Python ≥ 3.13 and [uv](https://docs.astral.sh/uv/getting-started/installation/):
+
+```bash
+uv sync
+```
+
+The dataset is read from `$BEES_DATA_ROOT` (default `./data/DatasetApi_Ceschi`, see the
+[top-level README](../README.md#data)). The single-bee experiments use
+`$BEES_DATA_ROOT/processed/single_bee3+4+5+6_SAM3_varroa_split`:
+
+```
+single_bee3+4+5+6_SAM3_varroa_split/
+├── train/normal/        healthy bees (512×512 crops)
+├── test/normal/         healthy test bees
+├── test/anomalous/      test bees with synthetic varroa
+├── test/masks/          pixel masks of the varroa
+└── test/labels.csv      bee_id, cluster, label, num_varroa, image_path, mask_path
+```
+
+`experiments/single_bee/make_val_split.py` splits the test part into a validation set (used to choose
+checkpoints and thresholds) and a held-out test set (used once for the final metrics).
+
+## Experiments
+
+```bash
+# train one model and keep the best checkpoint (chosen on the validation split)
+uv run python experiments/single_bee/main_patchcore.py
+# final metrics and heatmaps on the held-out test
+uv run python experiments/plot_heatmaps.py single_bee patchcore
+uv run python experiments/plot_heatmaps.py single_bee all
+```
+
+| Folder / file | Content |
+|---|---|
+| [`experiments/README.md`](experiments/README.md) | All scripts, the training/evaluation flow and the output folders |
+| `experiments/single_bee/` | 11 models on 512×512 crops: `main_<model>.py`, `sweep_<model>.py`, ablation, efficiency, score analyses |
+| `experiments/full_image/` | Whole frame photos with many bees, sliding window |
+| [`recap_protocollo_single_bee.md`](recap_protocollo_single_bee.md) | Experimental protocol: splits, model selection, thresholds |
+| [`logs/ablation/summary/report.md`](logs/ablation/summary/report.md) | Training-set size, backbone and inference-cost ablation |
+| `logs/<model>_sweep/` | Hyper-parameter sweeps (one JSON per configuration) |
+| `logs/val/`, `logs/score_dist/` | Final runs on the validation/held-out protocol and score distributions |
+
+Checkpoints (`checkpoints/`) and heatmaps (`heatmaps/`) are written next to this file and are not versioned.
+
+## Changes to MoViAD made for the thesis
+
+- `datasets/varroa/`: `VarroaDataset` (single-bee crops with pixel masks) and a domain-shift variant.
+- `utilities/evaluation/`: best-checkpoint tracking, reports and full-image (sliding window) evaluation.
+- Models adapted to single-bee crops (bee-masked losses and maps, map blur, max-of-map image score), see the
+  `main_<model>.py` scripts for the per-model recipe.
+
+---
+
+# About MoViAD
+
 <p align="center">
-<img src="https://github.com/user-attachments/assets/93cf614e-2d18-4aa3-b670-80206c03bb7c" alt="drawing" style="width:300px;"/>
+<img src="https://github.com/user-attachments/assets/93cf614e-2d18-4aa3-b670-80206c03bb7c" alt="MoViAD logo" style="width:300px;"/>
 </p>
 
-## Project Objective
+The text below is the original README of the MoViAD library. Paths in it are relative to this folder.
+
+## Objective
 
 MoViAD is an Open Source library for easy and modular Visual Anomaly Detection, built for industrial and research purposes. 
 The library contains some State-of-the-Art models with their trainers, standard datasets, evaluator for calculating standard metrics, and a feature extractor.
@@ -112,4 +178,3 @@ If you use MoViAD in your work, please cite us! 🤗
 Works that use MoViAD: 
 - "PaSTe: Improving the efficiency of visual anomaly detection at the edge", Manuel Barusco, Francesco Borsatti, Davide Dalle Pezze, Francesco Paissan, Elisabetta Farella, Gian Antonio Susto. [paper](https://arxiv.org/abs/2103.04257)
 - "From Vision to Sound: Advancing Audio Anomaly Detection with Vision-Based Algorithm", Manuel Barusco, Francesco Borsatti, Davide Dalle Pezze, Francesco Paissan, Elisabetta Farella, Gian Antonio Susto. [paper](https://arxiv.org/pdf/2502.18328?)
-
