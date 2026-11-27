@@ -271,16 +271,16 @@ class ALEngine:
         """
         with self.lock:
             if decision not in review.DECISIONS:
-                raise ALError(f"decisione sconosciuta: {decision}")
+                raise ALError(f"unknown decision: {decision}")
             if image_id not in self.bank:
-                raise ALError(f"immagine sconosciuta: {image_id}")
+                raise ALError(f"unknown image: {image_id}")
             if image_id in self._val_set:
                 raise ALError(f"{image_id} is in the validation set: its labels are not reviewed against the model")
             if image_id in self._audit_ids:
                 raise ALError(f"{image_id} is in the audit sample: its labels are not reviewed against the model")
             suspect = next((s for s in self._suspects if s.image_id == image_id), None)
             if suspect is None or suspect.label != self.bank.label_of(image_id):
-                raise ALError(f"{image_id} non è più tra le etichette sospette")
+                raise ALError(f"{image_id} is no longer among the suspect labels")
             row = {
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"), "annotator": annotator, "image_id": image_id,
                 "decision": decision, "old_label": suspect.label, "new_label": suspect.label,
@@ -293,9 +293,9 @@ class ALEngine:
             else:
                 label = UNKNOWN_LABEL if decision == "set_aside" else self.store.normalize_label(new_label or "")
                 if not label or label == REMOVED_LABEL:
-                    raise ALError("etichetta vuota")
+                    raise ALError("empty label")
                 if decision == "corrected" and self.store.resolve(label) == suspect.label:
-                    raise ALError("la classe scelta è quella che l'ape ha già: per tenerla usa la conferma")
+                    raise ALError("the chosen class is the one the bee already has: confirm it instead")
                 if decision == "corrected" and label == UNKNOWN_LABEL:
                     row["decision"] = "set_aside"
                 self.assign_many(annotator, [image_id], label)

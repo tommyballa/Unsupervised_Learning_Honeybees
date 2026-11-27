@@ -27,8 +27,8 @@ def load_or_create_validation_set(
         kept = [i for i in saved["image_ids"] if i in known]
         if saved["image_ids"] and not kept:
             raise ValueError(
-                f"{path} elenca api che non sono in questo dataset: è il validation set di un altro "
-                "dataset. Usa un'altra paths.results_dir oppure sposta i vecchi risultati."
+                f"{path} lists bees that are not in this dataset: it is the validation set of another "
+                "dataset. Use a different paths.results_dir or move the old results away."
             )
         return kept
     rng = np.random.default_rng(seed)

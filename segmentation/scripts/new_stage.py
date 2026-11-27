@@ -37,7 +37,7 @@ def main() -> None:
     args = ap.parse_args()
 
     if not args.name.replace("_", "").replace("-", "").isalnum():
-        sys.exit("Nome della fase non valido: usa solo lettere, cifre, '_' e '-'")
+        sys.exit("Invalid stage name: use only letters, digits, '_' and '-'")
     config_path = Path(args.config) if args.config else DEFAULT_CONFIG_PATH
     cfg = load_config(config_path)
     try:
@@ -53,7 +53,7 @@ def main() -> None:
     present = Counter(r["final_label"] for r in rows if r["final_label"])
     missing = keep - set(present)
     if missing:
-        sys.exit(f"Classi non presenti nello snapshot: {sorted(missing)}. Ci sono: {dict(present)}")
+        sys.exit(f"Classes not present in the snapshot: {sorted(missing)}. Available: {dict(present)}")
     chosen = [r for r in rows if r["final_label"] in keep and r["status"] in ("labeled", "predicted")
               and (r["source"] == "human" or float(r["confidence"]) >= args.min_confidence)]
     if not chosen:
@@ -64,7 +64,7 @@ def main() -> None:
     subset = results / "subset.json"
     for path in (out_config, subset):
         if path.exists():
-            sys.exit(f"{path} esiste già: scegli un altro nome per la fase")
+            sys.exit(f"{path} already exists: choose another name for the stage")
     results.mkdir(parents=True, exist_ok=True)
     with open(subset, "w", encoding="utf-8") as f:
         json.dump({"from_snapshot": args.snapshot, "from_config": str(config_path), "keep": sorted(keep),

@@ -179,8 +179,8 @@ def test_new_stage_script_builds_a_second_stage_on_the_good_bees(colony, tmp_pat
     label_batch(stage2, colony.truth)
     assert stage2.bank.n_labeled == 10 and engine.bank.class_counts() == ALEngine(cfg, colony.emb).bank.class_counts()   # phase 1 does not change
 
-    for extra, text in ((["--keep", "Mai Vista", "--name", "fase3"], "non presenti"), (["--keep", "Segmentata Bene", "--name", "fase2"], "esiste già"),
-                        (["--keep", "Segmentata Bene", "--name", "con spazi"], "non valido")):
+    for extra, text in ((["--keep", "Mai Vista", "--name", "fase3"], "not present"), (["--keep", "Segmentata Bene", "--name", "fase2"], "already exists"),
+                        (["--keep", "Segmentata Bene", "--name", "con spazi"], "Invalid stage name")):
         bad = subprocess.run(args[:4] + ["--config", str(config_path)] + extra + (["--out-config", str(out_config)] if "fase2" in extra else []),
                              capture_output=True, text=True)
         assert bad.returncode != 0 and text in bad.stderr, bad.stderr

@@ -59,7 +59,7 @@ def test_sources_and_unique_ids(two_folders, tmp_path):
     assert list_dataset(single.dataset_sources)[0][0] == "bee_00000_conf0.90.png"   # a single folder: id = file name
     missing = config_from_dict({"paths": {"dataset_dirs": {"a": "non_esiste", "tr": "train/cleaned_bees"}}}, root=tmp_path)
     assert len(list_dataset(missing.dataset_sources)[0]) == 5              # folder not created yet: skipped
-    with pytest.raises(ValueError, match="nome non valido"):
+    with pytest.raises(ValueError, match="invalid name"):
         config_from_dict({"paths": {"dataset_dirs": {"a__b": "x"}}})
 
 
@@ -89,7 +89,7 @@ def test_validation_file_of_another_dataset_is_refused(tmp_path):
     path = tmp_path / "validation_set.json"
     old = load_or_create_validation_set(path, [f"bee_{i}.png" for i in range(20)], 5, 0)
     assert len(old) == 5
-    with pytest.raises(ValueError, match="altro"):
+    with pytest.raises(ValueError, match="another"):
         load_or_create_validation_set(path, [f"tr__bee_{i}.png" for i in range(20)], 5, 0)
 
 

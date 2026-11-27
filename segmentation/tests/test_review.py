@@ -145,10 +145,10 @@ def test_validation_audit_and_set_aside_bees_are_never_reviewed(cfg, data):
     shown = {s["image_id"] for s in queue["main"] + queue["rare"]}
     assert set(noisy) <= shown and not shown & ({val, aside, audit_bee} | set(engine.validation_ids))
     assert queue["n_checked"] == engine.bank.n_labeled == N_LABELED - 1
-    for image_id, text in ((val, "validation"), (audit_bee, "audit"), (aside, "sospette"), ("non_esiste.png", "sconosciuta")):
+    for image_id, text in ((val, "validation"), (audit_bee, "audit"), (aside, "suspect"), ("non_esiste.png", "unknown image")):
         with pytest.raises(ALError, match=text):
             engine.review("a@x.it", image_id, "confirmed")
-    with pytest.raises(ALError, match="decisione"):
+    with pytest.raises(ALError, match="unknown decision"):
         engine.review("a@x.it", noisy[0], "boh")
     assert read_log(engine.review_log_path) == []
 
@@ -209,11 +209,11 @@ def test_correct_and_set_aside_go_through_the_label_store(cfg, data):
     assert all(r["old_label"] == other_class(engine, r["image_id"]) for r in log)
 
     d = noisy[3]
-    for label, text in (("", "vuota"), (other_class(engine, d), "già")):   # meaningless corrections: nothing written
+    for label, text in (("", "empty label"), (other_class(engine, d), "already has")):   # meaningless corrections: nothing written
         with pytest.raises(ALError, match=text):
             engine.review("r@x.it", d, "corrected", label)
     assert len(read_log(engine.review_log_path)) == 3 and len(engine.store.events()) == events_before + 3
-    with pytest.raises(ALError, match="sospette"):
+    with pytest.raises(ALError, match="suspect"):
         engine.review("r@x.it", a, "confirmed")                        # corrected: no longer in the queue
 
 

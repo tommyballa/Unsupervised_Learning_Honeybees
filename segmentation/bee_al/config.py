@@ -426,7 +426,7 @@ def config_from_dict(data: Optional[dict[str, Any]], root: Union[str, Path, None
     cfg: ALConfig = _from_dict(ALConfig, data)
     for name in cfg.paths.dataset_dirs:
         _check(bool(name) and "/" not in name and ID_SEPARATOR not in name,
-               f"paths.dataset_dirs: nome non valido {name!r} (niente '/' né '{ID_SEPARATOR}')")
+               f"paths.dataset_dirs: invalid name {name!r} (no '/' or '{ID_SEPARATOR}' allowed)")
     for name in cfg.validation.holdout_datasets:
         _check(name in cfg.paths.dataset_dirs, f"validation.holdout_datasets: {name!r} is not in paths.dataset_dirs")
     if root is not None:
