@@ -6,7 +6,7 @@
 # Usage: logs/ablation_sam3/queue.sh <gpu> <run> [<run> ...]
 #   run: base | img1376 | img1376_rot | img1376_rot_cp   (1376 px: at 1440 the SAM 3 labels do not fit in 48 GB)
 # Progress is written to logs/ablation_sam3/queue_gpu<gpu>.out
-cd /home/tommaso_ballarin/bee_segmentation/bee_segmentation
+cd "$(dirname "$0")/../.."   # segmentation/
 GPU=$1; shift
 PREFIX=bee_model_finetuned_yolo26s_batch3+4+5+6_SAM3
 RUNS=runs/segment/runs/segment

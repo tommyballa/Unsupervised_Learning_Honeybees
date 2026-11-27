@@ -17,7 +17,7 @@ from ultralytics import YOLO
 
 DEV = sys.argv[1] if len(sys.argv) > 1 else "0"
 MODEL = "runs/segment/runs/segment/bee_model_finetuned_yolo26s_batch3+4+5+6_SAM3_img1376/weights/best.pt"
-DATA = sys.argv[2] if len(sys.argv) > 2 else "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/phone_captured"
+DATA = sys.argv[2] if len(sys.argv) > 2 else os.path.join(os.environ.get("BEES_DATA_ROOT", "data/DatasetApi_Ceschi"), "processed", "phone_captured")
 OUT_CSV = sys.argv[3] if len(sys.argv) > 3 else "logs/phone/phone_compare.csv"
 OUT_VIS = sys.argv[4] if len(sys.argv) > 4 else "visualizations/phone_yolo_vs_sam3"
 SCALE = 0.5  # masks compared at half resolution

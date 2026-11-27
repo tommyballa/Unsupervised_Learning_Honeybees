@@ -9,13 +9,13 @@ paths:
   # Since 2026-10-14: all photos of batches 3-6 (train, val and test of the SAM3 split together), bees
   # extracted at 2048 px with yolo26s_batch3+4+5+6_SAM3_img1376 and cleaned with dataset_cleaning.py v4
   # (short filter, head at the top). The previous run (batch3+4, phases 1 and 2) is archived in
-  # /mnt/disk1/tommaso_ballarin/bee_al/archivio_<date>_<time>.
+  # ${BEE_AL_WORKDIR}/archivio_<date>_<time>.
   dataset_dirs:
-    sam3_b3456: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/cleaned_bees
-  # Labels, embeddings and models live on /mnt/disk1: the system disk is almost full.
-  results_dir: /mnt/disk1/tommaso_ballarin/bee_al/results_sam3_b3456   # al_labels.csv, validation_set.json, al_rounds.jsonl
-  embeddings_dir: /mnt/disk1/tommaso_ballarin/bee_al/embeddings_sam3_b3456   # embeddings of the frozen extractor (v000)
-  models_dir: /mnt/disk1/tommaso_ballarin/bee_al/models_sam3_b3456     # vNNN/ produced by the re-trainings
+    sam3_b3456: ${BEES_DATA_ROOT}/processed/single_bee3+4+5+6_SAM3/cleaned_bees
+  # Labels, embeddings and models live on a separate disk: the system disk is almost full.
+  results_dir: ${BEE_AL_WORKDIR}/results_sam3_b3456   # al_labels.csv, validation_set.json, al_rounds.jsonl
+  embeddings_dir: ${BEE_AL_WORKDIR}/embeddings_sam3_b3456   # embeddings of the frozen extractor (v000)
+  models_dir: ${BEE_AL_WORKDIR}/models_sam3_b3456     # vNNN/ produced by the re-trainings
   subset_file: ""        # JSON {"image_ids": [...]}: if set, the hub works only on those bees (later phases)
 
 stage:
@@ -27,7 +27,7 @@ stage:
 export:
   # "Save configuration & export clusters" button in /al-status: when the phase is over it writes the clusters here,
   # one subfolder per export, with one image folder per class.
-  clusters_dir: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3_clusters
+  clusters_dir: ${BEES_DATA_ROOT}/processed/single_bee3+4+5+6_SAM3_clusters
   mode: copy             # copy | hardlink | symlink
 
 labels:
@@ -131,10 +131,10 @@ frames:
   # can be derived from the name: batch_3 is from 12/09/2026, batch_4 from 26/09/2026, same hive, with different flash and zoom.
   # The 791 photos of the SAM3 dataset are all assigned to a single batch (168 / 241 / 199 / 183).
   session_dirs:
-    batch_3: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_3
-    batch_4: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_4
-    batch_5: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_5
-    batch_6: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_6
+    batch_3: ${BEES_DATA_ROOT}/batch_3
+    batch_4: ${BEES_DATA_ROOT}/batch_4
+    batch_5: ${BEES_DATA_ROOT}/batch_5
+    batch_6: ${BEES_DATA_ROOT}/batch_6
   colony: ""             # hive name for all frames (only one hive photographed); empty = not specified
 
 audit:

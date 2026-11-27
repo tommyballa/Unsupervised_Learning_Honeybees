@@ -5,15 +5,15 @@
 
 seed: 42
 paths:
-  dataset_dir: /home/tommaso_ballarin/bee_segmentation/bee_segmentation/data/images
+  dataset_dir: ${BEE_AL_WORKDIR}/images
   dataset_dirs:
-    sam3_b3456: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/cleaned_bees
-    b7: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee7_SAM3/cleaned_bees
-    phone: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee_phone_SAM3/cleaned_bees
-  results_dir: /mnt/disk1/tommaso_ballarin/bee_al/results_fase2_sam3
-  embeddings_dir: /mnt/disk1/tommaso_ballarin/bee_al/embeddings_sam3_b3456
-  models_dir: /mnt/disk1/tommaso_ballarin/bee_al/models_fase2_sam3
-  subset_file: /mnt/disk1/tommaso_ballarin/bee_al/results_fase2_sam3/subset.json
+    sam3_b3456: ${BEES_DATA_ROOT}/processed/single_bee3+4+5+6_SAM3/cleaned_bees
+    b7: ${BEES_DATA_ROOT}/processed/single_bee7_SAM3/cleaned_bees
+    phone: ${BEES_DATA_ROOT}/processed/single_bee_phone_SAM3/cleaned_bees
+  results_dir: ${BEE_AL_WORKDIR}/results_fase2_sam3
+  embeddings_dir: ${BEE_AL_WORKDIR}/embeddings_sam3_b3456
+  models_dir: ${BEE_AL_WORKDIR}/models_fase2_sam3
+  subset_file: ${BEE_AL_WORKDIR}/results_fase2_sam3/subset.json
 labels:
   classes:
   - Giovane
@@ -90,11 +90,11 @@ frames:
   manifests: {}
   frame_pattern: ''
   session_dirs:
-    batch_3: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_3
-    batch_4: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_4
-    batch_5: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_5
-    batch_6: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_6
-    batch_7: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_7
+    batch_3: ${BEES_DATA_ROOT}/batch_3
+    batch_4: ${BEES_DATA_ROOT}/batch_4
+    batch_5: ${BEES_DATA_ROOT}/batch_5
+    batch_6: ${BEES_DATA_ROOT}/batch_6
+    batch_7: ${BEES_DATA_ROOT}/batch_7
   colony: ''
 audit:
   per_stratum: 40
@@ -136,7 +136,7 @@ stage:
   title: Phase 2 - only the bees kept as Ok in phase 1
   description: Only the bees of ['Ok'] from 'fase1_finale_okvsscarta'.
 export:
-  clusters_dir: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3_clusters
+  clusters_dir: ${BEES_DATA_ROOT}/processed/single_bee3+4+5+6_SAM3_clusters
   mode: copy
 review:
   enabled: true

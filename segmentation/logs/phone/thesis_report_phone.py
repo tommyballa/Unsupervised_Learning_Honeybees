@@ -19,13 +19,14 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from bee_al.embeddings import load_embeddings  # noqa: E402
+from bee_paths import AL_WORKDIR, DATA_ROOT  # noqa: E402
 from embedding_map import BACKGROUND, GREY, INK, MUTED, SERIES, english, plot  # noqa: E402
 from phone_map import crop_grid  # noqa: E402  (logs/phone/phone_map.py)
 
-AL = Path("/mnt/disk1/tommaso_ballarin/bee_al")
+AL = Path(AL_WORKDIR)
 SNAP = AL / "results_fase2_phone/snapshots/foto_telefono"
 OUT = SNAP / "report_tesi"
-PHONE_DIR = Path("/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee_phone_SAM3/cleaned_bees")
+PHONE_DIR = Path(DATA_ROOT + "/processed/single_bee_phone_SAM3/cleaned_bees")
 # Same colours as the phase 2 maps (fixed name order with Fuco and Regina): the colour follows the class.
 CLASS_ORDER = ["Adulte", "Fuco", "Giovane", "Malata", "Non Classificabile"]
 COLOUR = {c: SERIES[k] for k, c in enumerate(CLASS_ORDER)}

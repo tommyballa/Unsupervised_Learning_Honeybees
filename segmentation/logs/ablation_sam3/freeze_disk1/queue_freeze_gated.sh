@@ -12,8 +12,8 @@
 # Before each launch it waits for a GPU with at most MAX_USED MiB in use.
 #
 # Usage: queue_freeze_gated.sh <config> <variant> [<variant> ...]
-B=/mnt/disk1/tommaso_ballarin/bee_ablation_sam3_freeze
-cd /home/tommaso_ballarin/bee_segmentation/bee_segmentation
+B=$WORK_DIR/bee_ablation_sam3_freeze
+cd "$(dirname "$0")/../../.."   # segmentation/
 export TMPDIR=/dev/shm/tb_tmp
 export ABL_RUNS=$B/runs
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True     # as in train_yolo.py

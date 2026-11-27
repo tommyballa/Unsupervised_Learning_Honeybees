@@ -7,7 +7,7 @@
 #   config:  base | img1376 | img1376_rot | img1376_rot_cp   (the one that turned out best)
 #   variant: freeze5 | freeze10 | freeze20 | freeze23 | seed1
 # Progress is written to logs/ablation_sam3/queue_gpu<gpu>.out
-cd /home/tommaso_ballarin/bee_segmentation/bee_segmentation
+cd "$(dirname "$0")/../.."   # segmentation/
 GPU=$1; CONF=$2; shift 2
 PREFIX=bee_model_finetuned_yolo26s_batch3+4+5+6_SAM3
 RUNS=runs/segment/runs/segment

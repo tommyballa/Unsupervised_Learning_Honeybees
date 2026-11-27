@@ -10,3 +10,6 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 DATA_ROOT = os.environ.get("BEES_DATA_ROOT", str(_REPO_ROOT / "data" / "DatasetApi_Ceschi"))
+
+# Labels, embeddings and model versions of the active-learning hub (``BEE_AL_WORKDIR``).
+AL_WORKDIR = os.environ.get("BEE_AL_WORKDIR", str(_REPO_ROOT / "data" / "bee_al"))

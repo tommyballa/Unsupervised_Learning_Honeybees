@@ -1,9 +1,9 @@
 #!/bin/bash
 # After the cleaning of single_bee3+4+5+6_SAM3: embeddings, archive of the previous run, hub in phase 1 from scratch.
 set -u
-REPO=/home/tommaso_ballarin/bee_segmentation/bee_segmentation
-AL=/mnt/disk1/tommaso_ballarin/bee_al
-CLEAN=/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/cleaned_bees
+REPO="$(cd "$(dirname "$0")/.." && pwd)"   # segmentation/
+AL=$BEE_AL_WORKDIR
+CLEAN=$BEES_DATA_ROOT/processed/single_bee3+4+5+6_SAM3/cleaned_bees
 NEW_CFG=$REPO/logs/al_config_sam3_b3456.yaml
 cd $REPO
 echo "[$(date)] waiting for the cleaning to finish (PID 2004521)"

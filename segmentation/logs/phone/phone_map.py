@@ -17,10 +17,11 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
+from bee_paths import AL_WORKDIR, DATA_ROOT  # noqa: E402
 from embedding_map import OTHER, SET_ASIDE, UNASSIGNED, english, plot  # noqa: E402
 
-PHONE_DIR = Path("/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee_phone_SAM3/cleaned_bees")
-FASE1_PRED = Path("/mnt/disk1/tommaso_ballarin/bee_al/results_sam3_b3456/added_phone_predictions.csv")
+PHONE_DIR = Path(DATA_ROOT + "/processed/single_bee_phone_SAM3/cleaned_bees")
+FASE1_PRED = Path(AL_WORKDIR + "/results_sam3_b3456/added_phone_predictions.csv")
 
 
 def group_of(row):
