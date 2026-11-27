@@ -1,34 +1,20 @@
-# Brief: thesis section on YOLO fine-tuning and ablation study
+# YOLO26s-seg fine-tuning and ablation study on LangSAM labels (batches 3+4)
 
-This file is a briefing for writing one section of a master's thesis. It contains everything that was actually done and measured. Please write the section in English, in academic style, using only the facts and numbers given here.
+This document describes how YOLO26s-seg was fine-tuned to segment honey bees on hive-frame photographs using LangSAM pseudo-labels, and the ablation study that compares the fine-tuning choices that were tried. It is the first of two ablations: the later one, on SAM 3 labels and batches 3-6, is described in [ablation_sam3.md](ablation_sam3.md).
 
-## What I need from you
+## Notes on the metrics
 
-Write the thesis section that describes how an instance-segmentation model was fine-tuned to segment honey bees on hive-frame photographs, and the ablation study that compares the fine-tuning choices we tried.
-
-A structure that would work (adapt it if a different order reads better):
-
-1. Task and dataset
-2. Model and training setup
-3. Evaluation protocol
-4. Ablation study: one subsection or paragraph per factor, with tables (including the freeze-depth experiment)
-5. Discussion, limitations, and the configuration finally adopted
-
-Things to keep in mind while writing:
-
-- Every number must come from this file. If something you want to say is not supported here, leave it out or mark it as `[AUTHOR TO CONFIRM]`.
-- Items already marked `[AUTHOR TO CONFIRM]` below are facts I could not verify. Keep the marker visible in the text so the author can fill them in.
-- Each configuration was trained once (seed 0), except the 1440 px reference, which was trained with two seeds. Those two runs differ by 0.010 mask mAP50-95 on the test set at 1440 px and by 0.008 at 2048 px. Differences of about 0.01 mAP or less should therefore be described as within noise, not as improvements or regressions.
-- Use neutral names for the runs in the text (for example "baseline", "1440 px", "1440 px + rotation"). The folder names are listed only so the author can trace results.
-- Tables can be given in Markdown or LaTeX. `[AUTHOR TO CONFIRM: preferred format]`
 - Primary metric: mask mAP50-95 on the test set. Box metrics are secondary.
+- Each configuration was trained once (seed 0), except the 1440 px reference, which was trained with two seeds. Those two runs differ by 0.010 mask mAP50-95 on the test set at 1440 px and by 0.008 at 2048 px. Differences of about 0.01 mAP or less should therefore be read as within noise, not as improvements or regressions.
+- Runs are referred to by neutral names (for example "baseline", "1440 px", "1440 px + rotation"); the corresponding folder names are listed in the Runs table so the results can be traced.
+- Bracketed "author to confirm" notes mark facts that have not been verified yet.
 
 ## Task and dataset
 
 - Task: instance segmentation of honey bees on photographs of hive frames, single class (`bee`).
 - Images: 6016 x 4000 px JPEG photographs. `[AUTHOR TO CONFIRM: camera, acquisition conditions, apiary]`
 - Images are very dense: on average more than 300 bees per image, up to about 1,400.
-- Labels: polygon masks generated with LangSAM (text-prompted segmentation, prompt `"bee."`), exported in YOLO segmentation format. `[AUTHOR TO CONFIRM: whether labels were manually reviewed or corrected, and how]`. If they were not manually corrected, the reported metrics measure agreement with LangSAM pseudo-labels, and the text should say so.
+- Labels: polygon masks generated with LangSAM (text-prompted segmentation, prompt `"bee."`), exported in YOLO segmentation format. `[AUTHOR TO CONFIRM: whether labels were manually reviewed or corrected, and how]`. If they were not manually corrected, the reported metrics measure agreement with LangSAM pseudo-labels.
 - Data was collected and labelled in batches. `[AUTHOR TO CONFIRM: what each batch corresponds to (dates, hives, domains)]`
 
 Splits used for the main experiments ("batch 3+4" dataset):
@@ -111,7 +97,7 @@ Configurations that could not be trained (out of GPU memory on 48 GB):
 
 Peak GPU memory during training: about 33 GB at 1280 px, 43 to 45 GB at 1440 px. Time per epoch: about 45 s at 1280 px, 55 s at 1440 px.
 
-One further old model exists (`best_model_tuned`: YOLO26n-seg, 1080 px, library-default settings with mosaic, max 300 detections). It scores 0.079 mask mAP50-95 on this test set. It differs from the others in many settings at once, so it is not part of the ablation; mention it at most as an early attempt.
+One further old model exists (`best_model_tuned`: YOLO26n-seg, 1080 px, library-default settings with mosaic, max 300 detections). It scores 0.079 mask mAP50-95 on this test set. It differs from the others in many settings at once, so it is not part of the ablation and is listed only as an early attempt.
 
 ## Validation results (best checkpoint, at training resolution)
 
@@ -122,7 +108,7 @@ One further old model exists (`best_model_tuned`: YOLO26n-seg, 1080 px, library-
 | 1440 px + rotation | 0.890 | 0.852 | 0.920 | 0.664 | 0.886 | 0.844 | 0.907 | 0.623 |
 | 1440 px + rotation + copy-paste | 0.886 | 0.857 | 0.919 | 0.665 | 0.883 | 0.851 | 0.904 | 0.622 |
 
-The September models were validated on a different validation set, so their validation numbers are not comparable and are omitted. Use the test table for them.
+The September models were validated on a different validation set, so their validation numbers are not comparable and are omitted; see the test tables for them.
 
 ## Test results (56 images, 19,314 instances)
 
@@ -260,11 +246,11 @@ Training resolution:
 
 Training data:
 - Going from 205 to 298 training images improved mask mAP50-95 by about 0.01.
-- This comparison is confounded: the two runs also differ in maximum epochs (150 vs 200) and patience (20 vs 40), and the 298-image set does not contain the 90 oldest images. It should be presented as indicative only.
+- This comparison is confounded: the two runs also differ in maximum epochs (150 vs 200) and patience (20 vs 40), and the 298-image set does not contain the 90 oldest images. It is indicative only.
 
 Layer freezing:
 - Freezing the first 5 layers lowered mask mAP50-95 by 0.022 at native resolution and 0.006 at 2048 px.
-- At 2048 px the frozen model has slightly higher recall and F1 (0.8503 and 0.8648 against 0.8396 and 0.8574), so the honest summary is "no benefit", not "clearly harmful".
+- At 2048 px the frozen model has slightly higher recall and F1 (0.8503 and 0.8648 against 0.8396 and 0.8574), so the result is best summarised as "no benefit", not "clearly harmful".
 - The controlled freeze-depth experiment on the 1440 px model (previous section) confirms this and extends it: freezing up to the first 10 layers is roughly neutral, freezing the neck as well is clearly harmful.
 
 Stronger augmentation:
@@ -280,7 +266,7 @@ Overfitting in the baseline:
 
 YOLO26s-seg fine-tuned on the 298-image set at 1440 px with the baseline augmentation, used at 2048 px at inference. On the test set at 2048 px: mask mAP50-95 0.628, mask mAP50 0.893, mask mAP75 0.738, mask precision 0.895, recall 0.855, F1 0.875; box mAP50-95 0.662.
 
-## Limitations to state in the text
+## Limitations
 
 - One run per configuration, except the unfrozen 1440 px model (two seeds); no confidence intervals. The noise estimate rests on that single pair of runs.
 - freeze = 20 and freeze = 23 were still improving slowly when they reached the 200-epoch limit, so their scores are a lower bound for those settings; the gap to the unfrozen model is far larger than what the remaining trend could close.

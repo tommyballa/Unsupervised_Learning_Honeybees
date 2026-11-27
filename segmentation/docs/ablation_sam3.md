@@ -1,8 +1,8 @@
 # YOLO26s-seg ablation on SAM 3 labels (batches 3-6)
 
-Fine-tuning of YOLO26s-seg for bee segmentation, redone on the SAM 3 pseudo-labels of batches 3-6. It repeats the earlier ablation on the LangSAM labels (batches 3+4, see `yolo_finetuning_langsam.md`), with the same variants and the same test protocol.
+Fine-tuning of YOLO26s-seg for bee segmentation, redone on the SAM 3 pseudo-labels of batches 3-6. It repeats the earlier ablation on the LangSAM labels (batches 3+4, see [yolo_finetuning_langsam.md](yolo_finetuning_langsam.md)), with the same variants and the same test protocol.
 
-Runs carried out from 12 to 16 October 2026.
+Runs carried out from 12 to 16 October 2026. A summary of these results in the context of the full pipeline is in [pipeline_results.md](pipeline_results.md) (§4).
 
 ## Dataset
 
@@ -11,11 +11,11 @@ Runs carried out from 12 to 16 October 2026.
 
 | Split | Photos | Bees | Mean per photo |
 |---|---|---|---|
-| Train | 554 | 182 318 | 329 |
-| Validation | 118 | 39 076 | 331 |
-| Test | 119 | 39 192 | 329 |
+| Train | 554 | 182,318 | 329 |
+| Validation | 118 | 39,076 | 331 |
+| Test | 119 | 39,192 | 329 |
 
-With SAM 3 a single photo reaches about 1 850 bees (with LangSAM the maximum was about 1 370), which is why `max_det` is 2 500.
+With SAM 3 a single photo reaches about 1,850 bees (with LangSAM the maximum was about 1,370), which is why `max_det` is 2,500.
 
 ## Common setup
 
@@ -23,10 +23,10 @@ With SAM 3 a single photo reaches about 1 850 bees (with LangSAM the maximum was
 - Ultralytics 8.4.138, PyTorch 2.14.0, one 48 GB NVIDIA RTX A6000 per run (shared server).
 - Hyperparameters identical to the LangSAM ablation: up to 200 epochs, early stopping with patience 40, batch 2, AdamW (lr0 0.001, cosine decay down to 1%, 5 warm-up epochs, weight decay 0.0005), mosaic disabled, `cache=True`, seed 0.
 - Base augmentation: HSV (h 0.015, s 0.7, v 0.4), rotation ±10°, translation 0.1, scale ±50%, horizontal flip 0.5, vertical flip 0.2.
-- `max_det` 2 500.
+- `max_det` 2,500.
 - No run had its batch size reduced because of out-of-memory errors: all of them use batch 2.
 
-**High resolution: 1376 px instead of 1440.** In the LangSAM ablation the high resolution was 1440 px. With SAM 3 the photos are more crowded and 1440 px runs out of memory at batch 2. Memory test with the two most crowded photos in the same batch (3 579 instances):
+**High resolution: 1376 px instead of 1440.** In the LangSAM ablation the high resolution was 1440 px. With SAM 3 the photos are more crowded and 1440 px runs out of memory at batch 2. Memory test with the two most crowded photos in the same batch (3,579 instances):
 
 | Resolution | Peak memory |
 |---|---|
@@ -38,7 +38,7 @@ With SAM 3 a single photo reaches about 1 850 bees (with LangSAM the maximum was
 ## Test protocol
 
 - Selected model: `best.pt`, i.e. the best checkpoint on the validation set (Ultralytics fitness).
-- Test: 119 photos, `split=test`, conf 0.10, `max_det` 2 500, script `logs/ablation_sam3/abl_eval.py`.
+- Test: 119 photos, `split=test`, conf 0.10, `max_det` 2,500, script `logs/ablation_sam3/abl_eval.py`.
 - Each model is tested at two resolutions: the training one and 2048 px.
 - Segmentation (mask) metrics: mAP50-95, mAP50, mAP75, precision, recall, F1. In addition, box mAP50-95 and mAP50.
 - Criterion for the "best model": seg mAP50-95 on the test set at 2048 px.
@@ -57,11 +57,11 @@ With SAM 3 a single photo reaches about 1 850 bees (with LangSAM the maximum was
 | freeze23 | `..._SAM3_img1376_freeze23` | 1376 px | first 23 layers frozen | 200 (164) | 0.476 | |
 | seed1 | `..._SAM3_img1376_seed1` | 1376 px | img1376 with `seed=1` | 200 (82) | 0.662 | resumed 7 times ² |
 
-¹ freeze10 was resumed from `last.pt` at epochs 161 and 184, after out-of-memory errors caused by other processes on the GPU. The first attempt had been interrupted on 13/10 by a full system disk: it is kept as `..._freeze10__interrotto_disco_pieno_1013`.
+¹ freeze10 was resumed from `last.pt` at epochs 161 and 184, after out-of-memory errors caused by other processes on the GPU. The first attempt had been interrupted on 13 October by a full system disk: it is kept as `..._freeze10__interrotto_disco_pieno_1013`.
 
 ² seed1 was resumed at epochs 99, 136, 145, 154, 163, 172 and 181, each time because of out-of-memory errors caused by other processes. The tested `best.pt` is from epoch 82, saved before the first resume, so it is identical to that of an uninterrupted run. However, every resume resets the early-stopping counter: this is why the run reached 200 epochs instead of stopping around epoch 122.
 
-freeze10, freeze20, freeze23 and seed1 were trained on a shared server: their training times are not comparable and I do not report them. Failed attempts are kept with the suffix `__interrotto_*`, both in `runs/` and in the logs.
+freeze10, freeze20, freeze23 and seed1 were trained on a shared server: their training times are not comparable and are not reported. Failed attempts are kept with the suffix `__interrotto_*`, both in `runs/` and in the logs.
 
 ## 1. Resolution and augmentation
 
@@ -122,7 +122,7 @@ The difference between the two seeds is 0.003 in seg mAP50-95, both at 2048 and 
 
 ## 4. Comparison with the LangSAM ablation
 
-Seg mAP50-95 on the test set at 2048 px. For LangSAM: batches 3+4, test set of 56 photos and 19 314 bees, high resolution at 1440 px. For SAM 3: batches 3-6, test set of 119 photos, high resolution at 1376 px.
+Seg mAP50-95 on the test set at 2048 px. For LangSAM: batches 3+4, test set of 56 photos and 19,314 bees, high resolution at 1440 px. For SAM 3: batches 3-6, test set of 119 photos, high resolution at 1376 px.
 
 | Variant | LangSAM | SAM 3 |
 |---|---|---|
@@ -177,4 +177,4 @@ The seed1 `best.pt` is equivalent: it is slightly ahead on almost every metric, 
   - `logs/train_batch3+4+5+6_SAM3_*.log` for base, img1376, rot, rot_cp and freeze5;
   - `logs/ablation_sam3/freeze_disk1/` for freeze10, freeze20, freeze23 and seed1, together with the interrupted attempts, the queue status (`queue_gpu0.out`) and the scripts.
 - Launch queues: `logs/ablation_sam3/queue.sh` (resolution and augmentation) and `logs/ablation_sam3/freeze_disk1/queue_freeze_gated.sh` (freeze and seed).
-- Original copy of the freeze10/20/23 and seed1 runs: `/mnt/disk1/tommaso_ballarin/bee_ablation_sam3_freeze/`.
+- Original copy of the freeze10/20/23 and seed1 runs: `bee_ablation_sam3_freeze/`, kept on the training server's data disk (next to `$BEE_AL_WORKDIR`), not in the repository.

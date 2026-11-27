@@ -1,8 +1,11 @@
-# Brief: how synthetic varroa is added (crop-based version)
+# Synthetic varroa on single-bee crops
 
-Context document for Claude. It describes the current method used to generate
-"anomalous" bees with synthetic varroa for anomaly detection. Written on 8 October 2026:
-if the code changed afterwards, the code is authoritative.
+This document describes the current method used to generate "anomalous" bees with
+synthetic varroa for anomaly detection (crop-based version). Written on 8 October 2026,
+with an update on 17 October 2026 (last section): if the code changed afterwards, the
+code is authoritative. The anomaly detection experiments that use this dataset are
+described in [single_bee_protocol.md](../../anomaly_detection/single_bee_protocol.md); the
+pipeline that produces the crops is described in [pipeline_results.md](pipeline_results.md).
 
 ## In short
 
@@ -40,9 +43,9 @@ The two old scripts were not modified and remain usable.
 - `build_varroa_split.py` — construction of the train/test dataset.
 - `tests/test_varroa_split.py` — tests on counts and splitting.
 - Varroa sources: `varroa_alpha.png` and `varroa_alpha2.png` (the third one, `varroa_alpha3.png`, was removed on 9 October 2026) in
-  `/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/` (RGBA PNG).
-- Input crops (default): `.../processed/train_single_bee_batch3+4_clusters/Prova1/Crop_Utilizzabile`
-  (54.182 PNGs, 512×512, long axis of the bee vertical, head at the top **or** at the bottom).
+  `$BEES_DATA_ROOT/processed/` (RGBA PNG).
+- Input crops (default): `$BEES_DATA_ROOT/processed/train_single_bee_batch3+4_clusters/Prova1/Crop_Utilizzabile`
+  (54,182 PNGs, 512×512, long axis of the bee vertical, head at the top **or** at the bottom).
 
 ## Insertion on a crop, step by step
 
@@ -128,10 +131,10 @@ do however modify the bee pixels within a few pixels of the contour.
    does not fit on a bee, that bee stays normal and the next one is tried.
 4. Normal bees are identical copies of the source crops (or symlinks with `--mode symlink`).
 
-Counts on the 54.182 crops: train 43.346, test 10.836, of which 325 with varroa
+Counts on the 54,182 crops: train 43,346, test 10,836, of which 325 with varroa
 (217 with one, 108 with two).
 
-Output (default `.../processed/single_bee_batch3+4_varroa_split/`):
+Output (default `$BEES_DATA_ROOT/processed/single_bee_batch3+4_varroa_split/`):
 
 ```
 train/normal/        normal train bees
@@ -187,7 +190,7 @@ In `varroa_generator.py` (shared with the old method): `BLEND_LUMINANCE`,
 
 ## Status
 
-- Pipeline tested end-to-end on 3.000 crops (counts, disjoint groups, binary
+- Pipeline tested end-to-end on 3,000 crops (counts, disjoint groups, binary
   masks with the right number of varroa, normal bees identical to the sources,
   reproducibility).
 - At the time of writing the full dataset **has not been generated yet**.
@@ -203,13 +206,13 @@ can lose them without errors).
 
 Dataset generated from the clusters Giovane (young), Adulte (adult), Malata (sick), Fuco (drone) of the export
 `single_bee3+4+5+6_SAM3_clusters/fase2_finale` (Non_Classificabile excluded):
-127.879 bees, train 102.303, test 25.576, of which 1.279 with varroa (5%: 853 with one,
-426 with two). Output in `processed/single_bee3+4+5+6_SAM3_varroa_split/`, normal bees
+127,879 bees, train 102,303, test 25,576, of which 1,279 with varroa (5%: 853 with one,
+426 with two). Output in `$BEES_DATA_ROOT/processed/single_bee3+4+5+6_SAM3_varroa_split/`, normal bees
 as hardlinks of the export files.
 
 ```
 venv/bin/python build_varroa_split.py \
   --crops-dir <fase2_finale>/Giovane <fase2_finale>/Adulte <fase2_finale>/Malata <fase2_finale>/Fuco \
   --anomalous-fraction 0.05 --mode hardlink \
-  --output .../processed/single_bee3+4+5+6_SAM3_varroa_split
+  --output $BEES_DATA_ROOT/processed/single_bee3+4+5+6_SAM3_varroa_split
 ```

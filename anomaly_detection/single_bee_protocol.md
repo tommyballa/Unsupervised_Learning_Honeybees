@@ -1,4 +1,6 @@
-# Experimental protocol recap — single-bee varroa
+# Single-bee varroa anomaly detection: experimental protocol
+
+This document summarises the dataset split, the model-selection protocol and the final results of the anomaly detection models on single-bee crops with synthetic varroa. The way the synthetic varroa and the dataset were generated is described in [synthetic_varroa_on_crops.md](../segmentation/docs/synthetic_varroa_on_crops.md).
 
 ## 1. Dataset and split
 
@@ -7,7 +9,7 @@
 - **Train:** 102,303 healthy bees (Young/Adult/Drone/Sick).
 - **Original test:** 24,297 healthy + 1,279 with synthetic varroa (1 or 2 per bee), with pixel-level masks.
 
-**Reduced test (used until 18/10):** 5,000 healthy bees sampled with seed 0 plus all 1,279 anomalous ones, so about 20% anomalous. Without subsampling the full test would have only 5% anomalous, and AP and F1 would change a lot. For comparability all models use the reduced test.
+**Reduced test (used until 18 October):** 5,000 healthy bees sampled with seed 0 plus all 1,279 anomalous ones, so about 20% anomalous. Without subsampling the full test would have only 5% anomalous, and AP and F1 would change a lot. For comparability all models use the reduced test.
 
 **Val / held-out test split** (`experiments/single_bee/make_val_split.py`, seed 0):
 
@@ -57,9 +59,8 @@ Script `sweep_<model>.py`, logs in `logs/<model>_sweep/`.
 
 PatchCore with MobileNetV2 (0.9987) and ResNet18 (0.9983) has an equivalent AUROC but a lower pixel AP (0.754 / 0.735). GANomaly is excluded from the final comparison: it was not rerun on the final dataset with the val protocol (on batch3+4 its AUROC was 0.897).
 
-## 4. Limitations to state in the thesis
-
+## 4. Limitations
 
 2. **The synthetic varroa come from only 2 source textures**, shared between val and test. Val and test therefore measure the same anomaly distribution, and generalisation to real varroa is not demonstrated.
 3. **Run-to-run noise is about ±0.01 AUROC** for the trained models (RD4AD fluctuates by ±0.02 from one evaluation to the next). Differences below this threshold, for example between CFA and Dinomaly, are not significant. There is only one seed.
-4. **Anomalous bees are about 20%** of val and of the reduced test, a proportion chosen by us and not the natural one. AP and F1 should be read in this context.
+4. **Anomalous bees are about 20%** of val and of the reduced test, a proportion chosen for this evaluation, not the natural one. AP and F1 should be read in this context.
