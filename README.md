@@ -112,7 +112,7 @@ bees):
 The anomalies are synthetic, so these numbers measure how well each model finds a varroa-like object on a
 bee, not field performance. Training-set size, backbone and inference-cost ablations:
 [`anomaly_detection/logs/ablation/summary/report.md`](anomaly_detection/logs/ablation/summary/report.md).
-Experimental protocol: [`anomaly_detection/recap_protocollo_single_bee.md`](anomaly_detection/recap_protocollo_single_bee.md).
+Experimental protocol: [`anomaly_detection/single_bee_protocol.md`](anomaly_detection/single_bee_protocol.md).
 
 ## Credits
 

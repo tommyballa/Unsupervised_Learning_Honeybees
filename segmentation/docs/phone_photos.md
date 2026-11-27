@@ -1,10 +1,10 @@
 # Thesis brief: photos taken with the phone (domain shift)
 
-This is a briefing to give to Claude for writing the master's thesis. It complements `thesis_brief_risultati.md` (full pipeline on batches 3-6) and contains what was done and measured on 23 October 2026 on the 22 phone photos. If the code or the data changed after this date, the code and the data are authoritative.
+This is a briefing to give to Claude for writing the master's thesis. It complements `pipeline_results.md` (full pipeline on batches 3-6) and contains what was done and measured on 23 October 2026 on the 22 phone photos. If the code or the data changed after this date, the code and the data are authoritative.
 
 ## Instructions for the writer (Claude)
 
-- The same rules as in `thesis_brief_risultati.md` apply:
+- The same rules as in `pipeline_results.md` apply:
   - only facts and numbers present here;
   - the `[AUTHOR TO CONFIRM]` markers stay visible;
   - small differences are described as "within the noise".
@@ -26,7 +26,7 @@ The YOLO model and phase 2 of the active learning were built on photos from a ca
   - 21 photos are 4000×3000 and one is 4608×3456.
   - 4 photos have EXIF orientation 3, i.e. they are rotated by 180°.
   - `[AUTHOR TO CONFIRM: phone model, hive, whether they are the same combs photographed in batch_6]`.
-- **They were never used** to train YOLO: they had been removed from the 791 photos of the pipeline (`thesis_brief_risultati.md` §2).
+- **They were never used** to train YOLO: they had been removed from the 791 photos of the pipeline (`pipeline_results.md` §2).
 - **Labels:** SAM 3 pseudo-labels in `processed/phone_captured`, produced with the same procedure as batches 3-6. In total 6.959 bees, on average 316 per photo.
 - **Bee size.**
   - Median bee length: 229 px on 4000 px photos from the phone, 264 px on 6016 px photos in batches 3-6.
@@ -40,7 +40,7 @@ The YOLO model and phase 2 of the active learning were built on photos from a ca
 
 ## 3. Segmentation: YOLO on the phone photos
 
-- **Model:** the best one from the ablation, YOLO26s-seg trained at 1376 px (`thesis_brief_risultati.md` §4).
+- **Model:** the best one from the ablation, YOLO26s-seg trained at 1376 px (`pipeline_results.md` §4).
 - **Protocol:** the same as for the test set, i.e. `conf=0.10` and `max_det=2500` (`logs/phone/phone_eval_data.py`).
 
 | Data | Inference | seg mAP50-95 | seg mAP50 | seg mAP75 | P | R |
@@ -137,7 +137,7 @@ To see whether a few labels are enough, a separate annotation phase was run (`co
 
 The intervals come from the bootstrap over the 22 photos and **do not measure the model errors**.
 
-**Comparison with batches 3-6** (phase 2, `thesis_brief_risultati.md` §9):
+**Comparison with batches 3-6** (phase 2, `pipeline_results.md` §9):
 
 | | batches 3-6 | phone |
 |---|---|---|

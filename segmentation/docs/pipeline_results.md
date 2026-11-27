@@ -4,7 +4,7 @@ This file is a briefing to give to Claude for writing the master's thesis. It co
 
 ## Instructions for the writer (Claude)
 
-- Use **only** facts and numbers present in this file and in the two linked briefs (`ablation_sam3.md`, `thesis_brief_yolo_finetuning.md`). If a sentence is not supported by them, remove it or flag it with `[AUTHOR TO CONFIRM]`.
+- Use **only** facts and numbers present in this file and in the two linked briefs (`ablation_sam3.md`, `yolo_finetuning_langsam.md`). If a sentence is not supported by them, remove it or flag it with `[AUTHOR TO CONFIRM]`.
 - Keep the `[AUTHOR TO CONFIRM]` markers already present visible in the text: they are facts I could not verify.
 - Language: `[AUTHOR TO CONFIRM]`. The previous brief on segmentation asked for academic English.
 - In the text, use neutral names for the runs and phases ("base model", "1376 px", "phase 1"). The folder names are only there for the author to find the results.
@@ -28,7 +28,7 @@ The pipeline has six steps:
    - phase 2: demographic and disease classes, only on the usable crops.
 6. **Per-batch counts** from the final classes, with bootstrap intervals over the photos.
 
-A synthetic varroa generator on the crops was also developed for anomaly detection: see `brief_varroa_sintetica_su_crop.md`. I have no quantitative results on that work: `[AUTHOR TO CONFIRM: whether and how it goes into the thesis]`.
+A synthetic varroa generator on the crops was also developed for anomaly detection: see `synthetic_varroa_on_crops.md`. I have no quantitative results on that work: `[AUTHOR TO CONFIRM: whether and how it goes into the thesis]`.
 
 ## 2. Data
 
@@ -108,7 +108,7 @@ The full detail, with all tables and metrics, is in **`ablation_sam3.md`**: it m
 5. **mAP75** is the metric that best separates the good variants: what matters is contour precision, while detection is similar across variants.
 
 ### Comparison with the first ablation (LangSAM, batches 3+4)
-It is described in `thesis_brief_yolo_finetuning.md`.
+It is described in `yolo_finetuning_langsam.md`.
 - **LangSAM:** 298 train photos, 56 test photos, high resolution 1440 px. Best 0,628 at 2048 px.
 - **SAM 3:** best 0,692.
 
@@ -333,7 +333,7 @@ Steps that would make the numbers defensible, not yet done: `[AUTHOR TO CONFIRM 
 | What | Where |
 |---|---|
 | SAM 3 ablation, full detail | `ablation_sam3.md`, `logs/ablation_sam3/` |
-| LangSAM ablation (previous) | `thesis_brief_yolo_finetuning.md` |
+| LangSAM ablation (previous) | `yolo_finetuning_langsam.md` |
 | SAM 3 pseudo-labels | `generate_labels_sam3.py`, `processed/bee_batch3+4+5+6_SAM3`, `logs/generate_labels_sam3.log` |
 | Split | `split_dataset_sam3.py`, `data_sam3.yaml` |
 | Extraction | `extract_anomaly_dataset.py`, `logs/extract_single_bee3+4+5+6_SAM3.log` |
@@ -343,7 +343,7 @@ Steps that would make the numbers defensible, not yet done: `[AUTHOR TO CONFIRM 
 | Phase 2 snapshot | `/mnt/disk1/tommaso_ballarin/bee_al/results_fase2_sam3/snapshots/fase2_finale/` (with `batch_counts/`: CSVs per batch and per photo, plot `batch_counts.png`) |
 | Exported clusters | `processed/single_bee3+4+5+6_SAM3_clusters/{fase1_finale_okvsscarta, fase2_finale}` |
 | Contrastive models | `/mnt/disk1/tommaso_ballarin/bee_al/models_{sam3_b3456,fase2_sam3}/v00N/` (`meta.json`, `train_log.json`) |
-| Synthetic varroa | `brief_varroa_sintetica_su_crop.md`, `varroa_on_crops.py`, `build_varroa_split.py` |
+| Synthetic varroa | `synthetic_varroa_on_crops.md`, `varroa_on_crops.py`, `build_varroa_split.py` |
 
 Software: Ultralytics 8.4.138, PyTorch 2.14.0, Python 3.10, 48 GB NVIDIA RTX A6000 GPU (shared server).
 

@@ -1,7 +1,7 @@
 """Thesis figures and metrics for the 22 phone photos: segmentation, domain distance, dedicated phase 2.
 
 Reads the results already produced (logs/phone/*.json|csv, snapshot 'foto_telefono', UMAP maps) and writes to OUT:
-- metrics.json: all the numbers cited in docs/thesis_brief_telefono.md;
+- metrics.json: all the numbers cited in docs/phone_photos.md;
 - fig1_seg_per_foto.png, fig2_similarita_dominio.png, fig3_fase1_vs_fase_telefono.png,
   fig4_composizione_per_foto.png, map_overview.png, map_by_cluster.png, crops_<classe>.png.
 Usage: python logs/phone/thesis_report_phone.py

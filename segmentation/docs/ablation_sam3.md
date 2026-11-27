@@ -1,6 +1,6 @@
 # YOLO26s-seg ablation on SAM 3 labels (batches 3-6)
 
-Fine-tuning of YOLO26s-seg for bee segmentation, redone on the SAM 3 pseudo-labels of batches 3-6. It repeats the earlier ablation on the LangSAM labels (batches 3+4, see `thesis_brief_yolo_finetuning.md`), with the same variants and the same test protocol.
+Fine-tuning of YOLO26s-seg for bee segmentation, redone on the SAM 3 pseudo-labels of batches 3-6. It repeats the earlier ablation on the LangSAM labels (batches 3+4, see `yolo_finetuning_langsam.md`), with the same variants and the same test protocol.
 
 Runs carried out from 12 to 16 October 2026.
 

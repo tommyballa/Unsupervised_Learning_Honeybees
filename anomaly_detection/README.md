@@ -44,7 +44,7 @@ uv run python experiments/plot_heatmaps.py single_bee all
 | [`experiments/README.md`](experiments/README.md) | All scripts, the training/evaluation flow and the output folders |
 | `experiments/single_bee/` | 11 models on 512×512 crops: `main_<model>.py`, `sweep_<model>.py`, ablation, efficiency, score analyses |
 | `experiments/full_image/` | Whole frame photos with many bees, sliding window |
-| [`recap_protocollo_single_bee.md`](recap_protocollo_single_bee.md) | Experimental protocol: splits, model selection, thresholds |
+| [`single_bee_protocol.md`](single_bee_protocol.md) | Experimental protocol: splits, model selection, thresholds |
 | [`logs/ablation/summary/report.md`](logs/ablation/summary/report.md) | Training-set size, backbone and inference-cost ablation |
 | `logs/<model>_sweep/` | Hyper-parameter sweeps (one JSON per configuration) |
 | `logs/val/`, `logs/score_dist/` | Final runs on the validation/held-out protocol and score distributions |

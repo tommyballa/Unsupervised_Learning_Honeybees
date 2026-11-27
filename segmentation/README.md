@@ -82,8 +82,8 @@ segmentation/
 
 | Document | Content |
 |---|---|
-| [`docs/thesis_brief_risultati.md`](docs/thesis_brief_risultati.md) | Whole pipeline on batches 3-6: data, SAM 3 labels, YOLO, extraction, cleaning, active learning, counts |
+| [`docs/pipeline_results.md`](docs/pipeline_results.md) | Whole pipeline on batches 3-6: data, SAM 3 labels, YOLO, extraction, cleaning, active learning, counts |
 | [`docs/ablation_sam3.md`](docs/ablation_sam3.md) | YOLO26s-seg ablation on SAM 3 labels (resolution, augmentation, freeze, seed) |
-| [`docs/thesis_brief_yolo_finetuning.md`](docs/thesis_brief_yolo_finetuning.md) | First ablation on LangSAM labels (batches 3+4) |
-| [`docs/thesis_brief_telefono.md`](docs/thesis_brief_telefono.md) | Generalisation to frame photos taken with a phone |
-| [`docs/brief_varroa_sintetica_su_crop.md`](docs/brief_varroa_sintetica_su_crop.md) | Synthetic varroa generator on single-bee crops |
+| [`docs/yolo_finetuning_langsam.md`](docs/yolo_finetuning_langsam.md) | First ablation on LangSAM labels (batches 3+4) |
+| [`docs/phone_photos.md`](docs/phone_photos.md) | Generalisation to frame photos taken with a phone |
+| [`docs/synthetic_varroa_on_crops.md`](docs/synthetic_varroa_on_crops.md) | Synthetic varroa generator on single-bee crops |
