@@ -1,211 +1,211 @@
-# Brief: come viene aggiunta la varroa sintetica (versione sui crop)
+# Brief: how synthetic varroa is added (crop-based version)
 
-Documento di contesto per Claude. Descrive il metodo attuale con cui si generano
-api "anomale" con varroa sintetica per l'anomaly detection. Scritto l'8 ottobre 2026:
-se il codice è cambiato dopo, fa fede il codice.
+Context document for Claude. It describes the current method used to generate
+"anomalous" bees with synthetic varroa for anomaly detection. Written on 8 October 2026:
+if the code changed afterwards, the code is authoritative.
 
-## In breve
+## In short
 
-La varroa viene incollata **direttamente sul crop della singola ape già segmentata**
-(PNG 512×512 a sfondo nero), non più sull'immagine intera del favo. Per ogni ape
-anomala si salva anche una maschera binaria della varroa, da usare come ground truth
-per le metriche pixel-level.
+The varroa is pasted **directly onto the crop of the single, already segmented bee**
+(512×512 PNG on a black background), no longer onto the full comb image. For each
+anomalous bee a binary varroa mask is also saved, to be used as ground truth
+for the pixel-level metrics.
 
-## Cosa è cambiato rispetto a prima
+## What changed compared to before
 
-| | Metodo precedente | Metodo attuale |
+| | Previous method | Current method |
 |---|---|---|
-| Dove si incolla | immagine intera del favo | crop 512×512 della singola ape |
-| Script | `varroa_generator.py` + `extract_synthetic_anomaly_dataset.py` | `varroa_on_crops.py` + `build_varroa_split.py` |
-| Segmentazione | YOLO gira *dopo* l'inserimento, poi `dataset_cleaning.clean_bee` | nessuna: i crop sono già segmentati e puliti |
-| GT mask | maschera sul favo, trasformata con l'affine di `clean_bee` e intersecata con l'ape | generata già nel frame del crop |
-| Posizione | dentro il poligono dell'ape, zona più satura/scura | solo sul corpo (vedi sotto) |
+| Where it is pasted | full comb image | 512×512 crop of the single bee |
+| Scripts | `varroa_generator.py` + `extract_synthetic_anomaly_dataset.py` | `varroa_on_crops.py` + `build_varroa_split.py` |
+| Segmentation | YOLO runs *after* insertion, then `dataset_cleaning.clean_bee` | none: the crops are already segmented and cleaned |
+| GT mask | mask on the comb, transformed with the `clean_bee` affine and intersected with the bee | generated directly in the crop frame |
+| Position | inside the bee polygon, most saturated/darkest area | on the body only (see below) |
 
-Conseguenze da tenere presenti:
+Consequences to keep in mind:
 
-- La varroa non passa più per YOLO né per la pulizia, quindi non può alterare la
-  segmentazione e non viene mai tagliata dalla maschera dell'ape.
-- La varroa non subisce più lo stesso ridimensionamento dell'ape (i crop sono api
-  piccole ingrandite a 512). Per questo l'adattamento di nitidezza e grana è
-  essenziale: senza, la varroa è visibilmente più nitida dell'ape.
+- The varroa no longer goes through YOLO or through the cleaning, so it cannot alter the
+  segmentation and is never cut off by the bee mask.
+- The varroa no longer undergoes the same resizing as the bee (the crops are small
+  bees upscaled to 512). This is why sharpness and grain matching is
+  essential: without it, the varroa is visibly sharper than the bee.
 
-I due script vecchi non sono stati modificati e restano utilizzabili.
-`varroa_on_crops.py` importa da `varroa_generator.py` le funzioni comuni
-(caricamento sorgenti, adattamento colore, ombre, compositing).
+The two old scripts were not modified and remain usable.
+`varroa_on_crops.py` imports the shared functions from `varroa_generator.py`
+(source loading, colour adaptation, shadows, compositing).
 
-## File
+## Files
 
-- `varroa_on_crops.py` — inserimento su un singolo crop (`add_varroa_to_crop`) e
-  CLI per prove visive con foglio di confronto.
-- `build_varroa_split.py` — costruzione del dataset train/test.
-- `tests/test_varroa_split.py` — test su conteggi e divisione.
-- Sorgenti varroa: `varroa_alpha.png` e `varroa_alpha2.png` (la terza, `varroa_alpha3.png`, è stata tolta il 9 ottobre 2026) in
-  `/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/` (PNG RGBA).
-- Crop di input (default): `.../processed/train_single_bee_batch3+4_clusters/Prova1/Crop_Utilizzabile`
-  (54.182 PNG 512×512, asse lungo dell'ape verticale, testa in alto **o** in basso).
+- `varroa_on_crops.py` — insertion on a single crop (`add_varroa_to_crop`) and
+  CLI for visual checks with a comparison sheet.
+- `build_varroa_split.py` — construction of the train/test dataset.
+- `tests/test_varroa_split.py` — tests on counts and splitting.
+- Varroa sources: `varroa_alpha.png` and `varroa_alpha2.png` (the third one, `varroa_alpha3.png`, was removed on 9 October 2026) in
+  `/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/` (RGBA PNG).
+- Input crops (default): `.../processed/train_single_bee_batch3+4_clusters/Prova1/Crop_Utilizzabile`
+  (54.182 PNGs, 512×512, long axis of the bee vertical, head at the top **or** at the bottom).
 
-## Inserimento su un crop, passo per passo
+## Insertion on a crop, step by step
 
-Funzione: `varroa_on_crops.add_varroa_to_crop(crop, varroa_sources, ratio_range, ..., num_varroa=None)`.
-Restituisce `(crop_sintetico, gt_mask, zona)`; i primi due sono `None` se fallisce.
+Function: `varroa_on_crops.add_varroa_to_crop(crop, varroa_sources, ratio_range, ..., num_varroa=None)`.
+Returns `(synthetic_crop, gt_mask, zone)`; the first two are `None` on failure.
 
-### 1. Sorgenti varroa (`vg.load_varroa_sources`)
-Per ogni PNG: alpha binarizzato a 128, eroso per togliere la frangia chiara dello
-scontorno, apertura morfologica per eliminare zampe e peli, tenuto solo il contorno
-più grande riempito. Ritaglio sul corpo, buchi riempiti con inpainting, corpo
-normalizzato a 128 px di larghezza.
+### 1. Varroa sources (`vg.load_varroa_sources`)
+For each PNG: alpha binarised at 128, eroded to remove the light fringe left by the
+cut-out, morphological opening to remove legs and hairs, only the largest contour
+kept and filled. Cropped to the body, holes filled with inpainting, body
+normalised to a width of 128 px.
 
-### 2. Maschera dell'ape (`bee_mask_from_crop`)
-Pixel con canale massimo > 10, componente connessa più grande, buchi riempiti.
+### 2. Bee mask (`bee_mask_from_crop`)
+Pixels with maximum channel > 10, largest connected component, holes filled.
 
-### 3. Zona ammessa (`body_zone`)
-La varroa può stare solo su torace e addome, fino a subito sotto gli occhi.
+### 3. Allowed zone (`body_zone`)
+The varroa may only sit on the thorax and abdomen, up to just below the eyes.
 
-1. **Parte spessa**: apertura morfologica della maschera con raggio = 60% dello
-   spessore massimo (distance transform). Elimina ali aperte, zampe, antenne.
-2. **Asse del corpo**: direzione principale (PCA) della parte spessa.
-3. **Estremità escluse**: 22% della lunghezza a ciascun capo. La testa non è
-   distinguibile dall'addome, quindi si escludono entrambe le estremità: via gli
-   occhi, ma anche la punta dell'addome.
-4. **Fascia centrale**: distanza dall'asse ≤ 70% della semilarghezza del corpo.
-5. **Ali chiare**: esclusi i pixel con saturazione < 75 e valore > 125 (HSV, dopo
-   sfocatura), cioè membrana traslucida e riflessi.
+1. **Thick part**: morphological opening of the mask with radius = 60% of the
+   maximum thickness (distance transform). Removes open wings, legs, antennae.
+2. **Body axis**: principal direction (PCA) of the thick part.
+3. **Excluded ends**: 22% of the length at each end. The head cannot be
+   told apart from the abdomen, so both ends are excluded: this removes the
+   eyes, but also the tip of the abdomen.
+4. **Central band**: distance from the axis ≤ 70% of the body half-width.
+5. **Light wings**: pixels with saturation < 75 and value > 125 (HSV, after
+   blurring) are excluded, i.e. translucent membrane and reflections.
 
-### 4. Dimensione e rotazione
-- Larghezza varroa = larghezza dell'ape × U(0.20, 0.24). La larghezza dell'ape è il
-  lato corto del rettangolo orientato minimo della maschera **intera** (ali comprese).
-- Rotazione uniforme 0–360°.
-- Dalla varroa ruotata si ricava la maschera binaria (soglia 128, componente più
-  grande) ritagliata stretta: è questa che diventa GT.
+### 4. Size and rotation
+- Varroa width = bee width × U(0.20, 0.24). The bee width is the
+  short side of the minimum oriented rectangle of the **whole** mask (wings included).
+- Uniform rotation 0–360°.
+- The binary mask (threshold 128, largest component), tightly cropped, is derived
+  from the rotated varroa: this is what becomes the GT.
 
-### 5. Posizione (`find_position_in_mask`)
-Fino a 200 centri candidati presi a caso tra i pixel della zona. Un candidato è
-scartato se esce dal frame, se si sovrappone a una varroa già inserita o se la
-varroa non cade **al 100%** nella zona. Tra i validi vince quello con punteggio più
-alto: `saturazione media + 0.5 × (255 − valore medio)` sotto la varroa, cioè zone
-sature e scure.
+### 5. Position (`find_position_in_mask`)
+Up to 200 candidate centres sampled at random among the zone pixels. A candidate is
+discarded if it goes outside the frame, if it overlaps an already inserted varroa or if the
+varroa does not fall **100%** inside the zone. Among the valid ones, the one with the highest
+score wins: `mean saturation + 0.5 × (255 − mean value)` under the varroa, i.e.
+saturated, dark areas.
 
-### 6. Adattamento del colore (`vg.adapt_color_to_region`, spazio LAB)
-- luminosità media spostata verso quella dell'ape (peso 0.60);
-- contrasto avvicinato a quello dell'ape (0.45);
-- crominanza spostata verso quella dell'ape (0.45);
-- la varroa eredita luci e ombre locali dell'ape sottostante (0.60).
+### 6. Colour adaptation (`vg.adapt_color_to_region`, LAB space)
+- mean lightness shifted towards that of the bee (weight 0.60);
+- contrast brought closer to that of the bee (0.45);
+- chrominance shifted towards that of the bee (0.45);
+- the varroa inherits the local highlights and shadows of the underlying bee (0.60).
 
-Le statistiche sono calcolate su una copia del crop in cui lo sfondo nero è
-sostituito dal colore medio dell'ape, così il nero non le falsa.
+The statistics are computed on a copy of the crop in which the black background is
+replaced by the mean colour of the bee, so the black does not skew them.
 
-### 7. Nitidezza e grana (`match_sharpness_and_noise` in `varroa_on_crops.py`)
-- La nitidezza è il 90° percentile del Laplaciano. Quella di riferimento è misurata
-  nell'intorno della varroa (3× il suo rettangolo), solo sui pixel dell'ape.
-- Si sfoca la varroa con sigma crescente (da 0.6, passo 0.25) finché scende alla
-  nitidezza di riferimento, con tetto `0.12 × sqrt(area varroa)`. Alpha sfocato con
-  lo stesso sigma.
-- Grana: deviazione stimata dal crop (MAD del residuo ad alta frequenza, tetto 6).
-  Il rumore aggiunto viene sfocato con lo stesso sigma e riscalato, perché la grana
-  dei crop è "larga" (sono ingrandimenti).
+### 7. Sharpness and grain (`match_sharpness_and_noise` in `varroa_on_crops.py`)
+- Sharpness is the 90th percentile of the Laplacian. The reference sharpness is measured
+  around the varroa (3× its rectangle), on bee pixels only.
+- The varroa is blurred with increasing sigma (from 0.6, step 0.25) until it drops to the
+  reference sharpness, capped at `0.12 × sqrt(varroa area)`. Alpha is blurred with
+  the same sigma.
+- Grain: standard deviation estimated from the crop (MAD of the high-frequency residual, cap 6).
+  The added noise is blurred with the same sigma and rescaled, because the grain
+  of the crops is "coarse" (they are upscaled).
 
-### 8. Ombre e compositing
-- Bordo sfumato (feather) con raggio ≈ 8% della varroa.
-- Ombra di contatto: anello ≈ 10% della varroa, opacità 0.25.
-- Ombra spostata: offset ≈ 8%, sfocatura ≈ 20%, opacità 0.20.
-- Alpha compositing diretto sul crop (niente Poisson blending).
+### 8. Shadows and compositing
+- Feathered edge with radius ≈ 8% of the varroa.
+- Contact shadow: ring ≈ 10% of the varroa, opacity 0.25.
+- Drop shadow: offset ≈ 8%, blur ≈ 20%, opacity 0.20.
+- Direct alpha compositing onto the crop (no Poisson blending).
 
 ### 9. GT mask
-OR delle maschere binarie strette di ogni varroa, 512×512, valori 0/255. È la
-sagoma netta della varroa: non include sfumatura del bordo né ombre, che però
-modificano i pixel dell'ape entro pochi pixel dal contorno.
+OR of the tight binary masks of each varroa, 512×512, values 0/255. It is the
+sharp silhouette of the varroa: it includes neither the edge feathering nor the shadows, which
+do however modify the bee pixels within a few pixels of the contour.
 
-### Numero di varroa
-- `num_varroa=None`: 1 o 2 a caso, si tengono quelle che entrano.
-- `num_varroa=N`: esattamente N, con fino a 5 tentativi per varroa (dimensione e
-  rotazione nuove a ogni tentativo); se non ci riesce l'inserimento fallisce.
+### Number of varroa
+- `num_varroa=None`: 1 or 2 at random, keeping those that fit.
+- `num_varroa=N`: exactly N, with up to 5 attempts per varroa (new size and
+  rotation at every attempt); if it does not succeed, the insertion fails.
 
-## Costruzione del dataset (`build_varroa_split.py`)
+## Dataset construction (`build_varroa_split.py`)
 
-1. Divisione casuale dei crop: 80% train, 20% test.
-2. Nel test il 3% delle api riceve la varroa: 2/3 con una, 1/3 con due.
-3. Si scorre il test in ordine casuale finché le quote sono piene. Se su un'ape la
-   varroa non entra, quell'ape resta normale e si passa alla successiva.
-4. Le api normali sono copie identiche dei crop sorgente (o symlink con `--mode symlink`).
+1. Random split of the crops: 80% train, 20% test.
+2. In the test set 3% of the bees receive varroa: 2/3 with one, 1/3 with two.
+3. The test set is scanned in random order until the quotas are filled. If the varroa
+   does not fit on a bee, that bee stays normal and the next one is tried.
+4. Normal bees are identical copies of the source crops (or symlinks with `--mode symlink`).
 
-Conteggi sui 54.182 crop: train 43.346, test 10.836, di cui 325 con varroa
-(217 con una, 108 con due).
+Counts on the 54.182 crops: train 43.346, test 10.836, of which 325 with varroa
+(217 with one, 108 with two).
 
 Output (default `.../processed/single_bee_batch3+4_varroa_split/`):
 
 ```
-train/normal/        api normali di train
-test/normal/         api normali di test
-test/anomalous/      api di test con varroa
+train/normal/        normal train bees
+test/normal/         normal test bees
+test/anomalous/      test bees with varroa
 test/masks/          <bee_id>_mask.png, 0/255
 test/labels.csv      bee_id, label (0/1), num_varroa, image_path, mask_path
 split.csv            file, split, label, num_varroa
-config.json          parametri e conteggi
+config.json          parameters and counts
 ```
 
-Riproducibilità: seed 42. Ogni ape ha un seed proprio derivato dal nome del file,
-quindi il risultato non dipende dall'ordine di elaborazione.
+Reproducibility: seed 42. Each bee has its own seed derived from the file name,
+so the result does not depend on the processing order.
 
-Comandi:
+Commands:
 
 ```
-venv/bin/python build_varroa_split.py --dry-run          # solo i conteggi
-venv/bin/python build_varroa_split.py                    # dataset completo
+venv/bin/python build_varroa_split.py --dry-run          # counts only
+venv/bin/python build_varroa_split.py                    # full dataset
 venv/bin/python build_varroa_split.py --crops-dir <dir> --output <dir> --limit 2000
-venv/bin/python varroa_on_crops.py --name <prova> --num-bees 24   # prova visiva
+venv/bin/python varroa_on_crops.py --name <prova> --num-bees 24   # visual check
 ```
 
-Lo script non scrive in una cartella di output non vuota.
+The script does not write into a non-empty output folder.
 
-## Parametri principali
+## Main parameters
 
-In cima a `varroa_on_crops.py`: `VARROA_BEE_RATIO_MIN/MAX` (0.20–0.24),
+At the top of `varroa_on_crops.py`: `VARROA_BEE_RATIO_MIN/MAX` (0.20–0.24),
 `BODY_CORE_RATIO` (0.60), `BODY_END_MARGIN` (0.22), `BODY_AXIS_BAND` (0.70),
 `WING_MAX_SATURATION` (75), `WING_MIN_VALUE` (125), `MIN_ZONE_COVERAGE` (1.0),
 `MAX_BLUR_RATIO` (0.12), `ATTEMPTS_PER_VARROA` (5), `CROPS_DIR`.
 
-In cima a `build_varroa_split.py`: `TEST_FRACTION` (0.20), `ANOMALOUS_FRACTION`
+At the top of `build_varroa_split.py`: `TEST_FRACTION` (0.20), `ANOMALOUS_FRACTION`
 (0.03), `TWO_VARROA_FRACTION` (1/3), `SEED` (42), `OUTPUT_DIR`.
 
-In `varroa_generator.py` (condivisi col metodo vecchio): `BLEND_LUMINANCE`,
+In `varroa_generator.py` (shared with the old method): `BLEND_LUMINANCE`,
 `BLEND_CONTRAST`, `BLEND_CHROMA`, `BLEND_SHADING`, `MIN_BLUR_SIGMA`,
 `MAX_NOISE_SIGMA`, `CONTACT_SHADOW_OPACITY`, `DROP_SHADOW_OPACITY`.
 
-## Limiti noti
+## Known limitations
 
-- **Ali brune ripiegate sull'addome** non vengono riconosciute come ali: lì la
-  varroa può finire sopra l'ala.
-- **Dimensione non costante**: la larghezza dell'ape include le ali, quindi sulle
-  api con le ali aperte la varroa esce più grande.
-- **Bordino chiaro** attorno alla varroa in alcuni casi, più visibile sulle zone scure.
-- **Punta dell'addome esclusa** come effetto collaterale dell'esclusione degli occhi.
-- **Solo due varroa sorgente**: la varietà di aspetto viene da rotazione, scala e
-  adattamento del colore.
-- **Realismo valutato solo a occhio** su qualche decina di api. Non è stato
-  verificato l'effetto sul modello di anomaly detection né fatto un confronto con
-  il metodo precedente.
+- **Brown wings folded over the abdomen** are not recognised as wings: there the
+  varroa can end up on top of the wing.
+- **Non-constant size**: the bee width includes the wings, so on
+  bees with open wings the varroa comes out larger.
+- **Thin light rim** around the varroa in some cases, more visible on dark areas.
+- **Tip of the abdomen excluded** as a side effect of excluding the eyes.
+- **Only two source varroa**: the variety of appearance comes from rotation, scale and
+  colour adaptation.
+- **Realism assessed only by eye** on a few dozen bees. The effect on the
+  anomaly detection model has not been verified, nor has a comparison been made with
+  the previous method.
 
-## Stato
+## Status
 
-- Pipeline testata end-to-end su 3.000 crop (conteggi, gruppi disgiunti, maschere
-  binarie con il numero giusto di varroa, normali identiche ai sorgenti,
-  riproducibilità).
-- Al momento della scrittura il dataset completo **non è ancora stato generato**.
+- Pipeline tested end-to-end on 3.000 crops (counts, disjoint groups, binary
+  masks with the right number of varroa, normal bees identical to the sources,
+  reproducibility).
+- At the time of writing the full dataset **has not been generated yet**.
 
-## Aggiornamento 17 ottobre 2026: dataset AD dai cluster della fase 2
+## Update 17 October 2026: AD dataset from the phase 2 clusters
 
-`build_varroa_split.py` accetta ora più cartelle sorgente (`--crops-dir A B ...`),
-la quota di anomale da riga di comando (`--anomalous-fraction`) e `--mode hardlink`.
-La cartella di origine di ogni ape finisce nella colonna `cluster` di
-`test/labels.csv` e `split.csv` e nei conteggi per cluster di `config.json`. Dopo la
-scrittura lo script ricontrolla il numero di file in ogni cartella (il disco NTFS
-può perderli senza errori).
+`build_varroa_split.py` now accepts multiple source folders (`--crops-dir A B ...`),
+the fraction of anomalous bees from the command line (`--anomalous-fraction`) and `--mode hardlink`.
+The source folder of each bee goes into the `cluster` column of
+`test/labels.csv` and `split.csv` and into the per-cluster counts of `config.json`. After
+writing, the script re-checks the number of files in each folder (the NTFS disk
+can lose them without errors).
 
-Dataset generato dai cluster Giovane, Adulte, Malata, Fuco dell'export
-`single_bee3+4+5+6_SAM3_clusters/fase2_finale` (Non_Classificabile escluso):
-127.879 api, train 102.303, test 25.576, di cui 1.279 con varroa (5%: 853 con una,
-426 con due). Output in `processed/single_bee3+4+5+6_SAM3_varroa_split/`, api normali
-come hardlink dei file dell'export.
+Dataset generated from the clusters Giovane (young), Adulte (adult), Malata (sick), Fuco (drone) of the export
+`single_bee3+4+5+6_SAM3_clusters/fase2_finale` (Non_Classificabile excluded):
+127.879 bees, train 102.303, test 25.576, of which 1.279 with varroa (5%: 853 with one,
+426 with two). Output in `processed/single_bee3+4+5+6_SAM3_varroa_split/`, normal bees
+as hardlinks of the export files.
 
 ```
 venv/bin/python build_varroa_split.py \

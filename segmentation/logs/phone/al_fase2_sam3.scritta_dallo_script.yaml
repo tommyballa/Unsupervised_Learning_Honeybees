@@ -1,7 +1,7 @@
-# Fase 'fase2_sam3': 138788 api con classe ['Ok'] nello snapshot 'fase1_finale_okvsscarta'
-# di al_config.yaml. Scritta da scripts/new_stage.py; etichette e modelli sono separati.
-# Aggiunte 34645 api di 'b7' (batch 7) filtrate con il modello v003 della fase 1 (scripts/add_dataset_to_stage.py).
-# Aggiunte 895 api di 'phone' filtrate con il modello v003 della fase precedente.
+# Phase 'fase2_sam3': 138788 bees with class ['Ok'] in the snapshot 'fase1_finale_okvsscarta'
+# of al_config.yaml. Written by scripts/new_stage.py; labels and models are separate.
+# Added 34645 bees from 'b7' (batch 7) filtered with model v003 of phase 1 (scripts/add_dataset_to_stage.py).
+# Added 895 bees from 'phone' filtered with model v003 of the previous phase.
 
 seed: 42
 paths:

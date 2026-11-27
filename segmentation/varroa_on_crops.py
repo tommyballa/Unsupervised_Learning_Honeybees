@@ -1,18 +1,18 @@
 """
-Prova: inserimento della varroa direttamente sulle singole api già segmentate
-(crop 512x512 a sfondo nero), invece che sull'immagine del favo prima della
-segmentazione.
+Trial: inserting the varroa directly onto the single, already segmented bees
+(512x512 crops on a black background), instead of onto the comb image before
+segmentation.
 
-Riusa le funzioni di varroa_generator.py (caricamento sorgenti, adattamento
-colore, ombre, compositing) senza modificarlo. Cambia solo ciò che dipende dal
-fatto di lavorare su un crop:
-  - la maschera dell'ape si ricava dai pixel non neri del crop;
-  - la varroa viene posizionata solo sul corpo dell'ape, fino a subito sotto
-    gli occhi (mai su ali, occhi, zampe o sfondo);
-  - colore, nitidezza e grana sono stimati solo sui pixel dell'ape, così lo
-    sfondo nero e il bordo dell'ape non falsano le statistiche.
+Reuses the functions of varroa_generator.py (source loading, colour
+adaptation, shadows, compositing) without modifying it. Only what depends on
+working on a crop changes:
+  - the bee mask is derived from the non-black pixels of the crop;
+  - the varroa is placed only on the bee's body, up to just below
+    the eyes (never on wings, eyes, legs or background);
+  - colour, sharpness and grain are estimated only on the bee pixels, so the
+    black background and the bee's edge do not skew the statistics.
 
-Output: per ogni ape il crop con varroa, la GT mask e un foglio di confronto.
+Output: for each bee the crop with varroa, the GT mask and a comparison sheet.
 """
 
 from bee_paths import DATA_ROOT
@@ -26,50 +26,50 @@ import numpy as np
 
 import varroa_generator as vg
 
-# --- Configurazione ---
+# --- Configuration ---
 CROPS_DIR = DATA_ROOT + "/processed/train_single_bee_batch3+4_clusters/Prova1/Crop_Utilizzabile"
 OUTPUT_DIR = DATA_ROOT + "/processed/prova_varroa_su_crop"
 
 SEED = 42
 NUM_BEES = 12
 
-# Larghezza della varroa rispetto alla larghezza dell'ape (lato corto del
-# rettangolo orientato della maschera)
+# Varroa width relative to the bee width (short side of the
+# oriented rectangle of the mask)
 VARROA_BEE_RATIO_MIN = 0.20
 VARROA_BEE_RATIO_MAX = 0.24
 
 VARROA_PER_BEE_MIN = 1
 VARROA_PER_BEE_MAX = 2
 
-# Tentativi (dimensione e rotazione nuove) per ogni varroa quando il numero è imposto
+# Attempts (with new size and rotation) for each varroa when the number is fixed
 ATTEMPTS_PER_VARROA = 5
 
-# Soglia sotto cui un pixel del crop è considerato sfondo
+# Threshold below which a crop pixel is considered background
 BG_THRESHOLD = 10
 
-# --- Zona ammessa: corpo dell'ape, esclusi ali, zampe e occhi ---
-# Il corpo è la parte "spessa" della maschera: resta dopo un'apertura con raggio
-# pari a questa frazione dello spessore massimo (ali sottili, zampe e antenne spariscono)
+# --- Allowed zone: the bee's body, excluding wings, legs and eyes ---
+# The body is the "thick" part of the mask: it is what remains after an opening with radius
+# equal to this fraction of the maximum thickness (thin wings, legs and antennae disappear)
 BODY_CORE_RATIO = 0.60
-# Frazione della lunghezza del corpo esclusa a ciascuna estremità: la testa può
-# essere in alto o in basso, quindi si tolgono entrambe (occhi e punta dell'addome).
-# La zona subito sotto gli occhi resta ammessa.
+# Fraction of the body length excluded at each end: the head can
+# be at the top or at the bottom, so both are removed (eyes and tip of the abdomen).
+# The area just below the eyes stays allowed.
 BODY_END_MARGIN = 0.22
-# Distanza massima dall'asse del corpo, in frazione della semilarghezza del corpo
+# Maximum distance from the body axis, as a fraction of the body half-width
 BODY_AXIS_BAND = 0.70
-# Pixel chiari e poco saturi = ala (membrana traslucida e riflessi)
+# Light, low-saturation pixels = wing (translucent membrane and reflections)
 WING_MAX_SATURATION = 75
 WING_MIN_VALUE = 125
-# Frazione della varroa che deve cadere nella zona ammessa (1.0 = tutta)
+# Fraction of the varroa that must fall inside the allowed zone (1.0 = all of it)
 MIN_ZONE_COVERAGE = 1.0
 
-# I crop sono api piccole ingrandite a 512: sono molto più morbidi del favo
-# originale, quindi alla varroa serve una sfocatura massima più ampia
+# The crops are small bees upscaled to 512: they are much softer than the original
+# comb, so the varroa needs a larger maximum blur
 MAX_BLUR_RATIO = 0.12
 
 
 def bee_mask_from_crop(crop):
-    """Maschera dell'ape: componente più grande dei pixel non neri, senza buchi."""
+    """Bee mask: largest component of the non-black pixels, without holes."""
     mask = (crop.max(axis=2) > BG_THRESHOLD).astype(np.uint8) * 255
     mask = vg.largest_component(mask)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -79,7 +79,7 @@ def bee_mask_from_crop(crop):
 
 
 def bee_width(mask):
-    """Larghezza dell'ape: lato corto del rettangolo orientato della maschera."""
+    """Bee width: short side of the oriented rectangle of the mask."""
     pts = cv2.findNonZero(mask)
     (_, _), (w, h), _ = cv2.minAreaRect(pts)
     return min(w, h)
@@ -87,9 +87,9 @@ def bee_width(mask):
 
 def body_zone(crop, bee_mask):
     """
-    Zona in cui la varroa può stare: il corpo dell'ape (torace e addome) fino a
-    subito sotto gli occhi. Sono esclusi ali, zampe, antenne e le due estremità
-    dell'ape (testa con gli occhi e punta dell'addome).
+    Zone where the varroa may sit: the bee's body (thorax and abdomen) up to
+    just below the eyes. Wings, legs, antennae and the two ends of the bee
+    (head with the eyes and tip of the abdomen) are excluded.
     """
     zone = np.zeros_like(bee_mask)
     dist = cv2.distanceTransform(bee_mask, cv2.DIST_L2, 5)
@@ -101,7 +101,7 @@ def body_zone(crop, bee_mask):
     if cv2.countNonZero(core) == 0:
         return zone
 
-    # Asse del corpo: direzione principale della parte spessa
+    # Body axis: principal direction of the thick part
     ys, xs = np.nonzero(core)
     pts = np.column_stack([xs, ys]).astype(np.float32)
     center = pts.mean(axis=0)
@@ -115,7 +115,7 @@ def body_zone(crop, bee_mask):
     keep = (along >= lo + margin) & (along <= hi - margin) & (np.abs(across) <= half_width * BODY_AXIS_BAND)
     zone[ys[keep], xs[keep]] = 255
 
-    # Via le ali: membrana chiara e poco satura
+    # Remove the wings: light, low-saturation membrane
     hsv = cv2.cvtColor(cv2.GaussianBlur(crop, (0, 0), 3), cv2.COLOR_BGR2HSV)
     wing = (hsv[:, :, 1] < WING_MAX_SATURATION) & (hsv[:, :, 2] > WING_MIN_VALUE)
     wing = cv2.morphologyEx(wing.astype(np.uint8) * 255, cv2.MORPH_OPEN,
@@ -126,9 +126,9 @@ def body_zone(crop, bee_mask):
 
 def find_position_in_mask(stats_img, bee_mask, zone, gt_mask, v_mask_tight, num_candidates=200):
     """
-    Sceglie l'angolo in alto a sinistra della varroa in modo che stia nella
-    zona ammessa (corpo dell'ape, vedi body_zone). Tra i candidati vince quello
-    sulla zona più satura/scura, come in varroa_generator.
+    Chooses the top-left corner of the varroa so that it lies in the
+    allowed zone (the bee's body, see body_zone). Among the candidates, the one
+    on the most saturated/darkest area wins, as in varroa_generator.
     """
     rv_h, rv_w = v_mask_tight.shape[:2]
     H, W = bee_mask.shape[:2]
@@ -157,8 +157,8 @@ def find_position_in_mask(stats_img, bee_mask, zone, gt_mask, v_mask_tight, num_
 
 def match_sharpness_and_noise(v_rgb, v_alpha_float, v_mask, context, context_mask, max_blur_ratio):
     """
-    Come vg.match_sharpness_and_noise, ma nitidezza e grana del contesto sono
-    misurate solo sui pixel dell'ape (context_mask).
+    Like vg.match_sharpness_and_noise, but the sharpness and grain of the context are
+    measured only on the bee pixels (context_mask).
     """
     inside = cv2.erode(context_mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9)))
     if cv2.countNonZero(inside) < 50:
@@ -183,8 +183,8 @@ def match_sharpness_and_noise(v_rgb, v_alpha_float, v_mask, context, context_mas
 
     residual = (ctx_gray - cv2.GaussianBlur(ctx_gray, (0, 0), 1.5))[inside > 0]
     noise_sigma = min(1.4826 * float(np.median(np.abs(residual - np.median(residual)))), vg.MAX_NOISE_SIGMA)
-    # Il crop è ingrandito, quindi la sua grana è "larga": si sfoca anche il
-    # rumore aggiunto e lo si riporta alla deviazione standard stimata
+    # The crop is upscaled, so its grain is "coarse": the added noise is blurred
+    # too and brought back to the estimated standard deviation
     noise = cv2.GaussianBlur(np.random.normal(0, 1, blurred.shape[:2]).astype(np.float32), (0, 0), sigma)
     noise = (noise / (noise.std() + 1e-6) * noise_sigma)[:, :, np.newaxis]
     noisy = np.clip(blurred.astype(np.float32) + noise, 0, 255).astype(np.uint8)
@@ -194,13 +194,13 @@ def match_sharpness_and_noise(v_rgb, v_alpha_float, v_mask, context, context_mas
 def add_varroa_to_crop(crop, varroa_sources, ratio_range, max_blur_ratio=MAX_BLUR_RATIO, match_blur=True,
                        num_varroa=None):
     """
-    Inserisce le varroa su un singolo crop, solo nella zona ammessa (body_zone).
-    Restituisce (crop_sintetico, gt_mask, zona) con le maschere a 0/255;
-    crop e gt_mask sono None se non c'è posto.
+    Inserts the varroa on a single crop, only in the allowed zone (body_zone).
+    Returns (synthetic_crop, gt_mask, zone) with the masks at 0/255;
+    crop and gt_mask are None if there is no room.
 
-    num_varroa: None = 1-2 varroa a caso, tenendo quelle che entrano. Un numero
-    = esattamente quel numero di varroa (con più tentativi per ciascuna),
-    altrimenti l'inserimento fallisce.
+    num_varroa: None = 1-2 varroa at random, keeping those that fit. A number
+    = exactly that number of varroa (with several attempts for each one),
+    otherwise the insertion fails.
     """
     H, W = crop.shape[:2]
     bee_mask = bee_mask_from_crop(crop)
@@ -224,7 +224,7 @@ def add_varroa_to_crop(crop, varroa_sources, ratio_range, max_blur_ratio=MAX_BLU
     for _ in range(attempts):
         if inserted == wanted:
             break
-        # --- 1. Dimensione e rotazione ---
+        # --- 1. Size and rotation ---
         target_v_w = int(width * random.uniform(*ratio_range))
         varroa = vg.resize_rgba(random.choice(varroa_sources), target_v_w / vg.VARROA_REF_BODY_WIDTH)
         varroa = vg.rotate_image_rgba(varroa, random.uniform(0, 360))
@@ -251,19 +251,19 @@ def add_varroa_to_crop(crop, varroa_sources, ratio_range, max_blur_ratio=MAX_BLU
         v_rgb = np.ascontiguousarray(varroa_padded[:, :, :3])
         v_alpha = vg.feather_alpha(v_mask, radius=feather).astype(np.float32) / 255.0
 
-        # Immagine per le statistiche: lo sfondo nero è sostituito dal colore
-        # medio dell'ape, così medie e sfocature non vengono trascinate verso il nero
+        # Image for the statistics: the black background is replaced by the mean
+        # colour of the bee, so means and blurs are not dragged towards black
         stats_img = out.copy()
         stats_img[bee_mask == 0] = np.array(cv2.mean(out, mask=bee_mask)[:3], dtype=np.uint8)
         stats_img = cv2.copyMakeBorder(stats_img, pad, pad, pad, pad, cv2.BORDER_REPLICATE)
 
-        # --- 2. Posizione dentro l'ape ---
+        # --- 2. Position inside the bee ---
         pos_x, pos_y = find_position_in_mask(stats_img[pad:-pad, pad:-pad], bee_mask, zone, gt_mask, v_mask_tight)
         if pos_x is None:
             continue
         insert_x, insert_y = pos_x - pad, pos_y - pad
 
-        # --- 3. Colore, luce, nitidezza e grana dell'ape ---
+        # --- 3. Colour, lighting, sharpness and grain of the bee ---
         ph, pw = v_mask.shape[:2]
         target_region = stats_img[pos_y + pad:pos_y + pad + rv_h, pos_x + pad:pos_x + pad + rv_w]
         bg_patch = stats_img[pos_y:pos_y + ph, pos_x:pos_x + pw]
@@ -277,7 +277,7 @@ def add_varroa_to_crop(crop, varroa_sources, ratio_range, max_blur_ratio=MAX_BLU
                 v_rgb, v_alpha, v_mask, out[cy1:cy2, cx1:cx2], bee_mask[cy1:cy2, cx1:cx2], max_blur_ratio
             )
 
-        # --- 4. Ombre e compositing ---
+        # --- 4. Shadows and compositing ---
         out = vg.add_contact_shadow(out, v_mask, insert_x, insert_y,
                                     ring_width=contact_ring_w, opacity=vg.CONTACT_SHADOW_OPACITY)
         out = vg.add_subtle_shadow(out, v_mask, insert_x, insert_y, offset=(shadow_offset, shadow_offset),
@@ -295,7 +295,7 @@ def add_varroa_to_crop(crop, varroa_sources, ratio_range, max_blur_ratio=MAX_BLU
 
 
 def zoom_on_mask(img, mask, size):
-    """Ritaglio quadrato attorno alle varroa, ingrandito a size x size."""
+    """Square crop around the varroa, upscaled to size x size."""
     x, y, w, h = cv2.boundingRect(mask)
     side = int(max(w, h, 90) * 1.5)
     cx, cy = x + w // 2, y + h // 2
@@ -306,7 +306,7 @@ def zoom_on_mask(img, mask, size):
 
 
 def comparison_row(original, synthetic, gt_mask, zone, tile=384):
-    """Riga di confronto: originale | con varroa | zoom | zona ammessa (azzurro) e GT mask (verde)."""
+    """Comparison row: original | with varroa | zoom | allowed zone (light blue) and GT mask (green)."""
     overlay = synthetic.copy()
     contours, _ = cv2.findContours(zone, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     cv2.drawContours(overlay, contours, -1, (255, 200, 0), 2)
@@ -323,11 +323,11 @@ def comparison_row(original, synthetic, gt_mask, zone, tile=384):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--name", default="base", help="nome della prova (sottocartella di output)")
+    parser.add_argument("--name", default="base", help="name of the trial (output subfolder)")
     parser.add_argument("--num-bees", type=int, default=NUM_BEES)
     parser.add_argument("--ratio", type=float, nargs=2, default=[VARROA_BEE_RATIO_MIN, VARROA_BEE_RATIO_MAX])
     parser.add_argument("--max-blur-ratio", type=float, default=MAX_BLUR_RATIO)
-    parser.add_argument("--no-match-blur", action="store_true", help="non adattare nitidezza e grana")
+    parser.add_argument("--no-match-blur", action="store_true", help="do not match sharpness and grain")
     parser.add_argument("--seed", type=int, default=SEED)
     args = parser.parse_args()
 
@@ -335,7 +335,7 @@ def main():
     np.random.seed(args.seed)
 
     files = sorted(glob.glob(os.path.join(CROPS_DIR, "*.png")))
-    # Stesse api per ogni prova con lo stesso seed, così le prove sono confrontabili
+    # Same bees for every trial with the same seed, so the trials are comparable
     selected = random.Random(args.seed).sample(files, args.num_bees)
 
     out_dir = os.path.join(OUTPUT_DIR, args.name)
@@ -350,7 +350,7 @@ def main():
         syn, gt, zone = add_varroa_to_crop(crop, varroa_sources, args.ratio,
                                      max_blur_ratio=args.max_blur_ratio, match_blur=not args.no_match_blur)
         if syn is None:
-            print(f"  ✗ {base}: nessuna posizione valida")
+            print(f"  ✗ {base}: no valid position")
             continue
         cv2.imwrite(os.path.join(out_dir, "images", f"{base}_syn.png"), syn)
         cv2.imwrite(os.path.join(out_dir, "masks", f"{base}_mask.png"), gt)
@@ -360,7 +360,7 @@ def main():
     if rows:
         sheet_path = os.path.join(out_dir, "confronto.jpg")
         cv2.imwrite(sheet_path, np.vstack(rows), [cv2.IMWRITE_JPEG_QUALITY, 92])
-        print(f"\nFoglio di confronto: {sheet_path}")
+        print(f"\nComparison sheet: {sheet_path}")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
-"""Costruisce in anticipo (in un processo separato) il grafo kNN che l'hub userà al prossimo avvio.
+"""Builds in advance (in a separate process) the kNN graph that the hub will use at its next start.
 
-Ripete i passi di ALEngine.from_config fino a bank.X, così la chiave della cache coincide.
+Repeats the steps of ALEngine.from_config up to bank.X, so that the cache key matches.
     PYTHONPATH=. venv/bin/python logs/prebuild_graph_cache.py
 """
 import sys
@@ -22,7 +22,7 @@ if cfg.subset_path is not None:
 X = MemoryBank(emb.ids, emb.X, emb.paths, backend=cfg.knn.backend).X
 cache_dir, k = cfg.results_dir / "cache", cfg.propagation.n_neighbors
 path = graph_cache_path(X, k, cache_dir)
-print(version, len(X), path, "già in cache" if path.exists() else "da costruire", flush=True)
+print(version, len(X), path, "already cached" if path.exists() else "to be built", flush=True)
 t = time.time()
 build_graph_cache_in_subprocess(X, k, cache_dir, cfg.knn.backend)
-print(f"pronto in {time.time() - t:.0f} s:", path.exists())
+print(f"ready in {time.time() - t:.0f} s:", path.exists())

@@ -1,6 +1,6 @@
-# Fase 'fase2_sam3': 138788 api con classe ['Ok'] nello snapshot 'fase1_finale_okvsscarta'
-# di al_config.yaml. Scritta da scripts/new_stage.py; etichette e modelli sono separati.
-# Aggiunte 34645 api di 'b7' (batch 7) filtrate con il modello v003 della fase 1 (scripts/add_dataset_to_stage.py).
+# Phase 'fase2_sam3': 138788 bees with class ['Ok'] in the snapshot 'fase1_finale_okvsscarta'
+# of al_config.yaml. Written by scripts/new_stage.py; labels and models are separate.
+# Added 34645 bees from 'b7' (batch 7) filtered with model v003 of phase 1 (scripts/add_dataset_to_stage.py).
 
 seed: 42
 paths:
@@ -13,8 +13,8 @@ paths:
   models_dir: /mnt/disk1/tommaso_ballarin/bee_al/models_fase2_sam3
   subset_file: /mnt/disk1/tommaso_ballarin/bee_al/results_fase2_sam3/subset.json
 labels:
-  # Profilo demografico: Giovane, Adulte, Fuco. Malata: api malate in generale.
-  # Non Classificabile: non si giudica per segmentazione o posa (classe di scarto, fuori dalle quote).
+  # Demographic profile: Giovane (young), Adulte (adult), Fuco (drone). Malata: sick bees in general.
+  # Non Classificabile: cannot be judged because of segmentation or pose (reject class, left out of the shares).
   classes: [Giovane, Adulte, Fuco, Malata, Non Classificabile]
   label_aliases: {Non Classificabille: Non Classificabile}
   reject_classes: [Non Classificabile]
@@ -47,7 +47,7 @@ query:
 validation:
   size: 100
   seed: 123
-  # Batch 7 tenuto da parte: predetto e visibile nei cluster, mai proposto né usato per addestrare.
+  # Batch 7 held out: predicted and visible in the clusters, never proposed or used for training.
   holdout_datasets: [b7]
 hub:
   show_suggestion: false

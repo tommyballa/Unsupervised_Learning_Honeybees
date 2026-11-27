@@ -1,12 +1,12 @@
-"""Le api del telefono sulla mappa UMAP della fase 2 e i loro cluster, a confronto con batch 3-6 e batch 7.
+"""The phone bees on the phase 2 UMAP map and their clusters, compared with batches 3-6 and batch 7.
 
-Legge coords.csv di scripts/embedding_map.py (dove le api del telefono risultano batch_6, perché la cartella
-delle foto sta in batch_6) e le riconosce dal prefisso ``phone__``. In <mappa>/solo_phone/:
-- cluster_per_gruppo.csv: quota di ogni cluster per batch 3-6, batch 7, telefono;
-- map_holdout*.png: le api del telefono (b7 escluso) sopra la mappa grigia di batch 3-6;
-- crops_<cluster>.png: fino a 24 crop del telefono per cluster;
-- crops_fase1_<stato>.png: crop del telefono tenuti / scartati / non assegnati dal filtro della fase 1.
-Uso: python logs/phone/phone_map.py <cartella della mappa>
+Reads coords.csv from scripts/embedding_map.py (where the phone bees show up as batch_6, because the photo
+folder is inside batch_6) and recognises them by the ``phone__`` prefix. In <map>/solo_phone/:
+- cluster_per_gruppo.csv: share of each cluster for batches 3-6, batch 7, phone;
+- map_holdout*.png: the phone bees (b7 excluded) on top of the grey map of batches 3-6;
+- crops_<cluster>.png: up to 24 phone crops per cluster;
+- crops_fase1_<stato>.png: phone crops kept / discarded / unassigned by the phase 1 filter.
+Usage: python logs/phone/phone_map.py <map folder>
 """
 import csv
 import sys
@@ -64,7 +64,7 @@ def main():
         rows = list(csv.DictReader(f))
     groups = [group_of(r) for r in rows]
 
-    # 1. Quote dei cluster per gruppo
+    # 1. Cluster shares per group
     names = ["batch_3-6", "batch_7", "phone"]
     clusters = sorted(set(r["cluster"] for r in rows))
     count = {g: {c: 0 for c in clusters} for g in names}
@@ -83,24 +83,24 @@ def main():
     print(f"{'cluster':20s}" + "".join(f"{g:>16s}" for g in names))
     for c in clusters:
         print(f"{c:20s}" + "".join(f"{count[g][c]:7d} ({100 * count[g][c] / sum(count[g].values()):5.1f}%)" for g in names))
-    print(f"{'confidenza mediana':20s}" + "".join(f"{np.median(conf[g]):16.3f}" for g in names))
+    print(f"{'median confidence':20s}" + "".join(f"{np.median(conf[g]):16.3f}" for g in names))
 
-    # 2. Mappa: batch 3-6 in grigio, telefono a colori (batch 7 escluso)
+    # 2. Map: batches 3-6 in grey, phone in colour (batch 7 excluded)
     keep = [i for i, g in enumerate(groups) if g != "batch_7"]
     coords = np.array([[float(rows[i]["x"]), float(rows[i]["y"])] for i in keep])
     cl = [rows[i]["cluster"] for i in keep]
     holdout = np.array([groups[i] == "phone" for i in keep])
     classes = sorted(set(cl) - {UNASSIGNED, SET_ASIDE, OTHER})
     plot(coords, cl, classes, holdout, out_dir, "fase2_sam3 - phone photos")
-    (out_dir / "map_overview.png").unlink()       # uguale a quella della mappa completa senza batch 7: non serve
+    (out_dir / "map_overview.png").unlink()       # same as the full map without batch 7: not needed
     (out_dir / "map_by_cluster.png").unlink()
 
-    # 3. Crop per cluster
+    # 3. Crops per cluster
     for c in clusters:
         files = [PHONE_DIR / r["image_id"].split("__", 1)[1] for r, g in zip(rows, groups) if g == "phone" and r["cluster"] == c]
         crop_grid(files, out_dir / f"crops_{english(c).replace(' ', '_')}.png", f"Phone bees, phase-2 cluster {english(c)}")
 
-    # 4. Crop per esito del filtro della fase 1
+    # 4. Crops by outcome of the phase 1 filter
     with open(FASE1_PRED, newline="", encoding="utf-8") as f:
         pred = list(csv.DictReader(f))
     for name, test in (("kept_Ok", lambda p: p["kept"] == "1"),
@@ -108,7 +108,7 @@ def main():
                        ("unassigned", lambda p: p["status"] == "unassigned")):
         files = [PHONE_DIR / p["image_id"].split("__", 1)[1] for p in pred if test(p)]
         crop_grid(files, out_dir / f"crops_fase1_{name}.png", f"Phone bees, phase-1 filter: {name.replace('_', ' ')}")
-    print(f"Fatto: {out_dir}")
+    print(f"Done: {out_dir}")
 
 
 if __name__ == "__main__":

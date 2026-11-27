@@ -9,7 +9,7 @@ import split_dataset_sam3 as sds
 
 
 def make_photos(n=160, day="2026-09-12", start=0):
-    """Come le foto vere: una panoramica affollata ogni otto, poi i primi piani."""
+    """Like the real photos: one crowded overview every eight, then close-ups."""
     return [{"name": f"DSC_{start + i:04d}.JPG", "day": day, "n_bees": 1200 if i % 8 == 0 else 200}
             for i in range(n)]
 

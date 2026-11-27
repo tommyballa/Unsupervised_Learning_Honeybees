@@ -1,6 +1,6 @@
-"""Valuta piu' modelli sul test set delle etichette SAM 3. Stesso protocollo di logs/ablation/abl_eval.py,
-con data_sam3.yaml e max_det piu' alto (con SAM 3 una foto arriva a ~1850 api, con LangSAM a ~1370).
-Uso: python abl_eval.py <device> <out.json> <nome_run>:<imgsz> ..."""
+"""Evaluates several models on the test set of the SAM 3 labels. Same protocol as logs/ablation/abl_eval.py,
+with data_sam3.yaml and a higher max_det (with SAM 3 a photo reaches ~1850 bees, with LangSAM ~1370).
+Usage: python abl_eval.py <device> <out.json> <run_name>:<imgsz> ..."""
 import sys, json, numpy as np
 from ultralytics import YOLO
 dev, out = int(sys.argv[1]), sys.argv[2]

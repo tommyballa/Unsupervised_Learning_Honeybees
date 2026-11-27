@@ -1,6 +1,6 @@
-"""Copia di logs/ablation_sam3/abl_eval.py che legge i pesi da $ABL_RUNS invece che da runs/segment/runs/segment
-(il disco di sistema era pieno, i run del freeze sono stati spostati su /mnt/disk1). Stesso protocollo.
-Uso: ABL_RUNS=<cartella dei run> python abl_eval.py <device> <out.json> <nome_run>:<imgsz> ..."""
+"""Copy of logs/ablation_sam3/abl_eval.py that reads the weights from $ABL_RUNS instead of runs/segment/runs/segment
+(the system disk was full, the freeze runs were moved to /mnt/disk1). Same protocol.
+Usage: ABL_RUNS=<runs folder> python abl_eval.py <device> <out.json> <run_name>:<imgsz> ..."""
 import os, sys, json, numpy as np
 from ultralytics import YOLO
 dev, out = int(sys.argv[1]), sys.argv[2]

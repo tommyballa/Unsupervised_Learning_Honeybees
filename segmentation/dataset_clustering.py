@@ -94,7 +94,7 @@ def load_labels_from_active_learning(results_dir=None):
 
 def run_clustering(input_dir, output_dir, results_dir=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("Caricamento modello DINOv2 (ViT-S/14)...")
+    print("Loading DINOv2 model (ViT-S/14)...")
     model = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14')
     model.to(device)
     model.eval()
@@ -108,13 +108,13 @@ def run_clustering(input_dir, output_dir, results_dir=None):
 
     img_paths = glob.glob(os.path.join(input_dir, "*.png")) + glob.glob(os.path.join(input_dir, "*.jpg"))
     if not img_paths:
-        print(f"Nessuna immagine trovata in '{input_dir}'. Esegui prima la pulizia!")
+        print(f"No images found in '{input_dir}'. Run the cleaning first!")
         return
 
     valid_data = []
     features_list = []
     total = len(img_paths)
-    print(f"Estrazione feature per {total} immagini...")
+    print(f"Extracting features for {total} images...")
 
     for idx, path in enumerate(img_paths):
         filename = os.path.basename(path)
@@ -129,21 +129,21 @@ def run_clustering(input_dir, output_dir, results_dir=None):
         valid_data.append((filename, img))
         features_list.append(feat)
         if (idx + 1) % 500 == 0:
-            print(f"  Elaborate {idx + 1}/{total} immagini...")
+            print(f"  Processed {idx + 1}/{total} images...")
 
     # ============================================================
     # LOAD LABELS FROM ACTIVE LEARNING TOOL
     # ============================================================
     print("\n" + "=" * 60)
-    print("CARICAMENTO ETICHETTE DAL TOOL DI ACTIVE LEARNING")
+    print("LOADING LABELS FROM THE ACTIVE LEARNING TOOL")
     print("=" * 60)
 
     image_to_label = load_labels_from_active_learning(results_dir)
 
     if not image_to_label:
-        print("\n❌ Nessuna etichetta trovata nella cartella dei risultati:")
+        print("\n❌ No labels found in the results folder:")
         print(f"   {results_dir or ACTIVE_LEARNING_RESULTS_DIR}")
-        print("   Assicurati di aver etichettato alcune immagini con il tool web prima di eseguire questo script.")
+        print("   Make sure you have labelled some images with the web tool before running this script.")
         return
 
     # Build label -> numeric id mapping
@@ -151,14 +151,14 @@ def run_clustering(input_dir, output_dir, results_dir=None):
     label_to_id = {label: i for i, label in enumerate(unique_labels)}
     id_to_label = {i: label for label, i in label_to_id.items()}
 
-    print(f"\nTrovate {len(image_to_label)} immagini etichettate in {len(unique_labels)} categorie:")
+    print(f"\nFound {len(image_to_label)} labelled images in {len(unique_labels)} categories:")
     for label in unique_labels:
         count = sum(1 for v in image_to_label.values() if v == label)
-        print(f"  • {label}: {count} immagini")
+        print(f"  • {label}: {count} images")
 
     if len(unique_labels) < 2:
-        print("\n❌ Servono almeno 2 categorie diverse per addestrare il classificatore SVM.")
-        print("Nessun salvataggio effettuato.")
+        print("\n❌ At least 2 different categories are needed to train the SVM classifier.")
+        print("Nothing was saved.")
         return
 
     # ============================================================
@@ -182,29 +182,29 @@ def run_clustering(input_dir, output_dir, results_dir=None):
             unlabeled_indices.append(i)
 
     matched_count = len(labeled_indices)
-    print(f"\nImmagini nel dataset matchate con etichette: {matched_count}/{len(valid_data)}")
-    print(f"Immagini senza etichetta (da classificare automaticamente): {len(unlabeled_indices)}")
+    print(f"\nImages in the dataset matched with labels: {matched_count}/{len(valid_data)}")
+    print(f"Images without a label (to be classified automatically): {len(unlabeled_indices)}")
 
     if matched_count == 0:
-        print("\n❌ Nessuna immagine nel dataset corrisponde ai nomi delle immagini etichettate.")
-        print("Controlla che le immagini etichettate nel tool web provengano dalla stessa cartella del dataset.")
+        print("\n❌ No image in the dataset matches the names of the labelled images.")
+        print("Check that the images labelled in the web tool come from the same folder as the dataset.")
         return
 
     if len(set(labels_y)) < 2:
-        print("\n❌ Le immagini matchate appartengono a meno di 2 categorie.")
-        print("Il classificatore SVM richiede almeno 2 categorie per distinguere.")
-        print("Nessun salvataggio effettuato.")
+        print("\n❌ The matched images belong to fewer than 2 categories.")
+        print("The SVM classifier needs at least 2 categories to tell apart.")
+        print("Nothing was saved.")
         return
 
     X_train = reduced_feat[labeled_indices]
     y_train = np.array(labels_y)
 
-    print(f"\nAddestramento del modello SVM su {len(X_train)} campioni etichettati...")
+    print(f"\nTraining the SVM model on {len(X_train)} labelled samples...")
     svm = SVC(kernel='rbf', class_weight='balanced')
     svm.fit(X_train, y_train)
 
     # Predict ALL images (labeled + unlabeled) for consistency
-    print("Classificazione automatica di tutte le immagini...")
+    print("Automatically classifying all images...")
     predicted_labels = svm.predict(reduced_feat)
 
     # For manually-labeled images, use the human label (ground truth) instead of the SVM prediction
@@ -226,10 +226,10 @@ def run_clustering(input_dir, output_dir, results_dir=None):
         cv2.imwrite(os.path.join(cat_folder, filename), img)
         cluster_counts[cat_name] = cluster_counts.get(cat_name, 0) + 1
 
-    print(f"\n✅ Classificazione completata! Risultati salvati in '{output_dir}'.")
-    print("Distribuzione finale:")
+    print(f"\n✅ Classification complete! Results saved in '{output_dir}'.")
+    print("Final distribution:")
     for name in sorted(cluster_counts.keys()):
-        print(f"  {name}: {cluster_counts[name]} immagini")
+        print(f"  {name}: {cluster_counts[name]} images")
 
 
 if __name__ == "__main__":

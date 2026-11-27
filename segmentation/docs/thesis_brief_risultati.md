@@ -1,276 +1,276 @@
-# Brief per la tesi: tutti i risultati (pipeline completa, batch 3-6)
+# Thesis brief: all results (full pipeline, batches 3-6)
 
-Questo file è un briefing da dare a Claude per scrivere la tesi magistrale. Contiene quello che è stato fatto e misurato fino al 17 ottobre 2026. Se il codice o i dati sono cambiati dopo questa data, fanno fede il codice e i dati.
+This file is a briefing to give to Claude for writing the master's thesis. It contains what was done and measured up to 17 October 2026. If the code or the data changed after this date, the code and the data are authoritative.
 
-## Istruzioni per chi scrive (Claude)
+## Instructions for the writer (Claude)
 
-- Usa **solo** fatti e numeri presenti in questo file e nei due brief collegati (`ablation_sam3.md`, `thesis_brief_yolo_finetuning.md`). Se una frase non è supportata da qui, toglila oppure segnala `[AUTORE DA CONFERMARE]`.
-- Lascia visibili nel testo i marcatori `[AUTORE DA CONFERMARE]` già presenti: sono fatti che non ho potuto verificare.
-- Lingua: `[AUTORE DA CONFERMARE]`. Il brief precedente sulla segmentazione chiedeva l'inglese accademico.
-- Nel testo usa nomi neutri per i run e le fasi ("modello base", "1376 px", "fase 1"). I nomi delle cartelle servono solo all'autore per ritrovare i risultati.
-- Differenze di circa 0,003-0,008 mAP sono sotto la variabilità tra seed: vanno descritte come "entro il rumore", non come miglioramenti.
-- Distingui sempre:
-  - le metriche di segmentazione, misurate contro **pseudo-etichette SAM 3** e non contro una ground truth manuale;
-  - i conteggi della classificazione per batch, che sono **output del modello senza validazione** (vedi §8 e §9).
+- Use **only** facts and numbers present in this file and in the two linked briefs (`ablation_sam3.md`, `thesis_brief_yolo_finetuning.md`). If a sentence is not supported by them, remove it or flag it with `[AUTHOR TO CONFIRM]`.
+- Keep the `[AUTHOR TO CONFIRM]` markers already present visible in the text: they are facts I could not verify.
+- Language: `[AUTHOR TO CONFIRM]`. The previous brief on segmentation asked for academic English.
+- In the text, use neutral names for the runs and phases ("base model", "1376 px", "phase 1"). The folder names are only there for the author to find the results.
+- Differences of about 0,003-0,008 mAP are below the seed-to-seed variability: they must be described as "within the noise", not as improvements.
+- Always distinguish:
+  - the segmentation metrics, measured against **SAM 3 pseudo-labels** and not against a manual ground truth;
+  - the per-batch classification counts, which are **model output without validation** (see §8 and §9).
 
-## 1. Obiettivo e pipeline
+## 1. Goal and pipeline
 
-L'obiettivo è stimare indicatori di salute dell'alveare da foto di telaini: profilo demografico (giovani, adulte, fuchi) e presenza di api malate. Le foto sono state scattate in quattro sessioni (batch 3-6).
+The goal is to estimate hive health indicators from photos of frames: demographic profile (young bees, adults, drones) and presence of sick bees. The photos were taken in four sessions (batches 3-6).
 
-La pipeline ha sei passi:
+The pipeline has six steps:
 
-1. **Pseudo-etichette di segmentazione** sulle foto intere con SAM 3, guidato dal testo "bee".
-2. **Fine-tuning di YOLO26s-seg** su queste pseudo-etichette, con un ablation su risoluzione, augmentation, freeze e seed.
-3. **Estrazione delle singole api** con il modello YOLO scelto, dopo aver normalizzato luminosità e contrasto di ogni foto.
-4. **Pulizia e normalizzazione dei crop:** filtri di qualità, crop 512×512 con l'asse lungo verticale, testa in alto grazie a un classificatore lineare su DINOv2.
-5. **Active learning semi-supervisionato** (pacchetto `bee_al`, con un'interfaccia web per l'annotazione), in due fasi:
-   - fase 1: crop utilizzabili o da scartare;
-   - fase 2: classi demografiche e malattia, solo sui crop utilizzabili.
-6. **Conteggi per batch** dalle classi finali, con intervalli bootstrap sulle foto.
+1. **Segmentation pseudo-labels** on the full photos with SAM 3, prompted with the text "bee".
+2. **Fine-tuning of YOLO26s-seg** on these pseudo-labels, with an ablation on resolution, augmentation, freeze and seed.
+3. **Extraction of the single bees** with the selected YOLO model, after normalising the brightness and contrast of each photo.
+4. **Crop cleaning and normalisation:** quality filters, 512×512 crops with the long axis vertical, head at the top thanks to a linear classifier on DINOv2.
+5. **Semi-supervised active learning** (`bee_al` package, with a web interface for annotation), in two phases:
+   - phase 1: usable crops or crops to discard;
+   - phase 2: demographic and disease classes, only on the usable crops.
+6. **Per-batch counts** from the final classes, with bootstrap intervals over the photos.
 
-È stato sviluppato anche un generatore di varroa sintetica sui crop per l'anomaly detection: vedi `brief_varroa_sintetica_su_crop.md`. Su quel lavoro non ho risultati quantitativi: `[AUTORE DA CONFERMARE: se e come entra nella tesi]`.
+A synthetic varroa generator on the crops was also developed for anomaly detection: see `brief_varroa_sintetica_su_crop.md`. I have no quantitative results on that work: `[AUTHOR TO CONFIRM: whether and how it goes into the thesis]`.
 
-## 2. Dati
+## 2. Data
 
-- Foto di telaini, cartella `DatasetApi_Ceschi`, batch 3, 4, 5 e 6. `[AUTORE DA CONFERMARE: apiario, alveari, date delle sessioni, fotocamera]`.
-- Dalla pipeline sono state tolte le 22 foto di `batch_6/favi_phone_camera`, scattate con il telefono. Restano **791 foto**.
+- Photos of frames, folder `DatasetApi_Ceschi`, batches 3, 4, 5 and 6. `[AUTHOR TO CONFIRM: apiary, hives, session dates, camera]`.
+- The 22 photos in `batch_6/favi_phone_camera`, taken with the phone, were removed from the pipeline. **791 photos** remain.
 
-| Batch | Foto | Note |
+| Batch | Photos | Notes |
 |---|---:|---|
 | batch_3 | 168 | |
 | batch_4 | 241 | |
 | batch_5 | 199 | |
-| batch_6 | 183 | 180 in `favi/` e 3 in `sick/` |
+| batch_6 | 183 | 180 in `favi/` and 3 in `sick/` |
 
-Sulle 3 foto della cartella `sick` il modello finale trova solo 59 api valide in fase 2, di cui 2 classificate Malata. Non spiegano quindi l'aumento di Malata nel batch_6 (§9).
+On the 3 photos in the `sick` folder the final model finds only 59 valid bees in phase 2, of which 2 are classified as Malata (sick). They therefore do not explain the increase of Malata in batch_6 (§9).
 
-## 3. Pseudo-etichette SAM 3
+## 3. SAM 3 pseudo-labels
 
-Script: `generate_labels_sam3.py`. Modello: `facebook/sam3` (Hugging Face transformers), prompt testuale "bee". Output in `processed/bee_batch3+4+5+6_SAM3`, nel formato di segmentazione YOLO.
+Script: `generate_labels_sam3.py`. Model: `facebook/sam3` (Hugging Face transformers), text prompt "bee". Output in `processed/bee_batch3+4+5+6_SAM3`, in the YOLO segmentation format.
 
-SAM 3 lavora a tile, con la scala adattata a ogni foto:
+SAM 3 works on tiles, with the scale adapted to each photo:
 
-1. **Stima della scala.** La foto viene divisa in una griglia 3×3. Ogni cella, ridotta a 1008 px, passa da SAM 3 con soglia 0,5, e si prende la lunghezza mediana delle api trovate. Non si usa la miniatura intera perché, nelle foto larghe e affollate, SAM 3 non vedeva api: 59 foto su 791 avevano 0-5 box.
-2. **Tiling multi-scala.** La foto viene riscalata in modo che un'ape sia lunga 120 px e poi 150 px, con un fattore di scala tra 0,05 e 5. Ogni versione viene divisa in tile di 500 px con sovrapposizione del 40%, e i risultati delle due scale si uniscono. Con una sola scala circa l'1% delle api restava senza etichetta, con due circa lo 0,25%.
-3. **Soglie sullo score.**
-   - Sopra 0,5 le maschere si tengono tutte: alzare la soglia a 0,6 perde circa l'8% delle api.
-   - Tra 0,3 e 0,5 una maschera si tiene solo se la sua area è almeno il 60% di quella dell'ape mediana della foto. Sotto 0,5 SAM 3 restituisce quasi solo teste di api infilate nelle celle, celle con polline e spazi vuoti.
-   - Area minima 600 px² nella tile e area massima il 25% della tile.
-4. **NMS sulle maschere invece che sui box.** Una maschera viene scartata quando più del 60% della maschera più piccola sta dentro una con score più alto. La NMS sui box lasciava circa il 5% di duplicati e frammenti.
+1. **Scale estimate.** The photo is divided into a 3×3 grid. Each cell, downscaled to 1008 px, goes through SAM 3 with threshold 0,5, and the median length of the bees found is taken. The whole thumbnail is not used because, in wide and crowded photos, SAM 3 saw no bees: 59 photos out of 791 had 0-5 boxes.
+2. **Multi-scale tiling.** The photo is rescaled so that a bee is 120 px long and then 150 px long, with a scale factor between 0,05 and 5. Each version is divided into 500 px tiles with 40% overlap, and the results of the two scales are merged. With a single scale about 1% of the bees were left unlabelled, with two about 0,25%.
+3. **Score thresholds.**
+   - Above 0,5 all masks are kept: raising the threshold to 0,6 loses about 8% of the bees.
+   - Between 0,3 and 0,5 a mask is kept only if its area is at least 60% of that of the median bee in the photo. Below 0,5 SAM 3 returns almost only heads of bees stuck in cells, cells with pollen and empty spaces.
+   - Minimum area 600 px² in the tile and maximum area 25% of the tile.
+4. **NMS on masks instead of boxes.** A mask is discarded when more than 60% of the smaller mask lies inside one with a higher score. NMS on boxes left about 5% duplicates and fragments.
 
-I parametri sono stati tarati a vista sulla recall, su 18 foto scelte per coprire zoom diversi (api lunghe da 150 a 680 px) e diverse messe a fuoco. **Le etichette non sono state corrette a mano** `[AUTORE DA CONFERMARE]`.
+The parameters were tuned by eye for recall, on 18 photos chosen to cover different zoom levels (bees from 150 to 680 px long) and different focus. **The labels were not corrected by hand** `[AUTHOR TO CONFIRM]`.
 
-Totale: 260.586 api su 791 foto, circa 329 per foto; il massimo è circa 1.850 api in una foto.
+Total: 260.586 bees on 791 photos, about 329 per photo; the maximum is about 1.850 bees in one photo.
 
-## 4. Segmentazione: fine-tuning di YOLO26s-seg (ablation)
+## 4. Segmentation: fine-tuning of YOLO26s-seg (ablation)
 
-Il dettaglio completo, con tutte le tabelle e le metriche, è in **`ablation_sam3.md`**: va allegato insieme a questo file. Qui ne riporto la sintesi.
+The full detail, with all tables and metrics, is in **`ablation_sam3.md`**: it must be attached together with this file. Here I report its summary.
 
-### Split e setup
-- Split **casuale per foto**:
+### Split and setup
+- **Random split by photo**:
 
-  | Split | Foto | Api |
+  | Split | Photos | Bees |
   |---|---:|---:|
   | Train | 554 | 182.318 |
   | Validation | 118 | 39.076 |
   | Test | 119 | 39.192 |
 
-- YOLO26s-seg pre-addestrato, fine-tuning completo.
-- Iperparametri:
-  - fino a 200 epoche, early stopping con patience 40;
+- Pre-trained YOLO26s-seg, full fine-tuning.
+- Hyperparameters:
+  - up to 200 epochs, early stopping with patience 40;
   - batch 2;
-  - AdamW, lr 0,001 con decadimento coseno fino all'1%;
-  - mosaic disattivato, `max_det` 2.500.
-- Hardware: una RTX A6000 da 48 GB per run.
-- La risoluzione alta di training è 1376 px, perché 1440 px va in out of memory a batch 2.
-- Test: conf 0,10, sia alla risoluzione di training sia a 2048 px.
-- Criterio di scelta: seg mAP50-95 sul test a 2048 px.
+  - AdamW, lr 0,001 with cosine decay down to 1%;
+  - mosaic disabled, `max_det` 2.500.
+- Hardware: one 48 GB RTX A6000 per run.
+- The high training resolution is 1376 px, because 1440 px runs out of memory at batch 2.
+- Test: conf 0,10, both at the training resolution and at 2048 px.
+- Selection criterion: seg mAP50-95 on the test set at 2048 px.
 
-### Risultati (test, 119 foto, a 2048 px)
+### Results (test, 119 photos, at 2048 px)
 
-| Variante | seg mAP50-95 | seg mAP50 | seg mAP75 | P | R | F1 |
+| Variant | seg mAP50-95 | seg mAP50 | seg mAP75 | P | R | F1 |
 |---|---:|---:|---:|---:|---:|---:|
 | base, 1280 px | 0,688 | 0,926 | 0,798 | 0,924 | 0,882 | 0,902 |
-| **1376 px (adottata)** | **0,692** | 0,927 | 0,803 | 0,931 | 0,881 | 0,905 |
-| 1376 + rotazione ±180° | 0,688 | 0,925 | 0,800 | 0,929 | 0,871 | 0,899 |
-| 1376 + rotazione + copy-paste | 0,690 | 0,919 | 0,802 | 0,931 | 0,873 | 0,901 |
+| **1376 px (adopted)** | **0,692** | 0,927 | 0,803 | 0,931 | 0,881 | 0,905 |
+| 1376 + rotation ±180° | 0,688 | 0,925 | 0,800 | 0,929 | 0,871 | 0,899 |
+| 1376 + rotation + copy-paste | 0,690 | 0,919 | 0,802 | 0,931 | 0,873 | 0,901 |
 | 1376, freeze 5 | 0,685 | 0,921 | 0,794 | 0,931 | 0,881 | 0,905 |
 | 1376, freeze 10 | 0,682 | 0,918 | 0,792 | 0,926 | 0,874 | 0,899 |
 | 1376, freeze 20 | 0,580 | 0,835 | 0,673 | 0,881 | 0,778 | 0,826 |
 | 1376, freeze 23 | 0,484 | 0,760 | 0,554 | 0,777 | 0,701 | 0,737 |
 | 1376, seed 1 | 0,695 | 0,931 | 0,805 | 0,941 | 0,884 | 0,912 |
 
-### Conclusioni principali
-1. **Inferenza a 2048 px:** vale +4/6 punti di mAP50-95 per ogni variante, senza riaddestrare.
-2. **Training a 1376 px invece di 1280:** +1,5 punti alla risoluzione di training, ma a 2048 px solo +0,4, che è entro il rumore tra seed (0,003).
-3. **Rotazione e copy-paste:** nessun effetto misurabile.
-4. **Freeze:** 5-10 layer costano circa un punto. Da 20 layer in su il modello crolla (−11 e −21 punti), soprattutto in recall: il fine-tuning completo è necessario.
-5. **mAP75** è la metrica che separa di più le varianti buone: conta la precisione del contorno, mentre la detection è simile tra le varianti.
+### Main conclusions
+1. **Inference at 2048 px:** worth +4/6 points of mAP50-95 for every variant, without retraining.
+2. **Training at 1376 px instead of 1280:** +1,5 points at the training resolution, but at 2048 px only +0,4, which is within the seed-to-seed noise (0,003).
+3. **Rotation and copy-paste:** no measurable effect.
+4. **Freeze:** 5-10 layers cost about one point. From 20 layers upwards the model collapses (−11 and −21 points), especially in recall: full fine-tuning is necessary.
+5. **mAP75** is the metric that best separates the good variants: what matters is contour precision, while detection is similar across variants.
 
-### Confronto con il primo ablation (LangSAM, batch 3+4)
-È descritto in `thesis_brief_yolo_finetuning.md`.
-- **LangSAM:** 298 foto di train, 56 di test, alta risoluzione 1440 px. Migliore 0,628 a 2048 px.
-- **SAM 3:** migliore 0,692.
+### Comparison with the first ablation (LangSAM, batches 3+4)
+It is described in `thesis_brief_yolo_finetuning.md`.
+- **LangSAM:** 298 train photos, 56 test photos, high resolution 1440 px. Best 0,628 at 2048 px.
+- **SAM 3:** best 0,692.
 
-**I valori assoluti non sono confrontabili.** Ogni modello è valutato contro le pseudo-etichette dello strumento che ha generato le sue etichette di training, e cambiano foto e numero di immagini. Gli split si sovrappongono: 40 foto del test LangSAM sono nel train SAM 3, e 45 foto del test SAM 3 sono nel train LangSAM. Sono confrontabili solo le tendenze, e coincidono.
+**The absolute values are not comparable.** Each model is evaluated against the pseudo-labels of the tool that generated its training labels, and the photos and number of images differ. The splits overlap: 40 photos of the LangSAM test set are in the SAM 3 train set, and 45 photos of the SAM 3 test set are in the LangSAM train set. Only the trends are comparable, and they agree.
 
-**Modello adottato:** `runs/segment/runs/segment/bee_model_finetuned_yolo26s_batch3+4+5+6_SAM3_img1376/weights/best.pt`, usato a 2048 px.
+**Adopted model:** `runs/segment/runs/segment/bee_model_finetuned_yolo26s_batch3+4+5+6_SAM3_img1376/weights/best.pt`, used at 2048 px.
 
-## 5. Estrazione delle singole api
+## 5. Extraction of the single bees
 
-- Script: `extract_anomaly_dataset.py`, lanciato con il modello adottato, `--imgsz 2048` e `--conf 0.35` (default).
-- Sorgente: le 791 foto di `bee_batch3+4+5+6_SAM3/images`.
-- **Le 554 foto di train del modello YOLO sono incluse:** su quelle foto la segmentazione è più ottimistica che su foto nuove.
-- **Normalizzazione per foto** prima del ritaglio: trasformazione lineare del canale L in LAB, con un solo guadagno e un solo offset per tutta la foto. Così le api della stessa foto restano confrontabili tra loro.
-  - Le statistiche si misurano sui pixel delle api (se sono almeno 5.000), perché lo sfondo cambia da foto a foto.
-  - Target: media L 110 e deviazione standard 42, cioè le mediane di 90 foto di batch3+4. Prima della correzione la media variava tra 72 e 139 e la deviazione tra 33 e 51.
-  - Guadagno limitato tra 0,6 e 1,8.
-- Risultato: **249.982 crop grezzi** (PNG RGBA) in `processed/single_bee3+4+5+6_SAM3/raw_bees`.
+- Script: `extract_anomaly_dataset.py`, run with the adopted model, `--imgsz 2048` and `--conf 0.35` (default).
+- Source: the 791 photos in `bee_batch3+4+5+6_SAM3/images`.
+- **The 554 training photos of the YOLO model are included:** on those photos the segmentation is more optimistic than on new photos.
+- **Per-photo normalisation** before cropping: linear transformation of the L channel in LAB, with a single gain and a single offset for the whole photo. This way the bees of the same photo remain comparable with each other.
+  - The statistics are measured on the bee pixels (if there are at least 5.000), because the background changes from photo to photo.
+  - Target: mean L 110 and standard deviation 42, i.e. the medians of 90 photos of batch3+4. Before the correction the mean ranged between 72 and 139 and the standard deviation between 33 and 51.
+  - Gain limited between 0,6 and 1,8.
+- Result: **249.982 raw crops** (RGBA PNG) in `processed/single_bee3+4+5+6_SAM3/raw_bees`.
 
-## 6. Pulizia dei crop e orientamento
+## 6. Crop cleaning and orientation
 
-Script: `dataset_cleaning.py`, pipeline versione 4. Output in `processed/single_bee3+4+5+6_SAM3/cleaned_bees`.
+Script: `dataset_cleaning.py`, pipeline version 4. Output in `processed/single_bee3+4+5+6_SAM3/cleaned_bees`.
 
-### Filtri (motivi di scarto)
+### Filters (rejection reasons)
 
-| Motivo | Regola | Api scartate |
+| Reason | Rule | Bees rejected |
 |---|---|---:|
-| border | ape tagliata dal bordo del crop: più di 15 px di maschera in una fascia di 8 px | 31.917 |
-| blur | punteggio di nitidezza < 50, misurato a una scala comune | 25.015 |
-| short | lato lungo del rettangolo ruotato < 105 px: sotto circa 100 px erano addomi nelle celle, teste o ali | 9.388 |
-| aspect | rapporto lunghezza/larghezza > 3 | 205 |
-| fragments | tenendo solo il corpo principale si perde più del 20% della maschera | 60 |
-| **Totale scartate** | | **66.585** (26,6%) |
-| **Accettate** | | **183.397** |
+| border | bee cut off by the crop border: more than 15 px of mask in an 8 px band | 31.917 |
+| blur | sharpness score < 50, measured at a common scale | 25.015 |
+| short | long side of the rotated rectangle < 105 px: below about 100 px they were abdomens in cells, heads or wings | 9.388 |
+| aspect | length/width ratio > 3 | 205 |
+| fragments | keeping only the main body loses more than 20% of the mask | 60 |
+| **Total rejected** | | **66.585** (26,6%) |
+| **Accepted** | | **183.397** |
 
-Altre soglie del filtro: area minima 1.500 px², fill ratio ≥ 0,30, lato corto ≥ 25 px.
+Other filter thresholds: minimum area 1.500 px², fill ratio ≥ 0,30, short side ≥ 25 px.
 
-| Batch | Foto | Crop estratti | Accettati | % accettati |
+| Batch | Photos | Crops extracted | Accepted | % accepted |
 |---|---:|---:|---:|---:|
 | batch_3 | 168 | 45.182 | 34.131 | 75,5% |
 | batch_4 | 241 | 99.639 | 73.611 | 73,9% |
 | batch_5 | 199 | 58.914 | 41.805 | 71,0% |
 | batch_6 | 183 | 46.247 | 33.850 | 73,2% |
 
-### Normalizzazione
-- Ogni crop è un PNG 512×512 a sfondo nero, con l'asse lungo dell'ape in verticale e il lato lungo pari a circa l'85% del frame.
-- La maschera passa per chiusura, dilatazione, apertura (che separa le api adiacenti), recupero di zampe e antenne e smussatura; i bordi sono sfumati per 12 px.
-- I kernel sono proporzionali alla lunghezza dell'ape, con riferimento 190 px.
+### Normalisation
+- Each crop is a 512×512 PNG on a black background, with the long axis of the bee vertical and the long side equal to about 85% of the frame.
+- The mask goes through closing, dilation, opening (which separates adjacent bees), recovery of legs and antennae and smoothing; the edges are feathered over 12 px.
+- The kernels are proportional to the bee length, with a reference of 190 px.
 
-### Testa in alto (`bee_orientation.py`)
-- Metodo: regressione logistica (C = 0,1) su embedding DINOv2 ViT-S/14. L'input è la differenza tra l'embedding dell'ape e quello della stessa ape ruotata di 180°: lo score è quindi antisimmetrico per costruzione e il passo è idempotente.
-- Etichette: 214 api di batch 3-6 orientate a mano (`config/head_orientation_labels.json`), escluse le ambigue.
-- **Cross-validation a 10 fold: 0 errori su 214.** Le api ambigue (di lato, parziali) non sono tra le etichettate, quindi lì qualche errore è da aspettarsi.
-- Sulle 183.397 api accettate:
-  - **57.501 sono state ruotate** di 180° (31,4%);
-  - **9.164 hanno |score| < 1**, cioè orientamento incerto (5,0%). Con |score| < 2 diventano 18.572, con |score| < 3 28.836.
-  - Le api incerte non sono state ricontrollate a mano.
+### Head at the top (`bee_orientation.py`)
+- Method: logistic regression (C = 0,1) on DINOv2 ViT-S/14 embeddings. The input is the difference between the embedding of the bee and that of the same bee rotated by 180°: the score is therefore antisymmetric by construction and the step is idempotent.
+- Labels: 214 bees from batches 3-6 oriented by hand (`config/head_orientation_labels.json`), ambiguous ones excluded.
+- **10-fold cross-validation: 0 errors out of 214.** Ambiguous bees (side views, partial) are not among the labelled ones, so some errors are to be expected there.
+- On the 183.397 accepted bees:
+  - **57.501 were rotated** by 180° (31,4%);
+  - **9.164 have |score| < 1**, i.e. uncertain orientation (5,0%). With |score| < 2 they become 18.572, with |score| < 3 28.836.
+  - The uncertain bees were not re-checked by hand.
 
-## 7. Metodo di active learning (`bee_al`)
+## 7. Active learning method (`bee_al`)
 
-Descrizione completa in `bee_al/README.md`.
+Full description in `bee_al/README.md`.
 
-### Rappresentazione
-- **Embedding:** DINOv2 ViT-S/14 a 224 px. Nessuna testa di classificazione: le classi si assegnano sui vicini nello spazio degli embedding.
+### Representation
+- **Embeddings:** DINOv2 ViT-S/14 at 224 px. No classification head: classes are assigned from the neighbours in the embedding space.
 
-### Assegnazione delle classi
-- **Propagazione delle etichette:** label spreading (Zhou et al.) su un grafo kNN con 15 vicini, α = 0,8, al massimo 30 iterazioni.
-- **kNN di ripiego** (k = 10, temperatura 0,07).
-- **Non assegnate:** il 5% di api più lontane da ogni esempio etichettato resta "non assegnata" e non entra nei cluster.
+### Class assignment
+- **Label propagation:** label spreading (Zhou et al.) on a kNN graph with 15 neighbours, α = 0,8, at most 30 iterations.
+- **Fallback kNN** (k = 10, temperature 0,07).
+- **Unassigned:** the 5% of bees furthest from any labelled example stays "unassigned" and does not enter the clusters.
 
-### Selezione delle api da etichettare
-- Batch di 30 api.
-- Il 70% per incertezza: margine tra le prime due classi della propagazione.
-- Il 20% per novelty e il 10% casuale.
-- Cold start sotto le 50 etichette.
+### Selection of the bees to label
+- Batches of 30 bees.
+- 70% by uncertainty: margin between the top two classes of the propagation.
+- 20% by novelty and 10% random.
+- Cold start below 50 labels.
 
-### Interfaccia
-L'interfaccia web ha tre modi di etichettare:
-- coda di active learning, singola o a griglia;
-- pagina Clusters, dove si etichettano a mano gruppi di api simili;
-- pagina Review, con le etichette sospette perché in disaccordo con i vicini.
+### Interface
+The web interface offers three ways of labelling:
+- active learning queue, single or grid;
+- Clusters page, where groups of similar bees are labelled by hand;
+- Review page, with labels that are suspicious because they disagree with their neighbours.
 
-C'è anche un pulsante "Scarta ape" per le api che non si vogliono assegnare.
+There is also a "Scarta ape" (discard bee) button for bees that one does not want to assign.
 
-### Re-train contrastivo (a pulsante)
-- Fine-tuning degli ultimi 2 blocchi di DINOv2, 300 passi, batch 96.
-- Il 50% di ogni batch è etichettato; le pseudo-etichette entrano con confidenza ≥ 0,95.
-- Loss: SupCon sulle api etichettate e pseudo-etichettate, SimCLR sulle altre. Temperatura 0,1, proiezione a 128 dimensioni.
-- Learning rate: 1e-5 per il backbone, 1e-3 per la testa di proiezione.
-- Dopo il re-train si rigenerano gli embedding e il grafo.
+### Contrastive re-training (on demand, via a button)
+- Fine-tuning of the last 2 blocks of DINOv2, 300 steps, batch 96.
+- 50% of each batch is labelled; pseudo-labels enter with confidence ≥ 0,95.
+- Loss: SupCon on labelled and pseudo-labelled bees, SimCLR on the others. Temperature 0,1, projection to 128 dimensions.
+- Learning rate: 1e-5 for the backbone, 1e-3 for the projection head.
+- After re-training, the embeddings and the graph are regenerated.
 
 ### Validation set
-100 api casuali, fisse (seed 123), escluse dalla coda. **In nessuna delle due fasi è stato etichettato**, quindi accuracy e macro-F1 non sono disponibili e i modelli sono stati accettati senza un confronto di metriche.
+100 random bees, fixed (seed 123), excluded from the queue. **It was not labelled in either phase**, so accuracy and macro-F1 are not available and the models were accepted without a metric comparison.
 
-### Criteri di stop
-- Stabilità delle predizioni: meno dell'1% di api cambia classe per 3 round.
-- Nessuna classe nuova da 3 round.
-- Plateau della F1 sul validation set.
+### Stopping criteria
+- Prediction stability: less than 1% of bees change class for 3 rounds.
+- No new class for 3 rounds.
+- F1 plateau on the validation set.
 
-### Snapshot
-Lo stato si congela in snapshot immutabili (`predictions.csv`, `frames.csv`, `meta.json`, etichette) e i cluster si esportano in cartelle per classe.
+### Snapshots
+The state is frozen in immutable snapshots (`predictions.csv`, `frames.csv`, `meta.json`, labels) and the clusters are exported into per-class folders.
 
-## 8. Fase 1: crop utilizzabili o da scartare
+## 8. Phase 1: usable crops or crops to discard
 
-- **Dati:** tutte le 183.397 api pulite. Snapshot `fase1_finale_okvsscarta` del 15/10/2026, modello v003, 14 round.
-- **Classi:** Ok (crop utilizzabile) e Scarta (segmentazione o crop non utilizzabile).
-- **Annotazione:** un solo annotatore (l'autore), 1.735 eventi di etichetta e 1.561 api etichettate.
-  - Per tipo di query: manual 1.505, uncertainty 112, diversity 58, novelty 39, random 21.
-  - **Quasi tutte le etichette sono state scelte dall'annotatore dalla pagina Clusters, non estratte a caso.**
-- **Re-train contrastivi:**
+- **Data:** all 183.397 cleaned bees. Snapshot `fase1_finale_okvsscarta` of 15/10/2026, model v003, 14 rounds.
+- **Classes:** Ok (usable crop) and Scarta (discard: segmentation or crop not usable).
+- **Annotation:** a single annotator (the author), 1.735 label events and 1.561 labelled bees.
+  - By query type: manual 1.505, uncertainty 112, diversity 58, novelty 39, random 21.
+  - **Almost all labels were chosen by the annotator from the Clusters page, not sampled at random.**
+- **Contrastive re-trainings:**
 
-  | Modello | Etichette | Pseudo-etichette | Loss iniziale | Loss finale | Durata |
+  | Model | Labels | Pseudo-labels | Initial loss | Final loss | Duration |
   |---|---:|---:|---:|---:|---:|
   | v001 | 386 | 35.899 | 4,20 | 3,01 | 8 min |
   | v002 | 1.070 | 9.037 | 4,20 | 3,07 | 8 min |
   | v003 | 1.537 | 20.237 | 4,18 | 3,06 | 8 min |
 
-- **Risultato:**
-  - Ok 138.788 (824 a mano, 137.964 predette);
-  - Scarta 35.422 (737 a mano, 34.685 predette);
-  - 9.087 non assegnate e 100 nel validation set.
-- **Criteri di stop:**
-  - nessuna classe nuova: soddisfatto;
-  - stabilità: **non soddisfatta**, nei 3 ultimi round è cambiato il 3,15%, l'1,85% e l'1,96% delle api;
-  - F1: non valutabile, perché manca il validation set.
+- **Result:**
+  - Ok 138.788 (824 by hand, 137.964 predicted);
+  - Scarta 35.422 (737 by hand, 34.685 predicted);
+  - 9.087 unassigned and 100 in the validation set.
+- **Stopping criteria:**
+  - no new class: met;
+  - stability: **not met**, in the last 3 rounds 3,15%, 1,85% and 1,96% of the bees changed class;
+  - F1: cannot be evaluated, because the validation set is missing.
 
-Quota di Ok per batch (`scripts/batch_counts.py`). Le quote sono sulle api assegnate, con intervallo bootstrap al 95% sulle foto:
+Share of Ok per batch (`scripts/batch_counts.py`). The shares are over the assigned bees, with a 95% bootstrap interval over the photos:
 
-| Batch | Foto | Api | Ok | Scarta | Non assegnate |
+| Batch | Photos | Bees | Ok | Scarta | Unassigned |
 |---|---:|---:|---|---|---:|
 | batch_3 | 168 | 34.131 | 26.566 (81,4% [78,4-84,8]) | 6.054 (18,6%) | 1.511 |
 | batch_4 | 241 | 73.611 | 55.879 (79,1% [77,2-80,7]) | 14.783 (20,9%) | 2.949 |
 | batch_5 | 199 | 41.805 | 29.777 (76,8% [75,0-78,9]) | 8.980 (23,2%) | 3.048 |
 | batch_6 | 183 | 33.850 | 26.640 (82,6% [80,5-84,9]) | 5.631 (17,4%) | 1.579 |
 
-Il bootstrap misura la variabilità da foto a foto, **non gli errori del modello**.
+The bootstrap measures the photo-to-photo variability, **not the model errors**.
 
-**Esperienza precedente (pilota su batch 3+4, archiviata).** C'era stata una prima run con etichette LangSAM, 68.559 api e classi Crop Utilizzabile / Ape Incompleta / Crop Non Utilizzabile. Lì il validation set era stato etichettato, e mostrava che il modello lasciava passare circa 2/3 dei crop non utilizzabili. È il motivo per cui la fase 1 esiste come passo a sé. `[AUTORE DA CONFERMARE: se citare il pilota nella tesi]`
+**Previous experience (pilot on batches 3+4, archived).** There had been a first run with LangSAM labels, 68.559 bees and the classes Crop Utilizzabile / Ape Incompleta / Crop Non Utilizzabile (usable crop / incomplete bee / unusable crop). There the validation set had been labelled, and it showed that the model let through about 2/3 of the unusable crops. This is why phase 1 exists as a separate step. `[AUTHOR TO CONFIRM: whether to mention the pilot in the thesis]`
 
-## 9. Fase 2: profilo demografico e malattia
+## 9. Phase 2: demographic profile and disease
 
-- **Dati:** solo le 138.788 api Ok della fase 1, con gli embedding DINOv2 originali (v000) come punto di partenza.
-- **Snapshot** `fase2_finale` del 16/10/2026: modello v004, 9 round. Export in `single_bee3+4+5+6_SAM3_clusters/fase2_finale`.
-- **Classi**, come definite dall'autore:
-  - **Giovane, Adulte, Fuco:** profilo demografico.
-  - **Malata:** api malate in generale.
-  - **Non Classificabile:** api che non si possono classificare per segmentazione o posa. È una classe di scarto: il modello la impara, ma resta fuori dalle quote.
-  - Criteri visivi usati per l'età: `[AUTORE DA CONFERMARE]`. Un'indicazione data durante il lavoro era pelo del torace e stato delle ali.
-- **Annotazione:** un annotatore, 1.954 eventi e 1.837 api etichettate.
-  - Per tipo di query: manual 1.786, diversity 65, uncertainty 61, novelty 25, random 17.
-- **Re-train contrastivi:**
+- **Data:** only the 138.788 Ok bees from phase 1, with the original DINOv2 embeddings (v000) as the starting point.
+- **Snapshot** `fase2_finale` of 16/10/2026: model v004, 9 rounds. Export in `single_bee3+4+5+6_SAM3_clusters/fase2_finale`.
+- **Classes**, as defined by the author:
+  - **Giovane, Adulte, Fuco** (young, adult, drone): demographic profile.
+  - **Malata** (sick): sick bees in general.
+  - **Non Classificabile** (unclassifiable): bees that cannot be classified because of segmentation or pose. It is a reject class: the model learns it, but it is left out of the shares.
+  - Visual criteria used for age: `[AUTHOR TO CONFIRM]`. One indication given during the work was thorax hair and wing condition.
+- **Annotation:** one annotator, 1.954 events and 1.837 labelled bees.
+  - By query type: manual 1.786, diversity 65, uncertainty 61, novelty 25, random 17.
+- **Contrastive re-trainings:**
 
-  | Modello | Etichette | Pseudo-etichette | Loss iniziale | Loss finale |
+  | Model | Labels | Pseudo-labels | Initial loss | Final loss |
   |---|---:|---:|---:|---:|
   | v001 | 607 | 16.711 | 4,13 | 2,31 |
   | v002 | 1.019 | 3.184 | 4,04 | 2,37 |
   | v003 | 1.338 | 2.684 | 4,07 | 2,37 |
   | v004 | 1.685 | 1.745 | 4,02 | 2,39 |
 
-  Le pseudo-etichette sopra 0,95 calano da un modello all'altro.
-- **Classi finali:**
+  The pseudo-labels above 0,95 decrease from one model to the next.
+- **Final classes:**
 
-  | Classe | A mano | Predette | Totale | % delle 131.829 api nei cluster |
+  | Class | By hand | Predicted | Total | % of the 131.829 bees in the clusters |
   |---|---:|---:|---:|---:|
   | Adulte | 1.250 | 122.432 | 123.682 | 93,8% |
   | Non Classificabile | 129 | 3.821 | 3.950 | 3,0% |
@@ -278,73 +278,73 @@ Il bootstrap misura la variabilità da foto a foto, **non gli errori del modello
   | Fuco | 130 | 1.271 | 1.401 | 1,1% |
   | Malata | 229 | 474 | 703 | 0,5% |
 
-  Inoltre 6.842 non assegnate, 100 nel validation set e 17 "Scarta ape".
-- **Criteri di stop:**
-  - nessuna classe nuova: soddisfatto;
-  - stabilità: **lontana dalla soglia**, nei 3 ultimi round è cambiato il 9,49%, il 13,92% e il 9,14% delle api;
-  - F1: non valutabile.
+  In addition, 6.842 unassigned, 100 in the validation set and 17 "Scarta ape".
+- **Stopping criteria:**
+  - no new class: met;
+  - stability: **far from the threshold**, in the last 3 rounds 9,49%, 13,92% and 9,14% of the bees changed class;
+  - F1: cannot be evaluated.
 
-**Conteggi per batch** (`batch_counts.py`, bootstrap sulle foto, 1.000 repliche).
-- Le quote del profilo sono calcolate sul totale Giovane + Adulte + Fuco.
-- Malata è in % di tutte le api classificate, cioè senza Non Classificabile e senza le non assegnate.
+**Per-batch counts** (`batch_counts.py`, bootstrap over the photos, 1.000 replicates).
+- The profile shares are computed over the total Giovane + Adulte + Fuco.
+- Malata is a % of all classified bees, i.e. excluding Non Classificabile and the unassigned ones.
 
-| Batch | Foto | Api | Giovane (% profilo) | Adulte (% profilo) | Fuco (% profilo) | Malata (% classificate) | Non Classificabile | Non assegnate |
+| Batch | Photos | Bees | Giovane (% profile) | Adulte (% profile) | Fuco (% profile) | Malata (% classified) | Non Classificabile | Unassigned |
 |---|---:|---:|---|---|---|---|---:|---:|
 | batch_3 | 168 | 26.548 | 1,0% [0,8-1,2] | 98,7% [98,5-99,0] | 0,3% [0,2-0,3] | 0,2% [0,1-0,2] (42) | 685 | 1.392 |
 | batch_4 | 241 | 55.850 | 2,1% [1,8-2,4] | 96,3% [95,9-96,7] | 1,6% [1,4-1,7] | 0,4% [0,3-0,4] (198) | 1.713 | 2.303 |
 | batch_5 | 199 | 29.761 | 1,5% [1,3-1,8] | 97,2% [96,7-97,6] | 1,3% [1,0-1,6] | 0,4% [0,3-0,5] (109) | 898 | 1.921 |
 | batch_6 | 183 | 26.629 | 1,5% [1,3-1,7] | 97,8% [97,5-98,0] | 0,8% [0,6-0,9] | 1,4% [1,1-1,8] (354) | 658 | 1.226 |
 
-Il batch_6 ha una quota di Malata circa 3-7 volte più alta degli altri. Le foto con più api Malata sono tutte nel batch_6 (DSC_6797: 19, DSC_6796: 18, DSC_6785: 16). Non vengono dalla cartella `sick` (§2).
+batch_6 has a Malata share about 3-7 times higher than the others. The photos with the most Malata bees are all in batch_6 (DSC_6797: 19, DSC_6796: 18, DSC_6785: 16). They do not come from the `sick` folder (§2).
 
-### Come leggere questi numeri (da scrivere nella tesi)
-1. **Non sono validati.** Il validation set di 100 api casuali non è stato etichettato, e non è stato fatto l'audit alla cieca (`bee_al/audit.py`, `scripts/audit_report.py`, disponibili ma non usati). Gli intervalli mostrano solo la variabilità tra foto.
-2. **Probabile sottostima delle classi rare.**
-   - La propagazione su grafo favorisce la classe con più esempi: Adulte ha 1.250 esempi, le altre 99-229.
-   - Per Malata un terzo del totale (229 su 703) sono le api etichettate a mano. Il modello quindi ne ha trovate solo 474 in più su circa 130.000 api.
-   - Le quote di Giovane, Fuco e Malata vanno lette come limiti inferiori o come confronto relativo tra batch, non come prevalenze assolute.
-3. **Campione di etichette non casuale.** Il 91% delle etichette è stato scelto dall'annotatore dalla pagina Clusters. Non si possono usare per stimare l'accuratezza.
-4. **Modello non stabilizzato.** Tra un round e l'altro cambia classe il 9-14% delle api.
-5. **Un solo annotatore**, senza misura di accordo tra annotatori.
-6. **Le classi di fase 2 sono state definite dopo lo snapshot.** Lo snapshot `fase2_finale` è stato fatto con la lista di classi vuota nella config. Classi di scarto, demografiche e di malattia sono state applicate dopo, al momento del conteggio, leggendo `config/al_fase2_sam3.yaml`. Le etichette e le predizioni non cambiano.
-7. **Effetto a cascata della fase 1.** Le api "Scarta" predette per errore non arrivano in fase 2, e le api "Ok" non utilizzabili sono finite in parte in Non Classificabile.
+### How to read these numbers (to be written in the thesis)
+1. **They are not validated.** The validation set of 100 random bees was not labelled, and the blind audit was not done (`bee_al/audit.py`, `scripts/audit_report.py`, available but not used). The intervals only show the variability between photos.
+2. **Likely underestimation of the rare classes.**
+   - Graph propagation favours the class with the most examples: Adulte has 1.250 examples, the others 99-229.
+   - For Malata, one third of the total (229 out of 703) are the bees labelled by hand. The model therefore found only 474 more out of about 130.000 bees.
+   - The shares of Giovane, Fuco and Malata should be read as lower bounds or as a relative comparison between batches, not as absolute prevalences.
+3. **Non-random label sample.** 91% of the labels were chosen by the annotator from the Clusters page. They cannot be used to estimate accuracy.
+4. **Model not stabilised.** Between one round and the next, 9-14% of the bees change class.
+5. **A single annotator**, with no measure of inter-annotator agreement.
+6. **The phase 2 classes were defined after the snapshot.** The `fase2_finale` snapshot was taken with an empty class list in the config. Reject, demographic and disease classes were applied afterwards, at counting time, by reading `config/al_fase2_sam3.yaml`. The labels and predictions do not change.
+7. **Cascade effect of phase 1.** Bees wrongly predicted as "Scarta" do not reach phase 2, and unusable "Ok" bees partly ended up in Non Classificabile.
 
-Passi che renderebbero i numeri difendibili, non ancora fatti: `[AUTORE DA CONFERMARE se farli prima della consegna]`
-- etichettare i 100 api del validation set di fase 2;
-- fare l'audit stratificato per confidenza e ottenere stime di prevalenza corrette;
-- eventualmente bilanciare le masse delle classi nella propagazione.
+Steps that would make the numbers defensible, not yet done: `[AUTHOR TO CONFIRM whether to do them before submission]`
+- label the 100 bees of the phase 2 validation set;
+- run the confidence-stratified audit and obtain corrected prevalence estimates;
+- possibly balance the class masses in the propagation.
 
-## 10. Limiti generali (sezione limiti della tesi)
+## 10. General limitations (limitations section of the thesis)
 
-- **Segmentazione**
-  - Ground truth = pseudo-etichette SAM 3 non corrette a mano.
-  - Split casuale per foto e non per sequenza di scatto o favo: foto quasi identiche possono stare una in train e una in test. Le metriche assolute possono quindi essere ottimistiche, ma il confronto tra varianti resta valido.
-  - Un solo seed ripetuto. Alcuni run (freeze10, seed1) sono stati ripresi da checkpoint dopo out of memory causati da altri utenti della GPU; i `best.pt` testati precedono le riprese.
-- **Estrazione:** fatta anche sulle foto di train del modello YOLO.
-- **Pulizia:**
-  - soglie scelte a vista;
-  - non c'è una misura di quante api buone vengano scartate;
-  - 5% di orientamenti incerti non ricontrollati.
-- **Classificazione:** vedi §9, punti 1-7.
-- **Metadati:** non c'è una corrispondenza foto → alveare. La "sessione" coincide con il batch, quindi non si può separare l'effetto del tempo da quello dell'alveare `[AUTORE DA CONFERMARE: alveari fotografati in ogni batch]`.
+- **Segmentation**
+  - Ground truth = SAM 3 pseudo-labels not corrected by hand.
+  - Random split by photo and not by shooting sequence or comb: nearly identical photos can be one in train and one in test. The absolute metrics may therefore be optimistic, but the comparison between variants remains valid.
+  - Only one repeated seed. Some runs (freeze10, seed1) were resumed from checkpoints after out-of-memory errors caused by other GPU users; the tested `best.pt` files predate the resumes.
+- **Extraction:** also done on the training photos of the YOLO model.
+- **Cleaning:**
+  - thresholds chosen by eye;
+  - there is no measure of how many good bees are rejected;
+  - 5% of uncertain orientations not re-checked.
+- **Classification:** see §9, points 1-7.
+- **Metadata:** there is no photo → hive mapping. The "session" coincides with the batch, so the effect of time cannot be separated from that of the hive `[AUTHOR TO CONFIRM: hives photographed in each batch]`.
 
-## 11. File e riproducibilità
+## 11. Files and reproducibility
 
-| Cosa | Dove |
+| What | Where |
 |---|---|
-| Ablation SAM 3, dettaglio completo | `ablation_sam3.md`, `logs/ablation_sam3/` |
-| Ablation LangSAM (precedente) | `thesis_brief_yolo_finetuning.md` |
-| Pseudo-etichette SAM 3 | `generate_labels_sam3.py`, `processed/bee_batch3+4+5+6_SAM3`, `logs/generate_labels_sam3.log` |
+| SAM 3 ablation, full detail | `ablation_sam3.md`, `logs/ablation_sam3/` |
+| LangSAM ablation (previous) | `thesis_brief_yolo_finetuning.md` |
+| SAM 3 pseudo-labels | `generate_labels_sam3.py`, `processed/bee_batch3+4+5+6_SAM3`, `logs/generate_labels_sam3.log` |
 | Split | `split_dataset_sam3.py`, `data_sam3.yaml` |
-| Estrazione | `extract_anomaly_dataset.py`, `logs/extract_single_bee3+4+5+6_SAM3.log` |
-| Pulizia e orientamento | `dataset_cleaning.py`, `bee_orientation.py`, `logs/cleaning_single_bee3+4+5+6_SAM3.log`, manifest `cleaned_bees/_cleaning_manifest.json` |
-| Active learning | `bee_al/` (README), config `config/al_config.yaml` (fase 1) e `config/al_fase2_sam3.yaml` (fase 2) |
-| Snapshot fase 1 | `/mnt/disk1/tommaso_ballarin/bee_al/results_sam3_b3456/snapshots/fase1_finale_okvsscarta/` (con `batch_counts/`) |
-| Snapshot fase 2 | `/mnt/disk1/tommaso_ballarin/bee_al/results_fase2_sam3/snapshots/fase2_finale/` (con `batch_counts/`: CSV per batch e per foto, grafico `batch_counts.png`) |
-| Cluster esportati | `processed/single_bee3+4+5+6_SAM3_clusters/{fase1_finale_okvsscarta, fase2_finale}` |
-| Modelli contrastivi | `/mnt/disk1/tommaso_ballarin/bee_al/models_{sam3_b3456,fase2_sam3}/v00N/` (`meta.json`, `train_log.json`) |
-| Varroa sintetica | `brief_varroa_sintetica_su_crop.md`, `varroa_on_crops.py`, `build_varroa_split.py` |
+| Extraction | `extract_anomaly_dataset.py`, `logs/extract_single_bee3+4+5+6_SAM3.log` |
+| Cleaning and orientation | `dataset_cleaning.py`, `bee_orientation.py`, `logs/cleaning_single_bee3+4+5+6_SAM3.log`, manifest `cleaned_bees/_cleaning_manifest.json` |
+| Active learning | `bee_al/` (README), config `config/al_config.yaml` (phase 1) and `config/al_fase2_sam3.yaml` (phase 2) |
+| Phase 1 snapshot | `/mnt/disk1/tommaso_ballarin/bee_al/results_sam3_b3456/snapshots/fase1_finale_okvsscarta/` (with `batch_counts/`) |
+| Phase 2 snapshot | `/mnt/disk1/tommaso_ballarin/bee_al/results_fase2_sam3/snapshots/fase2_finale/` (with `batch_counts/`: CSVs per batch and per photo, plot `batch_counts.png`) |
+| Exported clusters | `processed/single_bee3+4+5+6_SAM3_clusters/{fase1_finale_okvsscarta, fase2_finale}` |
+| Contrastive models | `/mnt/disk1/tommaso_ballarin/bee_al/models_{sam3_b3456,fase2_sam3}/v00N/` (`meta.json`, `train_log.json`) |
+| Synthetic varroa | `brief_varroa_sintetica_su_crop.md`, `varroa_on_crops.py`, `build_varroa_split.py` |
 
-Software: Ultralytics 8.4.138, PyTorch 2.14.0, Python 3.10, GPU NVIDIA RTX A6000 da 48 GB (server condiviso).
+Software: Ultralytics 8.4.138, PyTorch 2.14.0, Python 3.10, 48 GB NVIDIA RTX A6000 GPU (shared server).
 
-I grafici pronti sono `batch_counts/batch_counts.png` dei due snapshot e quelli di Ultralytics nelle cartelle dei run (`results.png`, curve PR).
+The ready-made plots are `batch_counts/batch_counts.png` of the two snapshots and the Ultralytics ones in the run folders (`results.png`, PR curves).

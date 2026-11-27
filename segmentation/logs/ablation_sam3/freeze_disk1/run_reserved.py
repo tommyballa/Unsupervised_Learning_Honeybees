@@ -1,14 +1,14 @@
-"""Esegue uno script Python dopo aver prenotato quasi tutta la memoria libera della GPU, e la tiene fino alla fine.
+"""Runs a Python script after reserving almost all the free GPU memory, and holds it until the end.
 
-Serve perche' il server e' condiviso: Ultralytics restituisce la cache alla GPU a ogni epoca (_clear_memory),
-gli altri processi se la prendono e al picco successivo il nostro training va in out of memory. Cosi' invece
-la memoria resta nostra: se qualcuno prova a crescere sulla stessa GPU e' lui a non trovarla.
+Needed because the server is shared: Ultralytics returns the cache to the GPU at every epoch (_clear_memory),
+other processes grab it and at the next peak our training runs out of memory. This way the memory
+stays ours: if someone tries to grow on the same GPU, they are the one who does not find it.
 
-La GPU va scelta con CUDA_VISIBLE_DEVICES (la coda lo fa), quindi dentro lo script e' sempre il device 0.
+The GPU must be chosen with CUDA_VISIBLE_DEVICES (the queue does this), so inside the script it is always device 0.
 
-Uso: CUDA_VISIBLE_DEVICES=<gpu> python run_reserved.py <script.py> [argomenti...]
-     python run_reserved.py -c "<codice>" [argomenti...]
-Variabili: RESERVE_GB (default: tutta la memoria libera meno MARGIN_GB, al massimo MAX_GB)
+Usage: CUDA_VISIBLE_DEVICES=<gpu> python run_reserved.py <script.py> [arguments...]
+       python run_reserved.py -c "<code>" [arguments...]
+Variables: RESERVE_GB (default: all the free memory minus MARGIN_GB, at most MAX_GB)
 """
 import gc
 import os
@@ -16,27 +16,27 @@ import runpy
 import sys
 import time
 
-# con expandable_segments la memoria liberata torna alla GPU: qui deve restare nella cache di PyTorch
+# with expandable_segments freed memory goes back to the GPU: here it must stay in the PyTorch cache
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:False"
 import torch
 
-MARGIN_GB = float(os.environ.get("MARGIN_GB", 1.0))   # lasciati liberi per il contesto CUDA e il resto
-MAX_GB = float(os.environ.get("MAX_GB", 44.0))         # picco misurato 35-41 GB: sopra non serve
-SMALL_MB = 512                                         # cache dei tensori piccoli (< 1 MB), che usano un'altra riserva
+MARGIN_GB = float(os.environ.get("MARGIN_GB", 1.0))   # left free for the CUDA context and everything else
+MAX_GB = float(os.environ.get("MAX_GB", 44.0))         # measured peak 35-41 GB: more is not needed
+SMALL_MB = 512                                         # cache for small tensors (< 1 MB), which use a separate pool
 
-assert os.environ.get("CUDA_VISIBLE_DEVICES"), "scegliere la GPU con CUDA_VISIBLE_DEVICES"
+assert os.environ.get("CUDA_VISIBLE_DEVICES"), "choose the GPU with CUDA_VISIBLE_DEVICES"
 torch.cuda.set_device(0)
 free, total = torch.cuda.mem_get_info(0)
 gb = float(os.environ.get("RESERVE_GB", 0)) or min(free / 2**30 - MARGIN_GB - SMALL_MB / 1024, MAX_GB)
-# un unico blocco grande: PyTorch lo tiene in cache e lo divide per le allocazioni del training
+# a single large block: PyTorch keeps it in cache and splits it for the training allocations
 big = torch.empty(int(gb * 2**30), dtype=torch.uint8, device="cuda")
 small = [torch.empty(512 * 1024, dtype=torch.uint8, device="cuda") for _ in range(SMALL_MB * 2)]
 del big, small
 print(f"{time.strftime('%F %T')} run_reserved: GPU {os.environ['CUDA_VISIBLE_DEVICES']}, "
-      f"prenotati {torch.cuda.memory_reserved(0) / 2**30:.1f} GB (liberi prima {free / 2**30:.1f} di "
+      f"reserved {torch.cuda.memory_reserved(0) / 2**30:.1f} GB (free before: {free / 2**30:.1f} of "
       f"{total / 2**30:.1f} GB)", flush=True)
 
-# la cache non va mai restituita alla GPU
+# the cache must never be returned to the GPU
 torch.cuda.empty_cache = lambda: None
 from ultralytics.engine.trainer import BaseTrainer
 BaseTrainer._clear_memory = lambda self, threshold=None: gc.collect()

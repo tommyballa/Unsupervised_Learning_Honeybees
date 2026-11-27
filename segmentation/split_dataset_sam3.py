@@ -1,23 +1,23 @@
 """
-Divide il dataset etichettato con SAM 3 (generate_labels_sam3.py) in train / val / test
-per il training di YOLO.
+Splits the dataset labelled with SAM 3 (generate_labels_sam3.py) into train / val / test
+for YOLO training.
 
-Le foto sono prese direttamente da SOURCE_DIR (images/ e labels/). La divisione è casuale
-per singola foto ed è fatta giornata per giornata (data di scatto nell'EXIF, una per batch),
-così tutti gli split contengono tutte le giornate. Tra TRIALS assegnazioni casuali viene
-tenuta quella più vicina alle quote richieste, sia come foto sia come api.
+The photos are taken directly from SOURCE_DIR (images/ and labels/). The split is random
+per single photo and is done day by day (shooting date in the EXIF, one per batch),
+so that every split contains every day. Among TRIALS random assignments, the one
+closest to the requested fractions, both in photos and in bees, is kept.
 
-Struttura dell'output:
-  <output>/{train,val,test}/images/   copie identiche delle foto
-  <output>/{train,val,test}/labels/   copie identiche delle etichette
-  <output>/split.csv                  ogni foto con giornata, numero di api e split
-  <output>/config.json                parametri e conteggi
+Output structure:
+  <output>/{train,val,test}/images/   identical copies of the photos
+  <output>/{train,val,test}/labels/   identical copies of the labels
+  <output>/split.csv                  each photo with day, number of bees and split
+  <output>/config.json                parameters and counts
 
-Con lo stesso seed e le stesse etichette il risultato è identico.
+With the same seed and the same labels the result is identical.
 
-Uso:
-  python split_dataset_sam3.py --dry-run    # solo il riepilogo, non scrive nulla
-  python split_dataset_sam3.py              # crea il dataset
+Usage:
+  python split_dataset_sam3.py --dry-run    # summary only, writes nothing
+  python split_dataset_sam3.py              # creates the dataset
 """
 
 from bee_paths import DATA_ROOT
@@ -32,43 +32,43 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 from PIL import Image
 
-# --- Configurazione ---
+# --- Configuration ---
 BASE_DIR = DATA_ROOT
 SOURCE_DIR = os.path.join(BASE_DIR, "processed", "bee_batch3+4+5+6_SAM3")
 OUTPUT_DIR = os.path.join(BASE_DIR, "processed", "bee_batch3+4+5+6_SAM3_split")
 
 SEED = 42
 FRACTIONS = {"train": 0.70, "val": 0.15, "test": 0.15}
-TRIALS = 20000                 # assegnazioni casuali provate per ogni giornata
+TRIALS = 20000                 # random assignments tried for each day
 
 IMAGE_EXTENSIONS = ('.jpg', '.jpeg', '.png')
 COPY_WORKERS = 16
 
 
 def shot_day(path):
-    """Data di scatto (AAAA-MM-GG) dall'EXIF della foto."""
+    """Shooting date (YYYY-MM-DD) from the photo's EXIF."""
     with Image.open(path) as im:
         exif = im.getexif()
-        value = exif.get_ifd(0x8769).get(36867) or exif.get(306)   # DateTimeOriginal, altrimenti DateTime
+        value = exif.get_ifd(0x8769).get(36867) or exif.get(306)   # DateTimeOriginal, otherwise DateTime
     if not value:
-        raise ValueError(f"Nessuna data di scatto nell'EXIF di {path}")
+        raise ValueError(f"No shooting date in the EXIF of {path}")
     return value[:10].replace(":", "-")
 
 
 def count_bees(label_path):
-    """Numero di api (righe non vuote) in un file di etichette."""
+    """Number of bees (non-empty lines) in a label file."""
     with open(label_path) as f:
         return sum(1 for line in f if line.strip())
 
 
 def scan_photos(source_dir):
-    """Una voce per ogni foto del dataset; ogni foto deve avere la sua etichetta e viceversa."""
+    """One entry per photo in the dataset; each photo must have its label and vice versa."""
     names = sorted(n for n in os.listdir(os.path.join(source_dir, "images")) if n.lower().endswith(IMAGE_EXTENSIONS))
     labels = {os.path.splitext(n)[0] for n in os.listdir(os.path.join(source_dir, "labels")) if n.endswith(".txt")}
     stems = [os.path.splitext(n)[0] for n in names]
     if len(set(stems)) != len(stems) or set(stems) != labels:
-        raise ValueError(f"Foto ed etichette non corrispondono in {source_dir}: {sorted(set(stems) ^ labels)[:5]} "
-                         "(generate_labels_sam3.py sta ancora girando?)")
+        raise ValueError(f"Photos and labels do not match in {source_dir}: {sorted(set(stems) ^ labels)[:5]} "
+                         "(is generate_labels_sam3.py still running?)")
     return [{
         "name": name,
         "day": shot_day(os.path.join(source_dir, "images", name)),
@@ -77,10 +77,10 @@ def scan_photos(source_dir):
 
 
 def assign_photos(n_bees, fractions, rng, trials=TRIALS):
-    """Sceglie lo split di ogni foto di una giornata.
+    """Chooses the split of each photo of a day.
 
-    Tra `trials` assegnazioni casuali tiene quella con le quote di foto e di api più vicine
-    a `fractions` (chi quadro).
+    Among `trials` random assignments, keeps the one whose photo and bee fractions are closest
+    to `fractions` (chi-squared).
     """
     names = list(fractions)
     target = np.array([fractions[name] for name in names])
@@ -90,13 +90,13 @@ def assign_photos(n_bees, fractions, rng, trials=TRIALS):
     choice = rng.choice(len(names), size=(trials, len(shares)), p=target)
     cost = np.zeros(trials)
     for split, fraction in enumerate(target):
-        got = (choice == split).astype(float) @ shares          # trials x (foto, api)
+        got = (choice == split).astype(float) @ shares          # trials x (photos, bees)
         cost += ((got - fraction) ** 2 / fraction).sum(axis=1)
     return [names[split] for split in choice[cost.argmin()]]
 
 
 def plan_split(photos, fractions=FRACTIONS, seed=SEED, trials=TRIALS):
-    """Aggiunge lo split a ogni foto."""
+    """Adds the split to each photo."""
     rng = np.random.default_rng(seed)
     by_day = defaultdict(list)
     for photo in photos:
@@ -110,7 +110,7 @@ def plan_split(photos, fractions=FRACTIONS, seed=SEED, trials=TRIALS):
 
 
 def summarize(photos, fractions=FRACTIONS):
-    """Conteggi per split: foto, api, media e massimo di api per foto."""
+    """Counts per split: photos, bees, mean and maximum bees per photo."""
     summary = {}
     for split in fractions:
         counts = [p["n_bees"] for p in photos if p["split"] == split]
@@ -127,20 +127,20 @@ def print_summary(photos, fractions=FRACTIONS):
     summary = summarize(photos, fractions)
     n_images = sum(s["images"] for s in summary.values())
     n_bees = sum(s["bees"] for s in summary.values())
-    print(f"{'split':<6}{'foto':>6}{'%':>7}{'api':>9}{'%':>7}{'media':>7}{'max':>6}")
+    print(f"{'split':<6}{'photos':>6}{'%':>7}{'bees':>9}{'%':>7}{'mean':>7}{'max':>6}")
     for split, s in summary.items():
         print(f"{split:<6}{s['images']:>6}{100 * s['images'] / n_images:>7.1f}{s['bees']:>9}"
               f"{100 * s['bees'] / n_bees:>7.1f}{s['mean_bees']:>7.0f}{s['max_bees']:>6}")
-    print(f"{'totale':<6}{n_images:>6}{'':>7}{n_bees:>9}")
+    print(f"{'total':<6}{n_images:>6}{'':>7}{n_bees:>9}")
 
-    print("\nFoto per giornata di scatto (" + " / ".join(fractions) + "):")
+    print("\nPhotos per shooting day (" + " / ".join(fractions) + "):")
     for day in sorted({p["day"] for p in photos}):
         counts = [sum(1 for p in photos if (p["day"], p["split"]) == (day, split)) for split in fractions]
         print(f"  {day}  " + " / ".join(f"{c:>3}" for c in counts))
 
 
 def copy_all(pairs):
-    """Copia i file in parallelo."""
+    """Copies the files in parallel."""
     with ThreadPoolExecutor(COPY_WORKERS) as pool:
         list(pool.map(lambda pair: shutil.copyfile(*pair), pairs))
 
@@ -151,7 +151,7 @@ def build(source_dir=SOURCE_DIR, output_dir=OUTPUT_DIR, dry_run=False):
     if dry_run:
         return photos
     if os.path.isdir(output_dir) and os.listdir(output_dir):
-        raise FileExistsError(f"La cartella di output esiste e non è vuota: {output_dir}")
+        raise FileExistsError(f"The output folder exists and is not empty: {output_dir}")
 
     pairs = []
     for split in FRACTIONS:
@@ -180,14 +180,14 @@ def build(source_dir=SOURCE_DIR, output_dir=OUTPUT_DIR, dry_run=False):
             "splits": summarize(photos),
         }, f, indent=2)
 
-    print(f"\nDataset creato in {output_dir}")
+    print(f"\nDataset created in {output_dir}")
     return photos
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Divide il dataset SAM 3 in train / val / test.")
-    parser.add_argument("--output", default=OUTPUT_DIR, help="cartella di output")
-    parser.add_argument("--dry-run", action="store_true", help="stampa solo il riepilogo, non scrive nulla")
+    parser = argparse.ArgumentParser(description="Splits the SAM 3 dataset into train / val / test.")
+    parser.add_argument("--output", default=OUTPUT_DIR, help="output folder")
+    parser.add_argument("--dry-run", action="store_true", help="print the summary only, write nothing")
     args = parser.parse_args()
     build(output_dir=args.output, dry_run=args.dry_run)
 

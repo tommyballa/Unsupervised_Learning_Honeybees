@@ -1,21 +1,21 @@
 """
-Orientamento testa in alto delle api normalizzate da dataset_cleaning.py.
+Head-up orientation of the bees normalised by dataset_cleaning.py.
 
-La normalizzazione mette l'asse maggiore dell'ape in verticale, ma la testa può
-finire sia in alto sia in basso. Qui un classificatore lineare su embedding
-DINOv2 decide da che parte sta la testa.
+The normalisation puts the major axis of the bee vertical, but the head can
+end up either at the top or at the bottom. Here a linear classifier on DINOv2
+embeddings decides which side the head is on.
 
-Il classificatore guarda la differenza tra l'embedding dell'ape e quello della
-stessa ape ruotata di 180°, quindi lo score è antisimmetrico per costruzione:
-ruotare l'ape ne cambia solo il segno.
-- score > 0: testa in alto, score < 0: testa in basso.
-- Raddrizzare un'ape già raddrizzata non la cambia: il passo è idempotente.
+The classifier looks at the difference between the embedding of the bee and that
+of the same bee rotated by 180°, so the score is antisymmetric by construction:
+rotating the bee only changes its sign.
+- score > 0: head at the top, score < 0: head at the bottom.
+- Straightening an already straightened bee does not change it: the step is idempotent.
 
-Addestramento (etichette in config/head_orientation_labels.json, pesi in weights/):
+Training (labels in config/head_orientation_labels.json, weights in weights/):
     python bee_orientation.py train
-Su 214 api di batch3+4+5+6_SAM3 etichettate a mano la cross-validation a 10 fold
-non sbaglia nessuna ape; le api ambigue (viste di lato, parziali) non sono tra le
-etichettate e lì qualche errore è da aspettarsi.
+On 214 hand-labelled bees from batch3+4+5+6_SAM3, 10-fold cross-validation
+gets every bee right; ambiguous bees (side views, partial) are not among the
+labelled ones, and some errors are to be expected there.
 """
 import argparse
 import hashlib
@@ -32,17 +32,17 @@ IMAGE_SIZE = 224
 REPO_DIR = os.path.dirname(os.path.abspath(__file__))
 WEIGHTS_PATH = os.path.join(REPO_DIR, "weights", "head_orientation_dinov2_vits14.npz")
 LABELS_PATH = os.path.join(REPO_DIR, "config", "head_orientation_labels.json")
-PROBE_C = 0.1   # Regolarizzazione della regressione logistica (0.03-0.3 danno lo stesso risultato)
+PROBE_C = 0.1   # Logistic regression regularisation (0.03-0.3 give the same result)
 
 
 def weights_id(weights_path=WEIGHTS_PATH):
-    """Impronta dei pesi: se cambia, gli orientamenti calcolati prima vanno ricontrollati."""
+    """Fingerprint of the weights: if it changes, orientations computed earlier must be re-checked."""
     with open(weights_path, "rb") as f:
         return hashlib.sha1(f.read()).hexdigest()[:12]
 
 
 class HeadOrienter:
-    """Score testa-in-alto per api già normalizzate (TARGET_SIZE x TARGET_SIZE, BGR)."""
+    """Head-up score for already normalised bees (TARGET_SIZE x TARGET_SIZE, BGR)."""
 
     def __init__(self, weights_path=WEIGHTS_PATH, device="auto", batch_size=64, need_weights=True):
         import torch
@@ -57,8 +57,8 @@ class HeadOrienter:
         self.w = None
         if need_weights:
             if not os.path.exists(weights_path):
-                raise SystemExit(f"Pesi dell'orientamento non trovati in '{weights_path}': "
-                                 f"lancia prima 'python bee_orientation.py train'.")
+                raise SystemExit(f"Orientation weights not found in '{weights_path}': "
+                                 f"run 'python bee_orientation.py train' first.")
             self.w = np.load(weights_path)["w"]
             self.weights_id = weights_id(weights_path)
 
@@ -68,7 +68,7 @@ class HeadOrienter:
         return x.transpose(2, 0, 1)
 
     def features(self, images):
-        """Differenza tra embedding dell'ape e dell'ape ruotata di 180° (N x D)."""
+        """Difference between the embedding of the bee and of the bee rotated by 180° (N x D)."""
         out = []
         with self.torch.inference_mode():
             for i in range(0, len(images), self.batch_size):
@@ -80,21 +80,21 @@ class HeadOrienter:
         return np.concatenate(out) if out else np.zeros((0, 0), np.float32)
 
     def scores(self, images):
-        """Score per ape: > 0 testa in alto, < 0 testa in basso."""
+        """Score per bee: > 0 head at the top, < 0 head at the bottom."""
         if not len(images):
             return np.zeros(0)
         return self.features(images) @ self.w
 
 
 # ============================================================
-# ADDESTRAMENTO
+# TRAINING
 # ============================================================
-# Le etichette non dicono "testa in alto nel frame finale", che dipende da come
-# dataset_cleaning orienta l'ape, ma la direzione della testa nel crop grezzo
-# (vettore unitario x, y). Così restano valide anche se cambia la normalizzazione.
+# The labels do not say "head at the top in the final frame", which depends on how
+# dataset_cleaning orients the bee, but the head direction in the raw crop
+# (unit vector x, y). This way they stay valid even if the normalisation changes.
 
 def head_up_in_frame(matrix, head_dir):
-    """True se la direzione head_dir del crop grezzo punta verso l'alto nel frame finale."""
+    """True if the head_dir direction of the raw crop points upwards in the final frame."""
     return float((matrix[:, :2] @ np.asarray(head_dir, dtype=float))[1]) < 0
 
 
@@ -112,22 +112,22 @@ def train(labels_path=LABELS_PATH, weights_path=WEIGHTS_PATH, device="auto"):
         # raw_path is stored relative to the dataset root (BEES_DATA_ROOT)
         img, mask, is_raw = dc.load_image_and_mask(os.path.join(DATA_ROOT, item["raw_path"]))
         if img is None:
-            print(f"  ✗ Crop non leggibile, salto: {item['raw_path']}")
+            print(f"  ✗ Unreadable crop, skipping: {item['raw_path']}")
             continue
         result = dc.clean_bee(img, mask, is_raw)
         if result.image is None:
-            print(f"  ✗ Crop scartato dalla pulizia attuale ({result.reason}), salto: {item['raw_path']}")
+            print(f"  ✗ Crop rejected by the current cleaning ({result.reason}), skipping: {item['raw_path']}")
             continue
         images.append(result.image)
         y.append(int(head_up_in_frame(result.matrix, item["head_dir"])))
     y = np.array(y)
-    print(f"Api etichettate usabili: {len(y)} ({y.sum()} con la testa in alto nel frame non orientato)")
+    print(f"Usable labelled bees: {len(y)} ({y.sum()} with the head at the top in the unoriented frame)")
 
     X = HeadOrienter(device=device, need_weights=False).features(images)
 
     def fit(Xtr, ytr):
-        # Ogni ape entra anche capovolta (feature negate, etichetta invertita): senza intercetta
-        # il classificatore resta antisimmetrico e non impara una preferenza per il su o il giù.
+        # Each bee also enters upside down (negated features, inverted label): without an intercept
+        # the classifier stays antisymmetric and does not learn a preference for up or down.
         clf = LogisticRegression(C=PROBE_C, max_iter=5000, fit_intercept=False)
         return clf.fit(np.vstack([Xtr, -Xtr]), np.r_[ytr, 1 - ytr])
 
@@ -135,18 +135,18 @@ def train(labels_path=LABELS_PATH, weights_path=WEIGHTS_PATH, device="auto"):
     for tr, te in KFold(10, shuffle=True, random_state=0).split(X):
         correct += int((fit(X[tr], y[tr]).predict(X[te]) == y[te]).sum())
     cv_acc = correct / len(y)
-    print(f"Accuratezza in cross-validation (10 fold): {cv_acc:.3f}")
+    print(f"Cross-validation accuracy (10 folds): {cv_acc:.3f}")
 
     w = fit(X, y).coef_[0].astype(np.float32)
     os.makedirs(os.path.dirname(weights_path), exist_ok=True)
     np.savez(weights_path, w=w, backbone=BACKBONE, image_size=IMAGE_SIZE, n_labels=len(y), cv_accuracy=cv_acc)
-    print(f"Pesi salvati in '{weights_path}' (id {weights_id(weights_path)})")
+    print(f"Weights saved to '{weights_path}' (id {weights_id(weights_path)})")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
-    p_train = sub.add_parser("train", help="Addestra il classificatore testa su/giù")
+    p_train = sub.add_parser("train", help="Train the head up/down classifier")
     p_train.add_argument("--labels", default=LABELS_PATH)
     p_train.add_argument("--weights", default=WEIGHTS_PATH)
     p_train.add_argument("--device", default="auto")

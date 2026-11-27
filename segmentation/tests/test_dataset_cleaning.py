@@ -1,4 +1,4 @@
-"""Filtro di lunghezza e orientamento testa in alto di dataset_cleaning (senza GPU né immagini reali)."""
+"""Length filter and head-up orientation of dataset_cleaning (no GPU or real images)."""
 import sys
 import types
 
@@ -11,7 +11,7 @@ from bee_orientation import head_up_in_frame
 
 
 def synthetic_bee(length, width=None, angle=30, size=None):
-    """Crop con un'ape ellittica ruotata: metà alta (nel crop) chiara, metà bassa scura."""
+    """Crop with a rotated elliptical bee: upper half (in the crop) light, lower half dark."""
     width = width or length // 2
     size = size or int(length * 1.6)
     img = np.full((size, size, 3), 40, np.uint8)
@@ -19,7 +19,7 @@ def synthetic_bee(length, width=None, angle=30, size=None):
     center = (size // 2, size // 2)
     cv2.ellipse(mask, center, (length // 2, width // 2), angle, 0, 360, 255, -1)
     rng = np.random.default_rng(0)
-    img[mask > 0] = rng.integers(60, 200, (int((mask > 0).sum()), 3), dtype=np.uint8)  # texture, per il filtro blur
+    img[mask > 0] = rng.integers(60, 200, (int((mask > 0).sum()), 3), dtype=np.uint8)  # texture, for the blur filter
     return img, mask
 
 
@@ -35,8 +35,8 @@ def test_rotate_frame_180_keeps_matrix_consistent():
 
     rotated = dc.rotate_frame_180(result)
     size = (dc.TARGET_SIZE, dc.TARGET_SIZE)
-    # Una maschera esterna (es. varroa) portata nel frame con la nuova affine
-    # deve coincidere con quella portata con la vecchia e poi ruotata
+    # An external mask (e.g. varroa) brought into the frame with the new affine
+    # must match the one brought in with the old affine and then rotated
     other = np.zeros_like(mask)
     cv2.circle(other, (150, 120), 12, 255, -1)
     via_new = cv2.warpAffine(other, rotated.matrix, size, flags=cv2.INTER_NEAREST)
@@ -49,13 +49,13 @@ def test_rotate_frame_180_keeps_matrix_consistent():
 def test_head_up_in_frame_follows_rotation():
     img, mask = synthetic_bee(200)
     result = dc.clean_bee(img, mask, True)
-    head_dir = np.linalg.solve(result.matrix[:, :2], [0.0, -1.0])  # testa in alto nel frame
+    head_dir = np.linalg.solve(result.matrix[:, :2], [0.0, -1.0])  # head at the top in the frame
     assert head_up_in_frame(result.matrix, head_dir)
     assert not head_up_in_frame(dc.rotate_frame_180(result).matrix, head_dir)
 
 
 class FakeOrienter:
-    """Testa = metà più chiara dell'immagine."""
+    """Head = lighter half of the image."""
     weights_id = "fake"
     device = "cpu"
 
@@ -88,7 +88,7 @@ def test_orient_saved_bees_is_idempotent(tmp_path, fake_orienter):
     assert manifest["orientation"]["scores"]["down.png"] < 0 < manifest["orientation"]["scores"]["up.png"]
     assert "gone.png" not in manifest["orientation"]["scores"]
 
-    # Interruzione simulata: il registro si perde ma le api sono già ruotate, non vanno ricapovolte
+    # Simulated interruption: the record is lost but the bees are already rotated, they must not be flipped again
     manifest["orientation"]["scores"].clear()
     dc.orient_saved_bees(str(tmp_path), manifest, workers=2)
     for name in files:

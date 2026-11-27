@@ -4,15 +4,15 @@ import numpy as np
 from ultralytics import YOLO
 
 def main():
-    print(" Caricamento del modello...")
+    print(" Loading the model...")
 
-    # Uso: python test_yolo.py [percorso_pesi] [imgsz]
+    # Usage: python test_yolo.py [weights_path] [imgsz]
     weights = sys.argv[1] if len(sys.argv) > 1 else "runs/segment/runs/segment/bee_model_finetuned_yolo26s_batch3+4_img1440/weights/best.pt"
     imgsz = int(sys.argv[2]) if len(sys.argv) > 2 else 2048
-    print(f" Pesi: {weights} | imgsz: {imgsz}")
+    print(f" Weights: {weights} | imgsz: {imgsz}")
     model = YOLO(weights)
 
-    print("\n Inizio il Testing sul test set (calcolo metriche Precision, Recall, mAP, IoU, F1)...")
+    print("\n Starting testing on the test set (computing Precision, Recall, mAP, IoU, F1)...")
 
 
     metrics = model.val(
@@ -20,12 +20,12 @@ def main():
         split="test",
         imgsz=imgsz,
         batch=16,
-        device=1,                     # GPU 0 è occupata da altri job
+        device=1,                     # GPU 0 is busy with other jobs
         conf=0.10,
         max_det=2000
     )
     
-    print("\n Validazione completata! Controlla i risultati numerici qui sopra.")
+    print("\n Validation complete! Check the numerical results above.")
     
     # --- Mask segmentation metrics ---
     print("\n--- Mask Segmentation Metrics ---")
@@ -36,16 +36,16 @@ def main():
     print(f"Mask Recall:    {np.mean(metrics.seg.r):.4f}")
     print(f"Mask F1:        {np.mean(metrics.seg.f1):.4f}")
 
-    # --- IoU totale ---
-    # Calcolo IoU globale dalla relazione Precision/Recall (Jaccard index)
-    # IoU = (P * R) / (P + R - P * R)  dove P e R sono la precision e recall medie
+    # --- Overall IoU ---
+    # Global IoU computed from the Precision/Recall relation (Jaccard index)
+    # IoU = (P * R) / (P + R - P * R)  where P and R are the mean precision and recall
     p = np.mean(metrics.seg.p)
     r = np.mean(metrics.seg.r)
     denom = p + r - p * r
     iou_from_pr = (p * r) / denom if denom > 0 else 0.0
-    print(f"Mask IoU (totale): {iou_from_pr:.4f}")
+    print(f"Mask IoU (overall): {iou_from_pr:.4f}")
 
-    # IoU micro-averaged dai conteggi aggregati (se disponibili)
+    # Micro-averaged IoU from the aggregated counts (if available)
     if hasattr(metrics.seg, 'image_metrics') and metrics.seg.image_metrics:
         total_tp = sum(im['tp'] for im in metrics.seg.image_metrics.values())
         total_fp = sum(im['fp'] for im in metrics.seg.image_metrics.values())
@@ -63,7 +63,7 @@ def main():
     print(f"Box Recall:     {np.mean(metrics.box.r):.4f}")
     print(f"Box F1:         {np.mean(metrics.box.f1):.4f}")
 
-    print("\nI grafici (Curve Precision-Recall, Confusion Matrix, ecc.) sono stati salvati nella nuova cartella generata in 'runs/segment/val'")
+    print("\nThe plots (Precision-Recall curves, Confusion Matrix, etc.) were saved in the new folder created under 'runs/segment/val'")
 
 if __name__ == "__main__":
     main()

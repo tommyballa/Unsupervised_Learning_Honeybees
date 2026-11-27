@@ -1,10 +1,10 @@
-"""Figure e metriche per la tesi sulle 22 foto del telefono: segmentazione, distanza di dominio, fase 2 dedicata.
+"""Thesis figures and metrics for the 22 phone photos: segmentation, domain distance, dedicated phase 2.
 
-Legge i risultati già prodotti (logs/phone/*.json|csv, snapshot 'foto_telefono', mappe UMAP) e scrive in OUT:
-- metrics.json: tutti i numeri citati in docs/thesis_brief_telefono.md;
+Reads the results already produced (logs/phone/*.json|csv, snapshot 'foto_telefono', UMAP maps) and writes to OUT:
+- metrics.json: all the numbers cited in docs/thesis_brief_telefono.md;
 - fig1_seg_per_foto.png, fig2_similarita_dominio.png, fig3_fase1_vs_fase_telefono.png,
   fig4_composizione_per_foto.png, map_overview.png, map_by_cluster.png, crops_<classe>.png.
-Uso: python logs/phone/thesis_report_phone.py
+Usage: python logs/phone/thesis_report_phone.py
 """
 import csv
 import json
@@ -26,7 +26,7 @@ AL = Path("/mnt/disk1/tommaso_ballarin/bee_al")
 SNAP = AL / "results_fase2_phone/snapshots/foto_telefono"
 OUT = SNAP / "report_tesi"
 PHONE_DIR = Path("/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee_phone_SAM3/cleaned_bees")
-# Stessi colori delle mappe di fase 2 (ordine fisso dei nomi con Fuco e Regina): il colore segue la classe.
+# Same colours as the phase 2 maps (fixed name order with Fuco and Regina): the colour follows the class.
 CLASS_ORDER = ["Adulte", "Fuco", "Giovane", "Malata", "Non Classificabile"]
 COLOUR = {c: SERIES[k] for k, c in enumerate(CLASS_ORDER)}
 UNASSIGNED = "non assegnate"
@@ -43,7 +43,7 @@ def style(plt):
 
 
 def loo_knn(X, labels, k=10, temperature=0.07):
-    """Leave-one-out k-NN pesato (come bee_al.knn) sulle sole api etichettate a mano."""
+    """Weighted leave-one-out k-NN (like bee_al.knn) on the hand-labelled bees only."""
     X = X / np.linalg.norm(X, axis=1, keepdims=True)
     S = X @ X.T
     np.fill_diagonal(S, -np.inf)
@@ -77,7 +77,7 @@ def main():
     OUT.mkdir(exist_ok=True)
     m = {}
 
-    # 1. Segmentazione
+    # 1. Segmentation
     m["seg_eval_labels_ruotate"] = json.load(open(ROOT / "logs/phone/phone_eval_ruotate.json"))
     m["seg_eval_labels_originali"] = json.load(open(ROOT / "logs/phone/phone_eval.json"))
     m["seg_test_batch3_6"] = json.load(open(ROOT / "logs/ablation_sam3/abl_img1376.json"))
@@ -105,7 +105,7 @@ def main():
     fig.savefig(OUT / "fig1_seg_per_foto.png")
     plt.close(fig)
 
-    # 2. Distanza di dominio: similarità con l'esempio etichettato più vicino della fase 1 (batch 3-6)
+    # 2. Domain distance: similarity to the nearest labelled example of phase 1 (batches 3-6)
     f1_pred = read(AL / "results_sam3_b3456/snapshots/fase1_finale_okvsscarta/predictions.csv")
     sim_known = np.array([float(r["nearest_labeled_similarity"]) for r in f1_pred if r["nearest_labeled_similarity"]])
     thr = max(float(r["nearest_labeled_similarity"]) for r in f1_pred if r["status"] == "unassigned")
@@ -123,7 +123,7 @@ def main():
     m["fase1_filtro"]["batch3_6_similarita_mediana"] = float(np.median(sim_known))
     fig, ax = plt.subplots(figsize=(8, 4.2), dpi=150)
     bins = np.linspace(0.3, 1.0, 71)
-    # Batch 7 resta nelle metriche ma non nella figura; i colori restano quelli della prima versione.
+    # Batch 7 stays in the metrics but not in the figure; the colours stay those of the first version.
     for name, k in (("batch 3-6 (phase-1 data)", 0), ("phone photos", 2)):
         v = groups[name]
         h, _ = np.histogram(v, bins=bins)
@@ -138,7 +138,7 @@ def main():
     fig.savefig(OUT / "fig2_similarita_dominio.png")
     plt.close(fig)
 
-    # 3. Fase dedicata: classi finali, etichette, re-train, stabilità
+    # 3. Dedicated phase: final classes, labels, re-training, stability
     pred = read(SNAP / "predictions.csv")
     labels = read(SNAP / "al_labels.csv")
     final = {}
@@ -147,7 +147,7 @@ def main():
             final[r["image_id"]] = UNASSIGNED
         elif r["final_label"]:
             final[r["image_id"]] = r["final_label"]
-        else:   # validation set: classe predetta, come scripts/batch_counts.py
+        else:   # validation set: predicted class, as in scripts/batch_counts.py
             final[r["image_id"]] = r["propagation_label"] or r["knn_label"] or UNASSIGNED
     m["fase_telefono"] = {
         "snapshot": json.load(open(SNAP / "meta.json"))["created"],
@@ -169,7 +169,7 @@ def main():
     m["batch_counts"] = read(SNAP / "batch_counts/batch_counts.csv")
     m["batch_counts_fase2_batch3_6"] = read(AL / "results_fase2_sam3/snapshots/fase2_finale/batch_counts/batch_counts.csv")
 
-    # 4. Coerenza interna: leave-one-out k-NN sulle etichette a mano (embedding originali e v002)
+    # 4. Internal consistency: leave-one-out k-NN on the hand labels (original embeddings and v002)
     lab = {r["image_id"]: r["label"] for r in labels}
     m["loo_knn"] = {}
     for v, d in (("v000", AL / "embeddings_phone"), ("v002", AL / "models_fase2_phone/v002/embeddings")):
@@ -177,7 +177,7 @@ def main():
         idx = [i for i, x in enumerate(e.ids) if x in lab]
         m["loo_knn"][v] = loo_knn(e.X[idx], [lab[e.ids[i]] for i in idx])
 
-    # 5. Filtro della fase 1 contro la classe nella fase dedicata
+    # 5. Phase 1 filter versus the class in the dedicated phase
     f1 = {r["image_id"]: ("Unassigned in phase 1" if r["status"] == "unassigned" else
                           "Ok in phase 1" if r["kept"] == "1" else "Discard in phase 1") for r in added["phone"]}
     rows_order = ["Ok in phase 1", "Discard in phase 1", "Unassigned in phase 1"]
@@ -214,7 +214,7 @@ def main():
     fig.savefig(OUT / "fig3_fase1_vs_fase_telefono.png")
     plt.close(fig)
 
-    # 6. Composizione per foto
+    # 6. Composition per photo
     photo = {}
     for r in pred:
         photo.setdefault(r["frame"], Counter())[final[r["image_id"]]] += 1
@@ -227,13 +227,13 @@ def main():
     fig.savefig(OUT / "fig4_composizione_per_foto.png")
     plt.close(fig)
 
-    # 7. Mappa UMAP (embedding v002) con i colori delle classi di fase 2
+    # 7. UMAP map (embedding v002) with the phase 2 class colours
     coords_rows = read(AL / "results_fase2_phone/embedding_map/foto_telefono_v002/coords.csv")
     coords = np.array([[float(r["x"]), float(r["y"])] for r in coords_rows])
     plot(coords, [r["cluster"] for r in coords_rows], CLASS_ORDER, np.zeros(len(coords_rows), bool), OUT,
          "Phone phase - model v002")
 
-    # 8. Crop per classe
+    # 8. Crops per class
     for c in [c for c in CLASS_ORDER if c != "Fuco"] + [UNASSIGNED]:
         files = [PHONE_DIR / i.split("__", 1)[1] for i, v in final.items() if v == c]
         crop_grid(files, OUT / f"crops_{english(c).replace(' ', '_') if c != UNASSIGNED else 'Unassigned'}.png",
@@ -242,7 +242,7 @@ def main():
     json.dump(m, open(OUT / "metrics.json", "w"), indent=1, ensure_ascii=False, default=float)
     print(json.dumps({k: m[k] for k in ("seg_match_iou50", "fase1_filtro", "fase1_soglia_non_assegnate", "loo_knn",
                                         "fase1_vs_fase_telefono")}, indent=1, ensure_ascii=False, default=float)[:6000])
-    print(f"Fatto: {OUT}")
+    print(f"Done: {OUT}")
 
 
 if __name__ == "__main__":

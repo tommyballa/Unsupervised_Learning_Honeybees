@@ -1,34 +1,34 @@
 #!/bin/bash
-# Coda del freeze che parte solo quando una GPU ha abbastanza memoria libera, e riprende dall'ultimo
-# checkpoint i run interrotti. Serve perche' il server e' condiviso: con 12-17 GB di altri utenti sulla GPU
-# questi training (34-41 GB di picco) vanno in out of memory a meta'.
-# Sostituisce queue_freeze.sh e queue_freeze_resume.sh; stesse configurazioni e stesso test.
+# Freeze queue that starts only when a GPU has enough free memory, and resumes interrupted runs from
+# their last checkpoint. Needed because the server is shared: with 12-17 GB from other users on the GPU
+# these trainings (34-41 GB peak) run out of memory halfway through.
+# Replaces queue_freeze.sh and queue_freeze_resume.sh; same configurations and same test.
 #
-# Per ogni variante, nell'ordine:
-#   - risultati di test gia' presenti              -> saltata
-#   - run interrotto dopo almeno MIN_EPOCHS epoche -> ripresa da weights/last.pt
-#   - run interrotto prima (o senza checkpoint)    -> cartella rinominata *__interrotto_*, training da capo
-#   - nessuna cartella                             -> training da capo
-# Prima di ogni lancio aspetta una GPU con al massimo MAX_USED MiB occupati.
+# For each variant, in order:
+#   - test results already present                     -> skipped
+#   - run interrupted after at least MIN_EPOCHS epochs -> resumed from weights/last.pt
+#   - run interrupted earlier (or without checkpoint)  -> folder renamed *__interrotto_*, training from scratch
+#   - no folder                                        -> training from scratch
+# Before each launch it waits for a GPU with at most MAX_USED MiB in use.
 #
-# Uso: queue_freeze_gated.sh <config> <variante> [<variante> ...]
+# Usage: queue_freeze_gated.sh <config> <variant> [<variant> ...]
 B=/mnt/disk1/tommaso_ballarin/bee_ablation_sam3_freeze
 cd /home/tommaso_ballarin/bee_segmentation/bee_segmentation
 export TMPDIR=/dev/shm/tb_tmp
 export ABL_RUNS=$B/runs
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True     # come in train_yolo.py
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True     # as in train_yolo.py
 CONF=$1; shift
 PREFIX=bee_model_finetuned_yolo26s_batch3+4+5+6_SAM3
-MAX_DET=2500        # come in abl_eval.py: sopra il massimo di api per foto (~1850 con SAM 3)
+MAX_DET=2500        # as in abl_eval.py: above the maximum number of bees per photo (~1850 with SAM 3)
 GPUS=${GPUS:-"0 1 2"}
-MAX_USED=${MAX_USED:-6000}       # MiB degli altri tollerati: con ~4 GB di altri freeze10 (39 GB) ha girato senza problemi
+MAX_USED=${MAX_USED:-6000}       # MiB used by others that we tolerate: with ~4 GB from others, freeze10 (39 GB) ran without problems
 MIN_EPOCHS=10
-MAX_ERRORS=3        # fallimenti che non sono out of memory prima di rinunciare a un run
+MAX_ERRORS=3        # non-out-of-memory failures before giving up on a run
 
 say() { echo "$(date '+%F %T') $*" >> $B/queue_gpu0.out; }
 used() { nvidia-smi -i $1 --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | tr -d ' '; }
 
-# stampa l'indice della prima GPU rimasta sotto MAX_USED per tre letture a un minuto di distanza
+# prints the index of the first GPU that stayed below MAX_USED for three readings one minute apart
 wait_gpu() {
     local told=0 g u ok i
     while true; do
@@ -41,7 +41,7 @@ wait_gpu() {
             done
             if [ $ok -eq 1 ]; then echo $g; return; fi
         done
-        if [ $told -eq 0 ]; then say "$1: in attesa di una GPU con meno di $MAX_USED MiB occupati"; told=1; fi
+        if [ $told -eq 0 ]; then say "$1: waiting for a GPU with less than $MAX_USED MiB in use"; told=1; fi
         sleep 120
     done
 }
@@ -51,7 +51,7 @@ case $CONF in
     img1376)        SIZE=1376; ARGS="" ;;
     img1376_rot)    SIZE=1376; ARGS="degrees=180 flipud=0.5" ;;
     img1376_rot_cp) SIZE=1376; ARGS="degrees=180 flipud=0.5 copy_paste=0.3" ;;
-    *) say "$CONF: configurazione sconosciuta, coda non partita"; exit 1 ;;
+    *) say "$CONF: unknown configuration, queue not started"; exit 1 ;;
 esac
 BASE=$PREFIX; [ $CONF != base ] && BASE=${PREFIX}_$CONF
 
@@ -59,7 +59,7 @@ for VAR in "$@"; do
     case $VAR in
         freeze*) EXTRA="freeze=${VAR#freeze}" ;;
         seed*)   EXTRA="seed=${VAR#seed}" ;;
-        *) say "$VAR: variante sconosciuta, saltata"; continue ;;
+        *) say "$VAR: unknown variant, skipped"; continue ;;
     esac
     RUN=${CONF}_$VAR
     NAME=${BASE}_$VAR
@@ -78,35 +78,35 @@ for VAR in "$@"; do
         fi
         GPU=$(wait_gpu $RUN)
         if [ -e $DIR/weights/last.pt ]; then
-            say "$RUN: ripresa dall'epoca $EPOCHS sulla GPU $GPU"
+            say "$RUN: resuming from epoch $EPOCHS on GPU $GPU"
             venv/bin/python -c "import sys; from ultralytics import YOLO; YOLO(sys.argv[1]).train(resume=True, device=int(sys.argv[2]))" $DIR/weights/last.pt $GPU >> $LOG 2>&1
         else
-            say "$RUN: training sulla GPU $GPU (imgsz=$SIZE $ARGS $EXTRA)"
+            say "$RUN: training on GPU $GPU (imgsz=$SIZE $ARGS $EXTRA)"
             venv/bin/python train_yolo.py data=data_sam3.yaml device=$GPU imgsz=$SIZE max_det=$MAX_DET $ARGS $EXTRA project=$ABL_RUNS name=$NAME >> $LOG 2>&1
         fi
         STATUS=$?
         if [ $STATUS -eq 0 ]; then DONE=1; break; fi
-        # training gia' arrivato in fondo: resta solo il test
+        # training already reached the end: only the test is left
         if tail -c 3000 $LOG | grep -q "nothing to resume"; then DONE=1; break; fi
         if tail -c 6000 $LOG | grep -q "OutOfMemoryError"; then
-            say "$RUN: interrotto per out of memory (GPU presa da altri), riparte quando c'e' memoria"
+            say "$RUN: interrupted by out of memory (GPU taken by others), will restart when memory is available"
         else
             ERRORS=$((ERRORS + 1))
-            say "$RUN: training interrotto (exit $STATUS, errore $ERRORS di $MAX_ERRORS), vedi $LOG"
+            say "$RUN: training interrupted (exit $STATUS, error $ERRORS of $MAX_ERRORS), see $LOG"
             if [ $ERRORS -ge $MAX_ERRORS ]; then DONE=2; fi
             sleep 60
         fi
     done
     if [ $DONE -ne 1 ]; then
-        say "$RUN: training FALLITO, vedi $LOG"
+        say "$RUN: training FAILED, see $LOG"
         continue
     fi
-    # al primo out of memory Ultralytics dimezza il batch e riparte senza fermarsi
-    grep -q "Reducing to batch" $LOG && say "$RUN: ATTENZIONE batch ridotto per out of memory, non e' piu' la configurazione prevista"
+    # on the first out of memory Ultralytics halves the batch and restarts without stopping
+    grep -q "Reducing to batch" $LOG && say "$RUN: WARNING batch reduced because of out of memory, this is no longer the intended configuration"
 
     GPU=$(wait_gpu $RUN)
-    say "$RUN: test a $SIZE e 2048 px sulla GPU $GPU"
+    say "$RUN: test at $SIZE and 2048 px on GPU $GPU"
     venv/bin/python $B/abl_eval.py $GPU $B/abl_$RUN.json $NAME:$SIZE $NAME:2048 > $B/abl_$RUN.log 2>&1
-    say "$RUN: finita (exit del test $?)"
+    say "$RUN: done (test exit $?)"
 done
-say "coda freeze finita: $CONF $*"
+say "freeze queue finished: $CONF $*"

@@ -1,10 +1,10 @@
-"""Confronto foto per foto tra YOLO img1376 (a 2048 px) e le etichette SAM 3 sulle 22 foto del telefono.
+"""Photo-by-photo comparison between YOLO img1376 (at 2048 px) and the SAM 3 labels on the 22 phone photos.
 
-Per ogni foto: api di SAM 3, api del YOLO (alle soglie conf 0.10 della valutazione e 0.35 dell'estrazione),
-abbinamenti maschera-maschera con IoU >= 0.5 (greedy per confidenza) e IoU medio degli abbinati.
-Salva logs/phone/phone_compare.csv e, in visualizations/phone_yolo_vs_sam3/, un'immagine per foto:
-SAM 3 a sinistra, YOLO (conf 0.35) a destra; in rosso le api che l'altro modello non ha.
-Uso: python logs/phone/phone_compare.py <device> [cartella dati] [csv] [cartella immagini]
+For each photo: SAM 3 bees, YOLO bees (at the conf thresholds 0.10 of the evaluation and 0.35 of the extraction),
+mask-to-mask matches with IoU >= 0.5 (greedy by confidence) and mean IoU of the matched ones.
+Saves logs/phone/phone_compare.csv and, in visualizations/phone_yolo_vs_sam3/, one image per photo:
+SAM 3 on the left, YOLO (conf 0.35) on the right; in red the bees that the other model does not have.
+Usage: python logs/phone/phone_compare.py <device> [data folder] [csv] [image folder]
 """
 import csv
 import glob
@@ -20,7 +20,7 @@ MODEL = "runs/segment/runs/segment/bee_model_finetuned_yolo26s_batch3+4+5+6_SAM3
 DATA = sys.argv[2] if len(sys.argv) > 2 else "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/phone_captured"
 OUT_CSV = sys.argv[3] if len(sys.argv) > 3 else "logs/phone/phone_compare.csv"
 OUT_VIS = sys.argv[4] if len(sys.argv) > 4 else "visualizations/phone_yolo_vs_sam3"
-SCALE = 0.5  # maschere confrontate a metà risoluzione
+SCALE = 0.5  # masks compared at half resolution
 
 
 def gt_masks(label_path, w, h):
@@ -42,7 +42,7 @@ def boxes_of(masks):
 
 
 def match(pred, gt):
-    """Greedy (pred già ordinate per confidenza): restituisce gli IoU degli abbinamenti e le gt abbinate."""
+    """Greedy (pred already sorted by confidence): returns the IoUs of the matches and the matched gt."""
     pb, gb = boxes_of(pred), boxes_of(gt)
     used, ious = np.zeros(len(gt), bool), []
     for i, m in enumerate(pred):
@@ -76,7 +76,7 @@ def main():
     rows = []
     for path in sorted(glob.glob(os.path.join(DATA, "images", "*.jpg"))):
         name = os.path.splitext(os.path.basename(path))[0]
-        img = cv2.imread(path)  # applica l'orientamento EXIF come la valutazione di ultralytics
+        img = cv2.imread(path)  # applies the EXIF orientation like the ultralytics evaluation
         H, W = img.shape[:2]
         w, h = int(W * SCALE), int(H * SCALE)
         small = cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
@@ -101,7 +101,7 @@ def main():
             row[f"rec_c{tag}"] = round(len(ious) / max(len(gt), 1), 3)
             row[f"iou_medio_c{tag}"] = round(float(ious.mean()), 3) if len(ious) else 0.0
             if thr == 0.35:
-                _, pred_ok = match(gt, sel)  # quali api YOLO hanno una gemella in SAM 3
+                _, pred_ok = match(gt, sel)  # which YOLO bees have a twin in SAM 3
                 left = draw(small, gt, used)
                 right = draw(small, sel, pred_ok)
                 for im, txt in ((left, f"SAM 3: {len(gt)}"), (right, f"YOLO conf>=0.35: {len(sel)}")):
@@ -115,7 +115,7 @@ def main():
         wr.writeheader()
         wr.writerows(rows)
     tot = {k: sum(r[k] for r in rows) for k in ("sam3", "yolo_c10", "tp_c10", "yolo_c35", "tp_c35")}
-    print("Totale:", tot, "| conf 0.35: precisione %.3f richiamo %.3f" % (
+    print("Total:", tot, "| conf 0.35: precision %.3f recall %.3f" % (
         tot["tp_c35"] / tot["yolo_c35"], tot["tp_c35"] / tot["sam3"]))
 
 
