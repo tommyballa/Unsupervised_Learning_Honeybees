@@ -1,0 +1,12 @@
+Versione v004 (/mnt/disk1/tommaso_ballarin/bee_al/models_fase2_sam3/v004/embeddings): 895 api di 'phone' nella fase
+Using cache found in /home/tommaso_ballarin/.cache/torch/hub/facebookresearch_dinov2_main
+/home/tommaso_ballarin/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/swiglu_ffn.py:51: UserWarning: xFormers is not available (SwiGLU)
+  warnings.warn("xFormers is not available (SwiGLU)")
+/home/tommaso_ballarin/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/attention.py:33: UserWarning: xFormers is not available (Attention)
+  warnings.warn("xFormers is not available (Attention)")
+/home/tommaso_ballarin/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/block.py:40: UserWarning: xFormers is not available (Block)
+  warnings.warn("xFormers is not available (Block)")
+Coseno minimo con gli embedding salvati: 1.0000
+173433 immagini già fatte, 895 da estrarre
+  895/895
+Aggiunti 895 embedding (0 c'erano già); ora 174328 in /mnt/disk1/tommaso_ballarin/bee_al/models_fase2_sam3/v004/embeddings

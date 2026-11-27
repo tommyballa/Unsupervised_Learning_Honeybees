@@ -1,0 +1,29 @@
+.venv/
+__pycache__/
+*.pt
+weights/
+bee_dataset/
+bee_dataset_1080p/
+runs/
+bus.jpg
+venv/
+.vscode/
+
+# bee_al: embedding estratti e modelli versionati
+data/
+models/
+models_*/
+.pytest_cache/
+
+# log pesanti dei training e log runtime dell'hub (contengono l'URL pubblico del tunnel)
+logs/train_*.log
+logs/hub_*.log
+logs/**/train_*.log
+logs/**/__pycache__/
+
+# foto originali (pesanti) e risultati della vecchia app con le email degli annotatori
+visualizations/*.JPG
+active_learning_tool/results/
+# confronti YOLO vs SAM 3 a piena risoluzione (rigenerabili, ~80 MB)
+visualizations/phone_yolo_vs_sam3/
+visualizations/phone_yolo_vs_sam3_ruotate/

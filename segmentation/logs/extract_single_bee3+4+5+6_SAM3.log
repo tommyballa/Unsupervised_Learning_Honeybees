@@ -1,0 +1,12 @@
+[W1014 10:19:09.816366878 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 1 while trying to allocate 15443427328 bytes (free: 13052477440, total: 50897289216).
+[W1014 10:46:40.832089512 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 1 while trying to allocate 16502489088 bytes (free: 8083144704, total: 50897289216).
+[W1014 10:49:41.317953039 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 1 while trying to allocate 17674797056 bytes (free: 9825878016, total: 50897289216).
+[W1014 11:08:32.813931751 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 1 while trying to allocate 17720934400 bytes (free: 13037797376, total: 50897289216).
+[W1014 11:28:17.407531773 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 1 while trying to allocate 18396217344 bytes (free: 10124132352, total: 50897289216).
+ Caricamento del modello YOLO...
+Eseguendo l'estrazione delle api da: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/bee_batch3+4+5+6_SAM3/images
+
+✅ Estrazione completata! Estratte 249982 nuove api (0 immagini sorgente già processate, saltate).
+Totale api nella cartella: 249982
+Api grezze salvate in '/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees'.
+Ora lancia dataset_cleaning.py per pulire e normalizzare il dataset.

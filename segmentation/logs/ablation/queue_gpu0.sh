@@ -1,0 +1,5 @@
+cd /home/tommaso_ballarin/bee_segmentation/bee_segmentation
+venv/bin/python train_yolo.py device=0 imgsz=1440 freeze=5 name=bee_model_finetuned_yolo26s_batch3+4_img1440_freeze5 > logs/train_batch3+4_img1440_freeze5.log 2>&1
+venv/bin/python train_yolo.py device=0 imgsz=1440 freeze=20 name=bee_model_finetuned_yolo26s_batch3+4_img1440_freeze20 > logs/train_batch3+4_img1440_freeze20.log 2>&1
+venv/bin/python train_yolo.py device=0 imgsz=1440 freeze=23 name=bee_model_finetuned_yolo26s_batch3+4_img1440_freeze23 > logs/train_batch3+4_img1440_freeze23.log 2>&1
+venv/bin/python logs/ablation/abl_eval.py 0 logs/ablation/abl_freeze_gpu0.json bee_model_finetuned_yolo26s_batch3+4_img1440_freeze5:1440 bee_model_finetuned_yolo26s_batch3+4_img1440_freeze5:2048 bee_model_finetuned_yolo26s_batch3+4_img1440_freeze20:1440 bee_model_finetuned_yolo26s_batch3+4_img1440_freeze20:2048 bee_model_finetuned_yolo26s_batch3+4_img1440_freeze23:1440 bee_model_finetuned_yolo26s_batch3+4_img1440_freeze23:2048 > logs/ablation/abl_freeze_gpu0.log 2>&1

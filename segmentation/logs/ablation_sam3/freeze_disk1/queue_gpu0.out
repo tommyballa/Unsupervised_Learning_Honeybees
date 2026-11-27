@@ -1,0 +1,42 @@
+2026-10-13 18:54:54 img1376_freeze10: training (imgsz=1376  freeze=10)
+2026-10-14 02:52:16 img1376_freeze10: training FALLITO (exit 1), vedi /mnt/disk1/tommaso_ballarin/bee_ablation_sam3_freeze/logs/train_batch3+4+5+6_SAM3_img1376_freeze10.log
+2026-10-14 02:52:16 img1376_freeze20: training (imgsz=1376  freeze=20)
+2026-10-14 03:33:30 img1376_freeze20: training FALLITO (exit 1), vedi /mnt/disk1/tommaso_ballarin/bee_ablation_sam3_freeze/logs/train_batch3+4+5+6_SAM3_img1376_freeze20.log
+2026-10-14 03:33:30 img1376_freeze23: training (imgsz=1376  freeze=23)
+2026-10-14 03:36:50 coda fermata a mano: GPU 0 occupata per 17 GB da altri utenti, i run vanno in out of memory; riparte con queue_freeze_gated.sh quando c'e' memoria
+2026-10-14 03:36:50 img1376_freeze10: in attesa di una GPU con meno di 6000 MiB occupati
+2026-10-14 09:36:40 coda divisa: freeze20 parte subito sulla GPU 1 (la piu' libera, ~14 GB di altri) su richiesta dell'utente; freeze10 freeze23 seed1 restano in attesa di una GPU con meno di 6 GB occupati
+2026-10-14 09:36:40 img1376_freeze10: in attesa di una GPU con meno di 6000 MiB occupati
+2026-10-14 09:38:40 img1376_freeze20: training sulla GPU 1 (imgsz=1376  freeze=20)
+2026-10-14 09:46:15 coda di freeze10 freeze23 seed1 fermata su richiesta dell'utente: resta attivo solo freeze20 sulla GPU 1, gli altri si riprendono dopo
+2026-10-14 09:50:22 img1376_freeze20: fermato a mano, alla prima epoca e' andato in out of memory e Ultralytics ha dimezzato il batch (2 -> 1): run fuori configurazione
+2026-10-14 22:42:25 coda ripresa su richiesta dell'utente sulla GPU 1 (liberata da borsattifr): freeze10 freeze20 freeze23 seed1
+2026-10-14 22:44:25 img1376_freeze10: ripresa dall'epoca 161 sulla GPU 1
+2026-10-14 23:59:21 img1376_freeze10: interrotto per out of memory (GPU presa da altri), riparte quando c'e' memoria
+2026-10-15 00:01:21 img1376_freeze10: ripresa dall'epoca 184 sulla GPU 1
+2026-10-15 01:06:10 img1376_freeze10: test a 1376 e 2048 px sulla GPU 1
+2026-10-15 01:07:09 img1376_freeze10: finita (exit del test 0)
+2026-10-15 01:09:09 img1376_freeze20: training sulla GPU 1 (imgsz=1376  freeze=20)
+2026-10-15 11:09:18 img1376_freeze20: test a 1376 e 2048 px sulla GPU 1
+2026-10-15 11:09:58 img1376_freeze20: finita (exit del test 0)
+2026-10-15 11:11:59 img1376_freeze23: training sulla GPU 1 (imgsz=1376  freeze=23)
+2026-10-15 23:06:27 img1376_freeze23: test a 1376 e 2048 px sulla GPU 1
+2026-10-15 23:07:13 img1376_freeze23: finita (exit del test 0)
+2026-10-15 23:09:13 img1376_seed1: training sulla GPU 1 (imgsz=1376  seed=1)
+2026-10-16 02:56:30 img1376_seed1: interrotto per out of memory (GPU presa da altri), riparte quando c'e' memoria
+2026-10-16 02:58:30 img1376_seed1: ripresa dall'epoca 99 sulla GPU 1
+2026-10-16 04:27:13 img1376_seed1: interrotto per out of memory (GPU presa da altri), riparte quando c'e' memoria
+2026-10-16 04:29:13 img1376_seed1: ripresa dall'epoca 136 sulla GPU 1
+2026-10-16 05:18:09 img1376_seed1: interrotto per out of memory (GPU presa da altri), riparte quando c'e' memoria
+2026-10-16 05:20:09 img1376_seed1: ripresa dall'epoca 145 sulla GPU 1
+2026-10-16 05:45:46 img1376_seed1: interrotto per out of memory (GPU presa da altri), riparte quando c'e' memoria
+2026-10-16 05:47:46 img1376_seed1: ripresa dall'epoca 154 sulla GPU 1
+2026-10-16 06:04:45 img1376_seed1: interrotto per out of memory (GPU presa da altri), riparte quando c'e' memoria
+2026-10-16 06:06:45 img1376_seed1: ripresa dall'epoca 163 sulla GPU 1
+2026-10-16 06:32:29 img1376_seed1: interrotto per out of memory (GPU presa da altri), riparte quando c'e' memoria
+2026-10-16 06:34:29 img1376_seed1: ripresa dall'epoca 172 sulla GPU 1
+2026-10-16 07:21:41 img1376_seed1: interrotto per out of memory (GPU presa da altri), riparte quando c'e' memoria
+2026-10-16 07:23:41 img1376_seed1: ripresa dall'epoca 181 sulla GPU 1
+2026-10-16 08:16:42 img1376_seed1: test a 1376 e 2048 px sulla GPU 1
+2026-10-16 08:17:09 img1376_seed1: finita (exit del test 0)
+2026-10-16 08:17:09 coda freeze finita: img1376 freeze10 freeze20 freeze23 seed1

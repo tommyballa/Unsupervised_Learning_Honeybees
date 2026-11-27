@@ -1,0 +1,11 @@
+cluster                    batch_3-6         batch_7           phone
+Adulte               123570 ( 89.0%)  31285 ( 90.3%)    585 ( 65.4%)
+Fuco                   1326 (  1.0%)    537 (  1.6%)      1 (  0.1%)
+Giovane                2238 (  1.6%)    151 (  0.4%)      9 (  1.0%)
+Malata                  726 (  0.5%)    307 (  0.9%)      1 (  0.1%)
+Non Classificabile     4062 (  2.9%)    805 (  2.3%)      1 (  0.1%)
+Regina                    7 (  0.0%)      4 (  0.0%)      0 (  0.0%)
+Set aside                17 (  0.0%)      0 (  0.0%)      0 (  0.0%)
+Unassigned             6842 (  4.9%)   1556 (  4.5%)    298 ( 33.3%)
+confidenza mediana             0.846           0.842           0.887
+Fatto: /mnt/disk1/tommaso_ballarin/bee_al/results_fase2_sam3/embedding_map/fase2_v004_b3456_b7_phone/solo_phone

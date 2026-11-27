@@ -1,0 +1,14 @@
+  4689 immagini in /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee_phone_SAM3/cleaned_bees
+Modello dinov2_vits14, output /mnt/disk1/tommaso_ballarin/bee_al/embeddings_phone
+Using cache found in /home/tommaso_ballarin/.cache/torch/hub/facebookresearch_dinov2_main
+/home/tommaso_ballarin/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/swiglu_ffn.py:51: UserWarning: xFormers is not available (SwiGLU)
+  warnings.warn("xFormers is not available (SwiGLU)")
+/home/tommaso_ballarin/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/attention.py:33: UserWarning: xFormers is not available (Attention)
+  warnings.warn("xFormers is not available (Attention)")
+/home/tommaso_ballarin/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/block.py:40: UserWarning: xFormers is not available (Block)
+  warnings.warn("xFormers is not available (Block)")
+0 immagini già fatte, 4689 da estrarre
+  2048/4689
+  4096/4689
+  4689/4689
+Aggiunti 4689 embedding in 22.7s. Totale 4689, dim 384.
