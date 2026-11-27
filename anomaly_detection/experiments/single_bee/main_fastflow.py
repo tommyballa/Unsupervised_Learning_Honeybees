@@ -33,6 +33,7 @@ Heatmap e metriche finali (AUROC, AvgPrec, F1, AUPRO) dalla best:
     python experiments/plot_heatmaps.py single_bee fastflow
 """
 
+from moviad.datasets.varroa.paths import DATA_ROOT
 import random
 from pathlib import Path
 
@@ -59,7 +60,7 @@ import ablation
 # ──────────────────────────────────────────────────────────────────────
 MODEL_NAME    = "fastflow"
 REPO_ROOT     = Path(__file__).resolve().parents[2]
-DATASET_DIR   = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3_varroa_split"
+DATASET_DIR   = DATA_ROOT + "/processed/single_bee3+4+5+6_SAM3_varroa_split"
 TRAIN_DIR     = f"{DATASET_DIR}/train/normal"
 VAL_DIR       = f"{DATASET_DIR}/val"           # selezione della best e soglie F1
 TEST_DIR      = f"{DATASET_DIR}/test_heldout"  # valutato una sola volta sulla best

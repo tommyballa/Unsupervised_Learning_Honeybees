@@ -1,3 +1,4 @@
+from bee_paths import DATA_ROOT
 import os
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
@@ -13,8 +14,8 @@ import gc
 model = LangSAM()
 
 datasets = [
-    ("/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_batch4_labelled/images", "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_batch4_labelled/labels"),
-    ("/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_batch4_labelled/images", "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_batch4_labelled/labels")
+    (DATA_ROOT + "/processed/train_batch4_labelled/images", DATA_ROOT + "/processed/train_batch4_labelled/labels"),
+    (DATA_ROOT + "/processed/test_batch4_labelled/images", DATA_ROOT + "/processed/test_batch4_labelled/labels")
 ]
 
 text_prompt = "bee."

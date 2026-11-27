@@ -10,6 +10,7 @@ La memory bank viene salvata in checkpoints/full_image/patchcore/
     python experiments/plot_heatmaps.py full_image patchcore
 """
 
+from moviad.datasets.varroa.paths import DATA_ROOT
 import os
 import re
 import random
@@ -32,10 +33,10 @@ from moviad.utilities.evaluation.checkpoints import save_checkpoint, script_conf
 # ──────────────────────────────────────────────────────────────────────
 # Configurazione
 # ──────────────────────────────────────────────────────────────────────
-TRAIN_DIR       = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train/images/original"
-TEST_CLEAN_DIR  = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test/images"
-TEST_VARROA_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test/synthetic_varroa_output/images"
-TEST_MASKS_DIR  = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test/synthetic_varroa_output/masks"
+TRAIN_DIR       = DATA_ROOT + "/processed/train/images/original"
+TEST_CLEAN_DIR  = DATA_ROOT + "/processed/test/images"
+TEST_VARROA_DIR = DATA_ROOT + "/processed/test/synthetic_varroa_output/images"
+TEST_MASKS_DIR  = DATA_ROOT + "/processed/test/synthetic_varroa_output/masks"
 
 TILE_SIZE  = 512
 SEED       = 1

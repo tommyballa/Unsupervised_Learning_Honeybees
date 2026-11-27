@@ -20,6 +20,7 @@ Uso:
   python split_dataset_sam3.py              # crea il dataset
 """
 
+from bee_paths import DATA_ROOT
 import argparse
 import csv
 import json
@@ -32,7 +33,7 @@ import numpy as np
 from PIL import Image
 
 # --- Configurazione ---
-BASE_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi"
+BASE_DIR = DATA_ROOT
 SOURCE_DIR = os.path.join(BASE_DIR, "processed", "bee_batch3+4+5+6_SAM3")
 OUTPUT_DIR = os.path.join(BASE_DIR, "processed", "bee_batch3+4+5+6_SAM3_split")
 

@@ -15,6 +15,7 @@ fatto di lavorare su un crop:
 Output: per ogni ape il crop con varroa, la GT mask e un foglio di confronto.
 """
 
+from bee_paths import DATA_ROOT
 import argparse
 import glob
 import os
@@ -26,8 +27,8 @@ import numpy as np
 import varroa_generator as vg
 
 # --- Configurazione ---
-CROPS_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_batch3+4_clusters/Prova1/Crop_Utilizzabile"
-OUTPUT_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/prova_varroa_su_crop"
+CROPS_DIR = DATA_ROOT + "/processed/train_single_bee_batch3+4_clusters/Prova1/Crop_Utilizzabile"
+OUTPUT_DIR = DATA_ROOT + "/processed/prova_varroa_su_crop"
 
 SEED = 42
 NUM_BEES = 12

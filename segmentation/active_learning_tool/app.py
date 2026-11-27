@@ -4,11 +4,12 @@ import csv
 import random
 from datetime import datetime
 from collections import defaultdict
+DATA_ROOT = os.environ.get("BEES_DATA_ROOT", "data/DatasetApi_Ceschi")
 
 app = Flask(__name__)
 app.secret_key = "active_learning_secret_key"
 
-DATASET_FOLDER = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees" 
+DATASET_FOLDER = DATA_ROOT + "/processed/train_single_bee_merged/cleaned_bees" 
 RESULTS_FOLDER = "results"
 
 os.makedirs(RESULTS_FOLDER, exist_ok=True)

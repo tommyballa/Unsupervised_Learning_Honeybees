@@ -27,6 +27,7 @@ Due modalità di utilizzo:
     2. Per-video CL:  non più supportato (dataset singolo)
 """
 
+from moviad.datasets.varroa.paths import DATA_ROOT
 from pathlib import Path
 from typing import List
 
@@ -42,10 +43,10 @@ from moviad.utilities.configurations import Split, LabelName
 
 # Default paths — overridden by dataset_arguments.dataset_path when provided
 _DEFAULT_TRAIN_DIR = Path(
-    "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_batch3+4/cleaned_bees"
+    DATA_ROOT + "/processed/train_single_bee_batch3+4/cleaned_bees"
 )
 _DEFAULT_TEST_DIR = Path(
-    "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee_batch3+4_varroa/images"
+    DATA_ROOT + "/processed/test_single_bee_batch3+4_varroa/images"
 )
 
 # Test set alleggerito: tutte le anomale + un sottoinsieme fisso di normali

@@ -18,6 +18,7 @@ Il training usa StructCoreCL (un solo task) per il sottocampionamento al 10%
 delle patch, necessario per non esaurire la memoria.
 """
 
+from moviad.datasets.varroa.paths import DATA_ROOT
 import random
 from pathlib import Path
 
@@ -41,7 +42,7 @@ from moviad.utilities.evaluation.report import IMAGENET_MEAN, IMAGENET_STD
 # ──────────────────────────────────────────────────────────────────────
 MODEL_NAME   = "structcore"
 REPO_ROOT    = Path(__file__).resolve().parents[2]
-TRAIN_DIR    = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_batch3+4/cleaned_bees"
+TRAIN_DIR    = DATA_ROOT + "/processed/train_single_bee_batch3+4/cleaned_bees"
 # i crop delle api sono 512x512: maschere GT, metriche pixel e heatmap a questa
 # risoluzione per tutti i modelli (la mappa viene riportata a GT_SIZE)
 GT_SIZE      = (512, 512)

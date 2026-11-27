@@ -22,6 +22,7 @@ rifanno il fitting (un solo passaggio sui crop di training) e generano metriche
 e heatmap su tutto il test set.
 """
 
+from moviad.datasets.varroa.paths import DATA_ROOT
 import os
 import re
 import random
@@ -40,10 +41,10 @@ from moviad.utilities.evaluation.metrics import MetricLvl, RocAuc, AvgPrec, F1
 # ──────────────────────────────────────────────────────────────────────
 # Configurazione
 # ──────────────────────────────────────────────────────────────────────
-TRAIN_DIR       = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train/images"
-TEST_CLEAN_DIR  = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test/images"
-TEST_VARROA_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test/synthetic_varroa_output/images"
-TEST_MASKS_DIR  = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test/synthetic_varroa_output/masks"
+TRAIN_DIR       = DATA_ROOT + "/processed/train/images"
+TEST_CLEAN_DIR  = DATA_ROOT + "/processed/test/images"
+TEST_VARROA_DIR = DATA_ROOT + "/processed/test/synthetic_varroa_output/images"
+TEST_MASKS_DIR  = DATA_ROOT + "/processed/test/synthetic_varroa_output/masks"
 
 TILE_SIZE  = 512
 BATCH_SIZE = 8

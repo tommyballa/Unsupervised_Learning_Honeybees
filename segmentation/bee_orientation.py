@@ -22,6 +22,8 @@ import hashlib
 import json
 import os
 
+from bee_paths import DATA_ROOT
+
 import cv2
 import numpy as np
 
@@ -107,7 +109,8 @@ def train(labels_path=LABELS_PATH, weights_path=WEIGHTS_PATH, device="auto"):
 
     images, y = [], []
     for item in labels:
-        img, mask, is_raw = dc.load_image_and_mask(item["raw_path"])
+        # raw_path is stored relative to the dataset root (BEES_DATA_ROOT)
+        img, mask, is_raw = dc.load_image_and_mask(os.path.join(DATA_ROOT, item["raw_path"]))
         if img is None:
             print(f"  ✗ Crop non leggibile, salto: {item['raw_path']}")
             continue

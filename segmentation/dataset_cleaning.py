@@ -1,3 +1,4 @@
+from bee_paths import DATA_ROOT
 import os
 import argparse
 import cv2
@@ -587,8 +588,8 @@ def run_cleaning(input_dir, output_dir, workers=NUM_WORKERS, device="auto"):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pulisce e normalizza le api estratte da extract_anomaly_dataset.py.")
-    parser.add_argument("--raw", default="/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee_batch3+4_novarroa/raw_bees")
-    parser.add_argument("--clean", default="/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee_batch3+4_novarroa/cleaned_bees")
+    parser.add_argument("--raw", default=DATA_ROOT + "/processed/test_single_bee_batch3+4_novarroa/raw_bees")
+    parser.add_argument("--clean", default=DATA_ROOT + "/processed/test_single_bee_batch3+4_novarroa/cleaned_bees")
     parser.add_argument("--device", default="auto", help="Device per l'orientamento (es. cuda:1); auto = GPU più libera")
     args = parser.parse_args()
     run_cleaning(args.raw, args.clean, device=args.device)

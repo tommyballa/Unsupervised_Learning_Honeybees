@@ -16,6 +16,7 @@ file come hardlink. Con lo stesso seed il risultato è identico.
     python experiments/single_bee/make_val_split.py [--dry-run]
 """
 
+from moviad.datasets.varroa.paths import DATA_ROOT
 import argparse
 import os
 from pathlib import Path
@@ -23,7 +24,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-DATASET_DIR = Path("/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3_varroa_split")
+DATASET_DIR = Path(DATA_ROOT + "/processed/single_bee3+4+5+6_SAM3_varroa_split")
 VAL_ANOMALOUS_FRACTION = 0.25
 VAL_NORMALS = 1250            # 20% di anomale come nel test ridotto
 SEED = 0

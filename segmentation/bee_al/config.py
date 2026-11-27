@@ -4,6 +4,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import os
 import re
 import typing
 from dataclasses import dataclass, field
@@ -437,4 +438,20 @@ def load_config(path: Union[str, Path, None] = None, root: Union[str, Path, None
     """Legge il file YAML (default ``config/al_config.yaml``)."""
     path = Path(path) if path is not None else DEFAULT_CONFIG_PATH
     with open(path, "r", encoding="utf-8") as f:
-        return config_from_dict(yaml.safe_load(f), root=root)
+        text = f.read()
+    return config_from_dict(yaml.safe_load(_expand_env(text)), root=root)
+
+
+def _expand_env(text: str) -> str:
+    """Expand ``${VAR}`` in the YAML text.
+
+    ``BEES_DATA_ROOT`` (the bee dataset) and ``BEE_AL_WORKDIR`` (labels, embeddings
+    and models of the active-learning hub) default to ``data/DatasetApi_Ceschi`` and
+    ``data/bee_al`` under the repository root when they are not set.
+    """
+    defaults = {
+        "BEES_DATA_ROOT": str(REPO_ROOT.parent / "data" / "DatasetApi_Ceschi"),
+        "BEE_AL_WORKDIR": str(REPO_ROOT.parent / "data" / "bee_al"),
+    }
+    env = {**defaults, **os.environ}
+    return re.sub(r"\$\{(\w+)\}", lambda m: env.get(m.group(1), m.group(0)), text)

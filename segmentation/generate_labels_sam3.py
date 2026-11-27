@@ -1,3 +1,4 @@
+from bee_paths import DATA_ROOT
 import os
 import shutil
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -16,7 +17,7 @@ processor = Sam3Processor.from_pretrained(MODEL_ID)
 model = Sam3Model.from_pretrained(MODEL_ID).to("cuda").eval()
 
 # source batches, searched recursively (batch_6 has both favi/ and sick/)
-BASE_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi"
+BASE_DIR = DATA_ROOT
 source_dirs = [
     os.path.join(BASE_DIR, "batch_3"),
     os.path.join(BASE_DIR, "batch_4"),

@@ -1,6 +1,8 @@
-train: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/bee_batch3+4+5+6_SAM3_split/train/images
-val: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/bee_batch3+4+5+6_SAM3_split/val/images
-test: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/bee_batch3+4+5+6_SAM3_split/test/images
+# Paths are relative to `path`, which is resolved from the folder YOLO is launched in (segmentation/).
+path: ../data/DatasetApi_Ceschi/processed
+train: bee_batch3+4+5+6_SAM3_split/train/images
+val: bee_batch3+4+5+6_SAM3_split/val/images
+test: bee_batch3+4+5+6_SAM3_split/test/images
 
 nc: 1
 names: ['bee']

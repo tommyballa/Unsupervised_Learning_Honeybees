@@ -30,6 +30,7 @@ Uso:
       --anomalous-fraction 0.05 --mode hardlink --output <dir>    # più cartelle sorgente
 """
 
+from bee_paths import DATA_ROOT
 import argparse
 import csv
 import glob
@@ -48,7 +49,7 @@ import varroa_on_crops as voc
 
 # --- Configurazione ---
 CROPS_DIR = voc.CROPS_DIR
-OUTPUT_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee_batch3+4_varroa_split"
+OUTPUT_DIR = DATA_ROOT + "/processed/single_bee_batch3+4_varroa_split"
 
 SEED = 42
 TEST_FRACTION = 0.20           # quota di api nel test set

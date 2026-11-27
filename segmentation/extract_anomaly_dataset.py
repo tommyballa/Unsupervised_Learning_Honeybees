@@ -1,3 +1,4 @@
+from bee_paths import DATA_ROOT
 import os
 import argparse
 import cv2
@@ -74,9 +75,9 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Estrae le singole api segmentate da YOLO come PNG RGBA.")
     parser.add_argument("--model", default="runs/segment/runs/segment/bee_model_finetuned_yolo26s_batch3+4_img1440/weights/best.pt")
     # Cartella da cui estrarre le api
-    parser.add_argument("--source", default="/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_batch3+4/images")
+    parser.add_argument("--source", default=DATA_ROOT + "/processed/test_batch3+4/images")
     # Output: cartella con TUTTE le api estratte grezze (senza filtri)
-    parser.add_argument("--out", default="/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee_batch3+4_novarroa/raw_bees")
+    parser.add_argument("--out", default=DATA_ROOT + "/processed/test_single_bee_batch3+4_novarroa/raw_bees")
     parser.add_argument("--imgsz", type=int, default=1920)
     parser.add_argument("--conf", type=float, default=0.35)
     parser.add_argument("--device", default=None, help="Es. 0 oppure cpu; default: scelta automatica di ultralytics")

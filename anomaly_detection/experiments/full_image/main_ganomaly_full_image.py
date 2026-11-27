@@ -33,6 +33,7 @@ Heatmap e metriche su tutto il test set dalla best:
     python experiments/plot_heatmaps.py full_image ganomaly
 """
 
+from moviad.datasets.varroa.paths import DATA_ROOT
 import os
 import re
 import random
@@ -58,10 +59,10 @@ import matplotlib.pyplot as plt
 # ──────────────────────────────────────────────────────────────────────
 # Configurazione
 # ──────────────────────────────────────────────────────────────────────
-TRAIN_DIR       = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train/images"
-TEST_CLEAN_DIR  = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test/images"
-TEST_VARROA_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test/synthetic_varroa_output/images"
-TEST_MASKS_DIR  = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test/synthetic_varroa_output/masks"
+TRAIN_DIR       = DATA_ROOT + "/processed/train/images"
+TEST_CLEAN_DIR  = DATA_ROOT + "/processed/test/images"
+TEST_VARROA_DIR = DATA_ROOT + "/processed/test/synthetic_varroa_output/images"
+TEST_MASKS_DIR  = DATA_ROOT + "/processed/test/synthetic_varroa_output/masks"
 
 TILE_SIZE        = 128
 LATENT_VEC_SIZE  = 100

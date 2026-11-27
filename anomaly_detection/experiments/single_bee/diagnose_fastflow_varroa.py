@@ -13,6 +13,7 @@ Stampa:
   E. quota di massimi che cadono sul bordo dell'immagine
   F. stesso AUROC con un flow NON addestrato (baseline)
 """
+from moviad.datasets.varroa.paths import DATA_ROOT
 import argparse
 import os
 
@@ -80,7 +81,7 @@ def describe(name, x):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--checkpoint", required=True)
-    p.add_argument("--train_dir", default="/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees")
+    p.add_argument("--train_dir", default=DATA_ROOT + "/processed/train_single_bee_merged/cleaned_bees")
     p.add_argument("--backbone", default="wide_resnet50_2")
     p.add_argument("--img_size", type=int, default=256)
     p.add_argument("--n_train", type=int, default=500)

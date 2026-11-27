@@ -1,5 +1,6 @@
 """Salva immagini casuali del test set batch3+4 con le api evidenziate dal modello scelto.
 Uso: python predict_random_samples.py [n_immagini] [device]"""
+from bee_paths import DATA_ROOT
 import glob
 import os
 import random
@@ -10,7 +11,7 @@ import numpy as np
 from ultralytics import YOLO
 
 WEIGHTS = "runs/segment/runs/segment/bee_model_finetuned_yolo26s_batch3+4_img1440/weights/best.pt"
-IMAGE_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_split_batch3+4/images"
+IMAGE_DIR = DATA_ROOT + "/processed/test_split_batch3+4/images"
 OUT_DIR = "runs/segment/predict_batch3+4_img1440_samples"
 IMGSZ = 2048        # stessa risoluzione usata nel test
 CONF = 0.25

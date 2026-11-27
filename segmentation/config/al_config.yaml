@@ -9,13 +9,13 @@ paths:
   # Dal 2026-10-14 tutte le foto di batch 3-6 (train, val e test dello split SAM3 insieme), api
   # estratte a 2048 px con yolo26s_batch3+4+5+6_SAM3_img1376 e pulite con dataset_cleaning.py v4
   # (filtro short, testa in alto). La run precedente (batch3+4, fasi 1 e 2) è archiviata in
-  # /mnt/disk1/tommaso_ballarin/bee_al/archivio_<data>_<ora>.
+  # ${BEE_AL_WORKDIR}/archivio_<data>_<ora>.
   dataset_dirs:
-    sam3_b3456: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/cleaned_bees
+    sam3_b3456: ${BEES_DATA_ROOT}/processed/single_bee3+4+5+6_SAM3/cleaned_bees
   # Etichette, embedding e modelli stanno su /mnt/disk1: il disco di sistema è quasi pieno.
-  results_dir: /mnt/disk1/tommaso_ballarin/bee_al/results_sam3_b3456   # al_labels.csv, validation_set.json, al_rounds.jsonl
-  embeddings_dir: /mnt/disk1/tommaso_ballarin/bee_al/embeddings_sam3_b3456   # embedding dell'extractor congelato (v000)
-  models_dir: /mnt/disk1/tommaso_ballarin/bee_al/models_sam3_b3456     # vNNN/ prodotti dai re-train
+  results_dir: ${BEE_AL_WORKDIR}/results_sam3_b3456   # al_labels.csv, validation_set.json, al_rounds.jsonl
+  embeddings_dir: ${BEE_AL_WORKDIR}/embeddings_sam3_b3456   # embedding dell'extractor congelato (v000)
+  models_dir: ${BEE_AL_WORKDIR}/models_sam3_b3456     # vNNN/ prodotti dai re-train
   subset_file: ""        # JSON {"image_ids": [...]}: se indicato l'hub lavora solo su quelle api (fasi successive)
 
 stage:
@@ -27,7 +27,7 @@ stage:
 export:
   # Pulsante "Save configuration & export clusters" in /al-status: a fase finita scrive qui i cluster,
   # una sottocartella per esportazione, con una cartella di immagini per classe.
-  clusters_dir: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3_clusters
+  clusters_dir: ${BEES_DATA_ROOT}/processed/single_bee3+4+5+6_SAM3_clusters
   mode: copy             # copy | hardlink | symlink
 
 labels:
@@ -131,10 +131,10 @@ frames:
   # non si ricava nulla: batch_3 è del 12/09/2026, batch_4 del 26/09/2026, stesso alveare, con flash e zoom diversi.
   # Le 791 foto del dataset SAM3 si attribuiscono tutte a una sola batch (168 / 241 / 199 / 183).
   session_dirs:
-    batch_3: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_3
-    batch_4: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_4
-    batch_5: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_5
-    batch_6: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_6
+    batch_3: ${BEES_DATA_ROOT}/batch_3
+    batch_4: ${BEES_DATA_ROOT}/batch_4
+    batch_5: ${BEES_DATA_ROOT}/batch_5
+    batch_6: ${BEES_DATA_ROOT}/batch_6
   colony: ""             # nome dell'alveare per tutti i frame (un solo alveare fotografato); vuoto = non indicato
 
 audit:

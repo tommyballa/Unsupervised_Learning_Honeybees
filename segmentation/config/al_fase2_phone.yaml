@@ -4,12 +4,12 @@
 
 seed: 42
 paths:
-  dataset_dir: /home/tommaso_ballarin/bee_segmentation/bee_segmentation/data/images
+  dataset_dir: ${BEE_AL_WORKDIR}/images
   dataset_dirs:
-    phone: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee_phone_SAM3/cleaned_bees
-  results_dir: /mnt/disk1/tommaso_ballarin/bee_al/results_fase2_phone
-  embeddings_dir: /mnt/disk1/tommaso_ballarin/bee_al/embeddings_phone
-  models_dir: /mnt/disk1/tommaso_ballarin/bee_al/models_fase2_phone
+    phone: ${BEES_DATA_ROOT}/processed/single_bee_phone_SAM3/cleaned_bees
+  results_dir: ${BEE_AL_WORKDIR}/results_fase2_phone
+  embeddings_dir: ${BEE_AL_WORKDIR}/embeddings_phone
+  models_dir: ${BEE_AL_WORKDIR}/models_fase2_phone
 labels:
   # Profilo demografico: Giovane, Adulte, Fuco. Malata: api malate in generale.
   # Non Classificabile: non si giudica per segmentazione o posa (classe di scarto, fuori dalle quote).
@@ -79,7 +79,7 @@ frames:
   manifests: {}
   frame_pattern: ''
   session_dirs:
-    phone: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_6/favi_phone_camera
+    phone: ${BEES_DATA_ROOT}/batch_6/favi_phone_camera
   colony: ''
 audit:
   per_stratum: 40
@@ -113,7 +113,7 @@ stage:
   title: Phase 2 - phone photos only
   description: All the cleaned bees of the 22 phone photos (batch_6/favi_phone_camera), no phase-1 filter.
 export:
-  clusters_dir: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee_phone_SAM3_clusters
+  clusters_dir: ${BEES_DATA_ROOT}/processed/single_bee_phone_SAM3_clusters
   mode: copy
 review:
   enabled: true

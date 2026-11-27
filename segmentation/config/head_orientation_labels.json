@@ -2,1498 +2,1498 @@
  "description": "Direzione della testa (vettore unitario x, y in pixel del crop grezzo) di api di batch3+4+5+6_SAM3 etichettate a vista. Api ambigue (di lato, parziali) escluse.",
  "bees": [
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_21487_conf0.91.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_21487_conf0.91.png",
    "head_dir": [
     0.8822,
     0.4709
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_13115_conf0.77.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_13115_conf0.77.png",
    "head_dir": [
     0.0,
     -1.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_05886_conf0.64.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_05886_conf0.64.png",
    "head_dir": [
     -0.4307,
     -0.9025
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_33753_conf0.88.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_33753_conf0.88.png",
    "head_dir": [
     -0.3462,
     -0.9382
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_29628_conf0.37.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_29628_conf0.37.png",
    "head_dir": [
     -0.9561,
     0.2932
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_17263_conf0.94.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_17263_conf0.94.png",
    "head_dir": [
     0.2104,
     -0.9776
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_10856_conf0.63.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_10856_conf0.63.png",
    "head_dir": [
     0.1149,
     0.9934
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_07025_conf0.76.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_07025_conf0.76.png",
    "head_dir": [
     -0.3523,
     -0.9359
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_24702_conf0.90.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_24702_conf0.90.png",
    "head_dir": [
     0.7106,
     -0.7036
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_09910_conf0.77.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_09910_conf0.77.png",
    "head_dir": [
     -0.1448,
     0.9895
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_32313_conf0.69.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_32313_conf0.69.png",
    "head_dir": [
     -0.205,
     -0.9788
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_34837_conf0.92.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_34837_conf0.92.png",
    "head_dir": [
     0.426,
     0.9047
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_31753_conf0.91.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_31753_conf0.91.png",
    "head_dir": [
     0.5944,
     -0.8042
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_21594_conf0.97.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_21594_conf0.97.png",
    "head_dir": [
     0.4032,
     -0.9151
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_25550_conf0.83.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_25550_conf0.83.png",
    "head_dir": [
     0.7311,
     -0.6823
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_36208_conf0.92.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_36208_conf0.92.png",
    "head_dir": [
     -0.7544,
     -0.6565
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_15423_conf0.93.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_15423_conf0.93.png",
    "head_dir": [
     -0.3252,
     -0.9457
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_11663_conf0.75.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_11663_conf0.75.png",
    "head_dir": [
     0.1465,
     0.9892
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_22770_conf0.70.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_22770_conf0.70.png",
    "head_dir": [
     -0.8409,
     -0.5412
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_31882_conf0.88.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_31882_conf0.88.png",
    "head_dir": [
     -0.7907,
     -0.6122
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_04413_conf0.95.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_04413_conf0.95.png",
    "head_dir": [
     -0.5547,
     0.8321
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_32593_conf0.93.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_32593_conf0.93.png",
    "head_dir": [
     -0.6669,
     -0.7451
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_02442_conf0.94.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_02442_conf0.94.png",
    "head_dir": [
     0.3008,
     0.9537
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_19606_conf0.74.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_19606_conf0.74.png",
    "head_dir": [
     0.4951,
     -0.8688
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_25169_conf0.90.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_25169_conf0.90.png",
    "head_dir": [
     -0.972,
     -0.235
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_02650_conf0.94.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_02650_conf0.94.png",
    "head_dir": [
     -0.3977,
     -0.9175
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_32000_conf0.86.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_32000_conf0.86.png",
    "head_dir": [
     0.1351,
     -0.9908
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_18711_conf0.82.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_18711_conf0.82.png",
    "head_dir": [
     0.9986,
     0.0535
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_34582_conf0.55.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_34582_conf0.55.png",
    "head_dir": [
     -0.5489,
     -0.8359
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_13560_conf0.94.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_13560_conf0.94.png",
    "head_dir": [
     -0.6544,
     -0.7561
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_22921_conf0.46.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_22921_conf0.46.png",
    "head_dir": [
     0.4643,
     -0.8857
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_34199_conf0.92.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_34199_conf0.92.png",
    "head_dir": [
     0.2491,
     0.9685
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_08465_conf0.88.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_08465_conf0.88.png",
    "head_dir": [
     -0.2554,
     -0.9668
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_34358_conf0.92.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_34358_conf0.92.png",
    "head_dir": [
     -0.8593,
     0.5114
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_24352_conf0.95.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_24352_conf0.95.png",
    "head_dir": [
     -0.9628,
     0.2703
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_27032_conf0.36.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_27032_conf0.36.png",
    "head_dir": [
     -0.4038,
     -0.9149
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_22024_conf0.91.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_22024_conf0.91.png",
    "head_dir": [
     0.0,
     -1.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_33509_conf0.94.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_33509_conf0.94.png",
    "head_dir": [
     -0.5521,
     -0.8338
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_12465_conf0.92.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_12465_conf0.92.png",
    "head_dir": [
     -0.5369,
     -0.8437
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_07814_conf0.86.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_07814_conf0.86.png",
    "head_dir": [
     0.0,
     1.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_05068_conf0.37.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_05068_conf0.37.png",
    "head_dir": [
     0.0,
     -1.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_31303_conf0.78.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_31303_conf0.78.png",
    "head_dir": [
     0.3517,
     -0.9361
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_01025_conf0.83.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_01025_conf0.83.png",
    "head_dir": [
     -0.2425,
     -0.9701
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_12012_conf0.93.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_12012_conf0.93.png",
    "head_dir": [
     -0.8817,
     -0.4718
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_18253_conf0.91.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_18253_conf0.91.png",
    "head_dir": [
     0.0,
     -1.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_13063_conf0.81.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_13063_conf0.81.png",
    "head_dir": [
     0.8455,
     0.534
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_00747_conf0.89.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_00747_conf0.89.png",
    "head_dir": [
     0.0,
     -1.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_28097_conf0.91.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_28097_conf0.91.png",
    "head_dir": [
     -0.7304,
     -0.683
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_13415_conf0.39.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_13415_conf0.39.png",
    "head_dir": [
     0.0,
     -1.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_01836_conf0.89.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_01836_conf0.89.png",
    "head_dir": [
     0.563,
     -0.8265
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_23676_conf0.94.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_23676_conf0.94.png",
    "head_dir": [
     -0.1982,
     0.9802
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_02582_conf0.57.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_02582_conf0.57.png",
    "head_dir": [
     0.4374,
     -0.8993
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_19613_conf0.73.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_19613_conf0.73.png",
    "head_dir": [
     -0.2983,
     -0.9545
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_28187_conf0.73.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_28187_conf0.73.png",
    "head_dir": [
     0.0231,
     -0.9997
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_09771_conf0.83.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_09771_conf0.83.png",
    "head_dir": [
     0.0,
     1.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_23824_conf0.72.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_23824_conf0.72.png",
    "head_dir": [
     0.1272,
     -0.9919
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_11490_conf0.39.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_11490_conf0.39.png",
    "head_dir": [
     0.9989,
     0.0462
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_13971_conf0.94.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_13971_conf0.94.png",
    "head_dir": [
     0.0,
     1.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_08237_conf0.83.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_08237_conf0.83.png",
    "head_dir": [
     0.633,
     -0.7742
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_18153_conf0.93.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_18153_conf0.93.png",
    "head_dir": [
     -0.5657,
     -0.8246
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_19452_conf0.90.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_19452_conf0.90.png",
    "head_dir": [
     -0.9673,
     -0.2536
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_29514_conf0.51.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_29514_conf0.51.png",
    "head_dir": [
     0.5692,
     -0.8222
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_23409_conf0.95.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_23409_conf0.95.png",
    "head_dir": [
     0.4244,
     -0.9055
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_32775_conf0.87.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_32775_conf0.87.png",
    "head_dir": [
     0.0742,
     -0.9972
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_04626_conf0.90.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_04626_conf0.90.png",
    "head_dir": [
     0.0,
     -1.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_05922_conf0.94.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_05922_conf0.94.png",
    "head_dir": [
     -0.4596,
     -0.8882
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_15502_conf0.75.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_15502_conf0.75.png",
    "head_dir": [
     -0.5205,
     -0.8539
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_22560_conf0.85.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_22560_conf0.85.png",
    "head_dir": [
     0.8496,
     -0.5274
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_14454_conf0.96.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_14454_conf0.96.png",
    "head_dir": [
     0.0,
     1.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_19346_conf0.93.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_19346_conf0.93.png",
    "head_dir": [
     0.0,
     -1.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_32115_conf0.82.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_32115_conf0.82.png",
    "head_dir": [
     0.7393,
     0.6733
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_11476_conf0.43.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_11476_conf0.43.png",
    "head_dir": [
     -0.3876,
     -0.9218
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_15842_conf0.92.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_15842_conf0.92.png",
    "head_dir": [
     0.9762,
     -0.2169
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_34551_conf0.81.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_34551_conf0.81.png",
    "head_dir": [
     -0.2009,
     -0.9796
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_18510_conf0.87.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_18510_conf0.87.png",
    "head_dir": [
     0.2577,
     -0.9662
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_32581_conf0.94.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_32581_conf0.94.png",
    "head_dir": [
     -0.8259,
     -0.5638
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_29784_conf0.92.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_29784_conf0.92.png",
    "head_dir": [
     0.8253,
     -0.5647
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_27089_conf0.94.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_27089_conf0.94.png",
    "head_dir": [
     -0.4281,
     -0.9037
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_36195_conf0.92.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_36195_conf0.92.png",
    "head_dir": [
     0.6532,
     -0.7572
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_11288_conf0.92.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_11288_conf0.92.png",
    "head_dir": [
     -0.6383,
     -0.7698
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_16514_conf0.56.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_16514_conf0.56.png",
    "head_dir": [
     0.5956,
     0.8033
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_25680_conf0.79.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_25680_conf0.79.png",
    "head_dir": [
     0.3067,
     -0.9518
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_35689_conf0.78.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_35689_conf0.78.png",
    "head_dir": [
     0.3519,
     -0.936
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_19443_conf0.90.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_19443_conf0.90.png",
    "head_dir": [
     -0.157,
     0.9876
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_35187_conf0.91.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_35187_conf0.91.png",
    "head_dir": [
     0.0,
     -1.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_12867_conf0.87.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_12867_conf0.87.png",
    "head_dir": [
     -0.154,
     -0.9881
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_27332_conf0.95.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_27332_conf0.95.png",
    "head_dir": [
     -0.086,
     -0.9963
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_19760_conf0.94.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_19760_conf0.94.png",
    "head_dir": [
     -0.3662,
     -0.9305
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_27008_conf0.40.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_27008_conf0.40.png",
    "head_dir": [
     0.2937,
     -0.9559
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_36231_conf0.91.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_36231_conf0.91.png",
    "head_dir": [
     0.9757,
     -0.219
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_36182_conf0.93.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_36182_conf0.93.png",
    "head_dir": [
     -0.9709,
     0.2396
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_03474_conf0.91.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_03474_conf0.91.png",
    "head_dir": [
     0.4856,
     -0.8742
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_32269_conf0.72.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_32269_conf0.72.png",
    "head_dir": [
     0.9967,
     0.0808
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_17727_conf0.91.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_17727_conf0.91.png",
    "head_dir": [
     -0.9874,
     0.1582
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_02617_conf0.95.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_02617_conf0.95.png",
    "head_dir": [
     0.4186,
     -0.9081
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_21832_conf0.87.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_21832_conf0.87.png",
    "head_dir": [
     1.0,
     0.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_14347_conf0.89.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_14347_conf0.89.png",
    "head_dir": [
     0.5154,
     -0.8569
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_04459_conf0.94.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_04459_conf0.94.png",
    "head_dir": [
     0.0,
     -1.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_09961_conf0.75.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_09961_conf0.75.png",
    "head_dir": [
     0.1224,
     -0.9925
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_11586_conf0.89.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_11586_conf0.89.png",
    "head_dir": [
     -0.7029,
     0.7113
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_08267_conf0.77.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_08267_conf0.77.png",
    "head_dir": [
     0.7232,
     -0.6907
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_28046_conf0.94.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_28046_conf0.94.png",
    "head_dir": [
     -0.2668,
     -0.9638
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_06787_conf0.85.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_06787_conf0.85.png",
    "head_dir": [
     0.5607,
     -0.828
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_05265_conf0.65.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_05265_conf0.65.png",
    "head_dir": [
     -0.4921,
     -0.8706
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_05351_conf0.93.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_05351_conf0.93.png",
    "head_dir": [
     -0.4789,
     -0.8779
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_26628_conf0.89.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_26628_conf0.89.png",
    "head_dir": [
     -0.0658,
     -0.9978
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_13790_conf0.85.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_13790_conf0.85.png",
    "head_dir": [
     0.918,
     0.3967
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_32676_conf0.91.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_32676_conf0.91.png",
    "head_dir": [
     0.5602,
     -0.8284
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_16737_conf0.91.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_16737_conf0.91.png",
    "head_dir": [
     0.9587,
     -0.2843
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_27587_conf0.93.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_27587_conf0.93.png",
    "head_dir": [
     0.9506,
     -0.3105
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_31181_conf0.39.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_31181_conf0.39.png",
    "head_dir": [
     0.8382,
     -0.5454
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_35280_conf0.90.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_35280_conf0.90.png",
    "head_dir": [
     -0.2132,
     -0.977
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_25613_conf0.81.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_25613_conf0.81.png",
    "head_dir": [
     -1.0,
     -0.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_37619_conf0.52.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_37619_conf0.52.png",
    "head_dir": [
     -0.1953,
     -0.9807
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_15702_conf0.95.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_15702_conf0.95.png",
    "head_dir": [
     -0.3255,
     -0.9455
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_35506_conf0.86.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_35506_conf0.86.png",
    "head_dir": [
     0.0,
     1.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_33553_conf0.90.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_33553_conf0.90.png",
    "head_dir": [
     -0.6376,
     0.7704
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_00414_conf0.92.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_00414_conf0.92.png",
    "head_dir": [
     -0.3328,
     -0.943
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_07149_conf0.66.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_07149_conf0.66.png",
    "head_dir": [
     0.0411,
     -0.9992
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_19261_conf0.95.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_19261_conf0.95.png",
    "head_dir": [
     -0.5547,
     0.8321
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_36083_conf0.95.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_36083_conf0.95.png",
    "head_dir": [
     0.0,
     -1.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_28144_conf0.86.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_28144_conf0.86.png",
    "head_dir": [
     -0.8944,
     -0.4472
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_17480_conf0.90.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_17480_conf0.90.png",
    "head_dir": [
     -0.8244,
     -0.566
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_25548_conf0.83.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_25548_conf0.83.png",
    "head_dir": [
     -1.0,
     -0.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_33161_conf0.90.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_33161_conf0.90.png",
    "head_dir": [
     -0.6937,
     0.7202
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_27397_conf0.92.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_27397_conf0.92.png",
    "head_dir": [
     -0.3846,
     -0.9231
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_07255_conf0.56.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_07255_conf0.56.png",
    "head_dir": [
     -0.9048,
     -0.4258
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_09523_conf0.90.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_09523_conf0.90.png",
    "head_dir": [
     -0.4472,
     -0.8944
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_12717_conf0.90.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_12717_conf0.90.png",
    "head_dir": [
     -0.9507,
     -0.31
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_02873_conf0.94.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_02873_conf0.94.png",
    "head_dir": [
     0.0746,
     -0.9972
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_08786_conf0.74.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_08786_conf0.74.png",
    "head_dir": [
     -0.6483,
     -0.7614
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_30006_conf0.77.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_30006_conf0.77.png",
    "head_dir": [
     0.4815,
     -0.8764
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_35584_conf0.83.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_35584_conf0.83.png",
    "head_dir": [
     0.7203,
     -0.6936
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_06627_conf0.89.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_06627_conf0.89.png",
    "head_dir": [
     -0.6264,
     -0.7795
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_25707_conf0.78.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_25707_conf0.78.png",
    "head_dir": [
     -0.2688,
     -0.9632
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_28670_conf0.92.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_28670_conf0.92.png",
    "head_dir": [
     0.3307,
     -0.9437
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_26697_conf0.86.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_26697_conf0.86.png",
    "head_dir": [
     -0.8802,
     0.4747
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_06680_conf0.88.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_06680_conf0.88.png",
    "head_dir": [
     0.0,
     1.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_35728_conf0.75.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_35728_conf0.75.png",
    "head_dir": [
     0.952,
     -0.306
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_00052_conf0.93.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_00052_conf0.93.png",
    "head_dir": [
     0.5234,
     0.8521
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_33813_conf0.66.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_33813_conf0.66.png",
    "head_dir": [
     0.2239,
     -0.9746
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_03251_conf0.94.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_03251_conf0.94.png",
    "head_dir": [
     0.7548,
     0.656
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_21074_conf0.86.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_21074_conf0.86.png",
    "head_dir": [
     -0.6787,
     -0.7344
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_24223_conf0.90.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_24223_conf0.90.png",
    "head_dir": [
     -0.6279,
     -0.7783
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_28621_conf0.92.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_28621_conf0.92.png",
    "head_dir": [
     0.6767,
     -0.7362
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_11915_conf0.93.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_11915_conf0.93.png",
    "head_dir": [
     -0.6454,
     -0.7638
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_30371_conf0.96.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_30371_conf0.96.png",
    "head_dir": [
     -0.2367,
     -0.9716
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_32287_conf0.70.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_32287_conf0.70.png",
    "head_dir": [
     -0.7783,
     -0.6279
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_00010_conf0.95.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_00010_conf0.95.png",
    "head_dir": [
     -0.1666,
     0.986
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_37906_conf0.85.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_37906_conf0.85.png",
    "head_dir": [
     -0.0443,
     -0.999
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_01774_conf0.94.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_01774_conf0.94.png",
    "head_dir": [
     -0.3182,
     -0.948
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_27157_conf0.92.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_27157_conf0.92.png",
    "head_dir": [
     0.9707,
     0.2401
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_19494_conf0.88.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_19494_conf0.88.png",
    "head_dir": [
     0.9915,
     0.1305
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_27921_conf0.92.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_27921_conf0.92.png",
    "head_dir": [
     0.2771,
     -0.9608
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_38089_conf0.95.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_38089_conf0.95.png",
    "head_dir": [
     -1.0,
     -0.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_26492_conf0.91.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_26492_conf0.91.png",
    "head_dir": [
     -0.1644,
     0.9864
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_13536_conf0.94.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_13536_conf0.94.png",
    "head_dir": [
     0.2597,
     -0.9657
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_22574_conf0.85.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_22574_conf0.85.png",
    "head_dir": [
     0.293,
     0.9561
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_12824_conf0.88.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_12824_conf0.88.png",
    "head_dir": [
     -0.8797,
     -0.4755
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_33672_conf0.94.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_33672_conf0.94.png",
    "head_dir": [
     -0.7009,
     -0.7133
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_16896_conf0.94.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_16896_conf0.94.png",
    "head_dir": [
     -0.9605,
     0.2783
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_08596_conf0.56.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_08596_conf0.56.png",
    "head_dir": [
     0.197,
     0.9804
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_01578_conf0.91.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_01578_conf0.91.png",
    "head_dir": [
     -0.2765,
     0.961
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_25170_conf0.90.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_25170_conf0.90.png",
    "head_dir": [
     0.0,
     -1.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_31881_conf0.88.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_31881_conf0.88.png",
    "head_dir": [
     0.5591,
     0.8291
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_14323_conf0.91.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_14323_conf0.91.png",
    "head_dir": [
     0.7294,
     -0.6841
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_04861_conf0.92.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_04861_conf0.92.png",
    "head_dir": [
     0.2623,
     -0.965
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_39919_conf0.95.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_39919_conf0.95.png",
    "head_dir": [
     0.6837,
     -0.7297
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_25898_conf0.67.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_25898_conf0.67.png",
    "head_dir": [
     -0.8378,
     -0.546
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_05758_conf0.94.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_05758_conf0.94.png",
    "head_dir": [
     -0.2988,
     -0.9543
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_22163_conf0.93.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_22163_conf0.93.png",
    "head_dir": [
     -0.2147,
     0.9767
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_16511_conf0.57.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_16511_conf0.57.png",
    "head_dir": [
     -0.6337,
     0.7736
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_08432_conf0.91.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_08432_conf0.91.png",
    "head_dir": [
     -0.5063,
     -0.8624
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_17593_conf0.91.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_17593_conf0.91.png",
    "head_dir": [
     0.7228,
     0.691
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_06420_conf0.94.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_06420_conf0.94.png",
    "head_dir": [
     -0.3162,
     -0.9487
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_02676_conf0.92.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_02676_conf0.92.png",
    "head_dir": [
     0.2579,
     -0.9662
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_03926_conf0.82.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_03926_conf0.82.png",
    "head_dir": [
     0.2681,
     -0.9634
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_06376_conf0.63.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_06376_conf0.63.png",
    "head_dir": [
     0.5297,
     0.8482
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_10581_conf0.91.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_10581_conf0.91.png",
    "head_dir": [
     -0.2703,
     -0.9628
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_29124_conf0.83.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_29124_conf0.83.png",
    "head_dir": [
     -1.0,
     -0.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_05977_conf0.92.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_05977_conf0.92.png",
    "head_dir": [
     1.0,
     0.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_36061_conf0.96.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_36061_conf0.96.png",
    "head_dir": [
     0.6057,
     -0.7957
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_12448_conf0.93.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_12448_conf0.93.png",
    "head_dir": [
     -0.6748,
     0.738
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_14239_conf0.95.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_14239_conf0.95.png",
    "head_dir": [
     -0.6247,
     0.7809
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_13718_conf0.91.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_13718_conf0.91.png",
    "head_dir": [
     -0.9598,
     0.2806
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_36233_conf0.91.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_36233_conf0.91.png",
    "head_dir": [
     -0.941,
     0.3384
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_24333_conf0.95.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_24333_conf0.95.png",
    "head_dir": [
     -0.9078,
     0.4193
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_14523_conf0.93.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_14523_conf0.93.png",
    "head_dir": [
     -0.1905,
     -0.9817
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_37042_conf0.92.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_37042_conf0.92.png",
    "head_dir": [
     -0.5591,
     0.8291
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_32422_conf0.52.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_32422_conf0.52.png",
    "head_dir": [
     -0.8582,
     -0.5133
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_34856_conf0.90.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_34856_conf0.90.png",
    "head_dir": [
     -0.8223,
     -0.569
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_37988_conf0.94.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_37988_conf0.94.png",
    "head_dir": [
     -0.5121,
     -0.8589
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_17730_conf0.91.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_17730_conf0.91.png",
    "head_dir": [
     0.7166,
     0.6975
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_21149_conf0.50.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_21149_conf0.50.png",
    "head_dir": [
     -0.0351,
     -0.9994
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_38836_conf0.95.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_38836_conf0.95.png",
    "head_dir": [
     -0.7292,
     0.6843
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_05039_conf0.53.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_05039_conf0.53.png",
    "head_dir": [
     0.5569,
     -0.8306
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_14584_conf0.89.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_14584_conf0.89.png",
    "head_dir": [
     -0.5636,
     -0.8261
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_25104_conf0.91.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_25104_conf0.91.png",
    "head_dir": [
     0.2631,
     -0.9648
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_00981_conf0.84.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_00981_conf0.84.png",
    "head_dir": [
     0.1611,
     -0.9869
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_35094_conf0.92.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_35094_conf0.92.png",
    "head_dir": [
     -0.3674,
     -0.9301
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_00646_conf0.90.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_00646_conf0.90.png",
    "head_dir": [
     0.8037,
     0.595
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_17200_conf0.80.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_17200_conf0.80.png",
    "head_dir": [
     1.0,
     0.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_27442_conf0.88.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_27442_conf0.88.png",
    "head_dir": [
     -0.2372,
     -0.9715
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_08909_conf0.94.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_08909_conf0.94.png",
    "head_dir": [
     0.7071,
     -0.7071
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_16382_conf0.76.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_16382_conf0.76.png",
    "head_dir": [
     0.8682,
     -0.4961
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_13466_conf0.95.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_13466_conf0.95.png",
    "head_dir": [
     -0.8251,
     0.565
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_33979_conf0.88.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_33979_conf0.88.png",
    "head_dir": [
     -0.0374,
     -0.9993
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_22790_conf0.67.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_22790_conf0.67.png",
    "head_dir": [
     0.6743,
     -0.7385
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_34430_conf0.73.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_34430_conf0.73.png",
    "head_dir": [
     0.4401,
     -0.898
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_01405_conf0.49.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_01405_conf0.49.png",
    "head_dir": [
     -0.7634,
     -0.6459
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_07782_conf0.88.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_07782_conf0.88.png",
    "head_dir": [
     0.5939,
     -0.8046
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_11847_conf0.82.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_11847_conf0.82.png",
    "head_dir": [
     0.5427,
     0.84
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_26609_conf0.89.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_26609_conf0.89.png",
    "head_dir": [
     0.0,
     -1.0
    ]
   },
   {
-   "raw_path": "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/single_bee3+4+5+6_SAM3/raw_bees/bee_03994_conf0.78.png",
+   "raw_path": "processed/single_bee3+4+5+6_SAM3/raw_bees/bee_03994_conf0.78.png",
    "head_dir": [
     -0.4299,
     -0.9029

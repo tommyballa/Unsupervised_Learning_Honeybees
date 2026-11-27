@@ -1,3 +1,4 @@
+from bee_paths import DATA_ROOT
 import os
 import csv
 import cv2
@@ -232,6 +233,6 @@ def run_clustering(input_dir, output_dir, results_dir=None):
 
 
 if __name__ == "__main__":
-    clean_dir = "/mnt/disk1/borsattifr/datasets/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/cleaned_bees"
-    output_dir = "/mnt/disk1/borsattifr/datasets/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_merged/train_single_bee_clustered"
+    clean_dir = DATA_ROOT + "/processed/train_single_bee_merged/cleaned_bees"
+    output_dir = DATA_ROOT + "/processed/train_single_bee_merged/train_single_bee_clustered"
     run_clustering(clean_dir, output_dir)

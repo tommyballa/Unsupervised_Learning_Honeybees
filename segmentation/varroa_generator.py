@@ -1,3 +1,4 @@
+from bee_paths import DATA_ROOT
 import cv2
 import numpy as np
 import random
@@ -5,13 +6,13 @@ import os
 import glob
 
 # --- Configurazione ---
-IMAGES_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_batch3+4/images"
-LABELS_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_batch3+4/labels"
+IMAGES_DIR = DATA_ROOT + "/processed/test_batch3+4/images"
+LABELS_DIR = DATA_ROOT + "/processed/test_batch3+4/labels"
 VARROA_PATHS = [
-    "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/varroa_alpha.png",
-    "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/varroa_alpha2.png",
+    DATA_ROOT + "/processed/varroa_alpha.png",
+    DATA_ROOT + "/processed/varroa_alpha2.png",
 ]
-OUTPUT_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_batch3+4/synthetic_varroa_output"
+OUTPUT_DIR = DATA_ROOT + "/processed/test_batch3+4/synthetic_varroa_output"
 
 # Seed per rendere riproducibile la generazione (None = casuale a ogni esecuzione)
 SEED = 42

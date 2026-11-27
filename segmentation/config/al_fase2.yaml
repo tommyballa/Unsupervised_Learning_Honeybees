@@ -4,14 +4,14 @@
 
 seed: 42
 paths:
-  dataset_dir: /home/tommaso_ballarin/bee_segmentation/bee_segmentation/data/images
+  dataset_dir: ${BEE_AL_WORKDIR}/images
   dataset_dirs:
-    train_b34: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_batch3+4/cleaned_bees
-    test_b34_novarroa: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee_batch3+4_novarroa/cleaned_bees
-  results_dir: /mnt/disk1/tommaso_ballarin/bee_al/results_fase2
-  embeddings_dir: /home/tommaso_ballarin/bee_segmentation/bee_segmentation/data/embeddings_batch3+4
-  models_dir: /mnt/disk1/tommaso_ballarin/bee_al/models_fase2
-  subset_file: /mnt/disk1/tommaso_ballarin/bee_al/results_fase2/subset.json
+    train_b34: ${BEES_DATA_ROOT}/processed/train_single_bee_batch3+4/cleaned_bees
+    test_b34_novarroa: ${BEES_DATA_ROOT}/processed/test_single_bee_batch3+4_novarroa/cleaned_bees
+  results_dir: ${BEE_AL_WORKDIR}/results_fase2
+  embeddings_dir: ${BEE_AL_WORKDIR}/embeddings_batch3+4
+  models_dir: ${BEE_AL_WORKDIR}/models_fase2
+  subset_file: ${BEE_AL_WORKDIR}/results_fase2/subset.json
 labels:
   classes: []
   label_aliases: {}
@@ -79,8 +79,8 @@ frames:
   manifests: {}
   frame_pattern: ''
   session_dirs:
-    batch_3: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_3
-    batch_4: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/batch_4
+    batch_3: ${BEES_DATA_ROOT}/batch_3
+    batch_4: ${BEES_DATA_ROOT}/batch_4
   colony: ''
 audit:
   per_stratum: 40
@@ -116,7 +116,7 @@ stage:
   description: Only usable and incomplete bees from phase 1. Say what each bee is;
     use 'Scarta ape' for crops that cannot be judged.
 export:
-  clusters_dir: /home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_batch3+4_clusters
+  clusters_dir: ${BEES_DATA_ROOT}/processed/train_single_bee_batch3+4_clusters
   mode: copy
 review:
   enabled: true

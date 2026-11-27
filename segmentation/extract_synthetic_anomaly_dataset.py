@@ -14,6 +14,7 @@ Pipeline:
    - Un label (0=normale, 1=anomala) in un file CSV
 """
 
+from bee_paths import DATA_ROOT
 import os
 import cv2
 import csv
@@ -26,13 +27,13 @@ from bee_orientation import HeadOrienter
 
 # --- Configurazione ---
 # Cartella con le immagini sintetiche e maschere generate da varroa_generator.py
-SYNTHETIC_DIR = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_batch3+4/synthetic_varroa_output/images"
+SYNTHETIC_DIR = DATA_ROOT + "/processed/test_batch3+4/synthetic_varroa_output/images"
 
 # Modello YOLO per la segmentazione (lo stesso usato in extract_anomaly_dataset.py)
 YOLO_MODEL_PATH = "runs/segment/runs/segment/bee_model_finetuned_yolo26s_batch3+4_img1440/weights/best.pt"
 
 # Output
-OUTPUT_BASE = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/test_single_bee_batch3+4_varroa/images"
+OUTPUT_BASE = DATA_ROOT + "/processed/test_single_bee_batch3+4_varroa/images"
 OUTPUT_NORMAL = os.path.join(OUTPUT_BASE, "normal")
 OUTPUT_ANOMALOUS = os.path.join(OUTPUT_BASE, "anomalous")
 OUTPUT_MASKS = os.path.join(OUTPUT_BASE, "masks")

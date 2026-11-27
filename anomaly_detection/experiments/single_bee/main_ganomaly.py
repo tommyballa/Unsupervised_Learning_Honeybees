@@ -50,6 +50,7 @@ img AUROC 0.897, img AP 0.867, img F1 0.783, pxl AUROC 0.963, pxl AP 0.430,
 AUPRO 0.910 (logs/ganomaly_main.log, logs/ganomaly_plot.log).
 """
 
+from moviad.datasets.varroa.paths import DATA_ROOT
 import copy
 import math
 import random
@@ -79,7 +80,7 @@ from moviad.utilities.evaluation.report import compute_metrics, print_metrics, r
 # ──────────────────────────────────────────────────────────────────────
 MODEL_NAME    = "ganomaly"
 REPO_ROOT     = Path(__file__).resolve().parents[2]
-TRAIN_DIR     = "/home/tommaso_ballarin/bees_datasets/DatasetApi_Ceschi/processed/train_single_bee_batch3+4/cleaned_bees"
+TRAIN_DIR     = DATA_ROOT + "/processed/train_single_bee_batch3+4/cleaned_bees"
 # i crop delle api sono 512x512: maschere GT, metriche pixel e heatmap a questa
 # risoluzione per tutti i modelli (la mappa viene riportata a GT_SIZE)
 GT_SIZE       = (512, 512)
