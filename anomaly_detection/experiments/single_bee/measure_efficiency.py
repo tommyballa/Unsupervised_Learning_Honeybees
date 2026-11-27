@@ -1,27 +1,27 @@
 """
-Costo di inferenza di un modello single-bee (ablation backbone, vedi ablation.py).
+Inference cost of a single-bee model (backbone ablation, see ablation.py).
 
-Carica la best salvata dal training (stesso percorso di plot_heatmaps.py) e
-misura, sullo stesso calcolo di run_inference (modello in fp32 + map_postprocess
-+ mappa riportata a 512x512) con immagini reali del validation set:
+Loads the best checkpoint saved by training (same path as plot_heatmaps.py) and
+measures, on the same computation as run_inference (model in fp32 + map_postprocess
++ map resized back to 512x512) with real validation-set images:
 
-  - parametri e memoria del modello (pesi + buffer + tensori come memory bank
-    e covarianza), in fp32;
-  - latenza GPU a batch 1 (mediana su --iters dopo il warm-up) e throughput a
+  - model parameters and memory (weights + buffers + tensors such as memory bank
+    and covariance), in fp32;
+  - GPU latency at batch 1 (median over --iters after warm-up) and throughput at
     batch --batch;
-  - picco di memoria GPU a batch 1;
-  - GFLOP per immagine (torch.utils.flop_counter: convoluzioni e matmul,
-    indipendenti dal carico della GPU; torch.cdist, che il contatore non vede,
-    è contato a parte come un matmul, 2·n·m·d: è la ricerca kNN di PatchCore;
-    blur e operazioni elementwise non sono contati);
-  - con --cpu latenza su CPU a batch 1 (--threads thread).
+  - peak GPU memory at batch 1;
+  - GFLOP per image (torch.utils.flop_counter: convolutions and matmuls,
+    independent of GPU load; torch.cdist, which the counter does not see,
+    is counted separately as a matmul, 2·n·m·d: it is PatchCore's kNN search;
+    blur and elementwise operations are not counted);
+  - with --cpu, CPU latency at batch 1 (--threads threads).
 
-Le variabili ABL_* scelgono la configurazione come per il training, es.:
+The ABL_* variables select the configuration as for training, e.g.:
 
     ABL_BACKBONE=resnet18 CUDA_VISIBLE_DEVICES=1 python experiments/single_bee/measure_efficiency.py cfa
 
-Il risultato va in logs/ablation/efficiency/<modello>_<tag|default>.json. Per
-tempi confrontabili la GPU deve essere libera.
+The result goes to logs/ablation/efficiency/<model>_<tag|default>.json. For
+comparable timings the GPU must be free.
 """
 
 import argparse
@@ -47,7 +47,7 @@ from plot_heatmaps import load_best  # noqa: E402
 
 
 def collect_tensors(obj, seen=None, depth=0):
-    """Tensori raggiungibili da obj (moduli, attributi, dict, liste), senza duplicati."""
+    """Tensors reachable from obj (modules, attributes, dicts, lists), without duplicates."""
     seen = {} if seen is None else seen
     if depth > 6 or id(obj) in seen:
         return seen
@@ -121,7 +121,7 @@ def main():
     parser.add_argument("--iters", type=int, default=100)
     parser.add_argument("--warmup", type=int, default=20)
     parser.add_argument("--batch", type=int, default=32)
-    parser.add_argument("--cpu", action="store_true", help="misura anche la latenza su CPU")
+    parser.add_argument("--cpu", action="store_true", help="also measure CPU latency")
     parser.add_argument("--threads", type=int, default=4)
     parser.add_argument("--cpu-iters", type=int, default=10)
     args = parser.parse_args()
@@ -129,7 +129,7 @@ def main():
     import importlib
     mod = importlib.import_module(f"main_{args.model}")
     mod.set_seed(mod.SEED)
-    # backbone PatchCore già confrontati fuori dall'ablation (PATCHCORE_BACKBONE)
+    # PatchCore backbones already compared outside the ablation (PATCHCORE_BACKBONE)
     tag = ablation.tag() or os.environ.get("PATCHCORE_BACKBONE") or "default"
     images = load_images(mod, args.batch)
     result = {"model": args.model, "tag": tag,
@@ -172,13 +172,13 @@ def main():
         try:
             model, _ = load_best(mod, cpu)
             model.eval()
-            # su CPU niente autocast bf16 (es. backbone FastFlow): molto più lento di fp32
+            # no bf16 autocast on CPU (e.g. FastFlow backbone): much slower than fp32
             for m in model.modules() if isinstance(model, torch.nn.Module) else []:
                 if getattr(m, "backbone_amp", False):
                     m.backbone_amp = False
             result["cpu_latency_ms"] = 1e3 * time_it(mod, model, images[:1], args.cpu_iters, 2, cpu)
             result["cpu_threads"] = args.threads
-        except Exception as e:      # alcuni modelli fissano il device cuda al loro interno
+        except Exception as e:      # some models hard-code the cuda device internally
             result["cpu_error"] = f"{type(e).__name__}: {e}"
 
     out_dir = mod.REPO_ROOT / "logs" / "ablation" / "efficiency"

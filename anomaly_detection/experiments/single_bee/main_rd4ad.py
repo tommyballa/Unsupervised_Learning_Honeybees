@@ -1,41 +1,41 @@
 """
-RD4AD (Reverse Distillation) - Anomaly detection su singole api (single bee crops).
+RD4AD (Reverse Distillation) - Anomaly detection on single bees (single bee crops).
 
-Dataset:       single_bee3+4+5+6_SAM3_varroa_split (train/normal: 102k api sane;
-               val: 322 con varroa + 1251 sane, per la best e le soglie F1;
-               test_heldout: 957 con varroa + 5000 sane, valutato una volta;
-               vedi make_val_split.py).
-               Ri-ottimizzato su questo dataset (sweep_rd4ad.py, run sam3_*,
-               metriche dello sweep: pixel AP a 128 px). La ricetta del dataset
-               merged (724 step, layer 1+2, sigma 4) si ferma a img AUROC 0.914 /
-               pixel AP 0.27 (picco a 273 step, poi ~0.88):
-                 - 400 step con coseno, valutazione ogni 40: il picco è tra 160 e
-                   400 step ma oscilla di ±0.02 tra valutazioni vicine;
-                 - mappa dal solo layer 2 con sigma 8 px (= 4 a 256): ~0.94-0.95 /
-                   0.33-0.37 (layer 1+2: ~0.94 / 0.35-0.38; layer 0+1+2: 0.86);
-                   sigma 12, 16 o 24 px e score top-k non superano ~0.945;
-                 - lr 0.001: picco precoce (0.943 a 160 step) e poi calo a 0.92.
-               Con questo script (metriche ufficiali a 512): step 400 img_roc_auc
-               0.953 / pxl_avg_prec 0.362, AU-PRO 0.989 (0.93-0.95 da 160 step).
-               Sotto, la storia dello sweep sul dataset merged (23k api).
-Addestramento: immagini normali di singole api (VarroaDataset, split TRAIN),
-               con augmentation geometrica (flip) perché le api possono avere
-               qualsiasi orientamento.
-Ottimizzazione (sweep: experiments/single_bee/sweep_rd4ad.py):
-  - risoluzione nativa 512 (le varroe sono piccole): img AUROC ~0.90 a 256,
-    ~0.96 a 384, ~0.978 a 512;
-  - mappa dai soli layer 1 e 2 (il layer 0 è rumoroso: img AP 0.85 contro ~0.75);
-  - training breve: con 23k immagini RD4AD over-generalizza già dopo ~1 epoca
-    (il decoder impara a ricostruire anche le anomalie e le metriche calano),
-    quindi poche epoche con LR coseno e valutazione frequente;
-  - EMA dei pesi (EMA_DECAY) disponibile ma disattivata: stabilizza le run
-    lunghe, ma al picco precoce è in ritardo (384: img AUROC 0.954 contro 0.962);
-  - training in bf16 (autocast), valutazione in fp32.
-Best:          ogni EVAL_INTERVAL step (e alla fine) metriche sul validation set;
-               la configurazione migliore (img_roc_auc, a parità pxl_avg_prec)
-               viene salvata in checkpoints/single_bee/rd4ad/ (best.pth +
+Dataset:       single_bee3+4+5+6_SAM3_varroa_split (train/normal: 102k healthy bees;
+               val: 322 with varroa + 1251 healthy, for the best checkpoint and the F1 thresholds;
+               test_heldout: 957 with varroa + 5000 healthy, evaluated once;
+               see make_val_split.py).
+               Re-optimised on this dataset (sweep_rd4ad.py, runs sam3_*,
+               sweep metrics: pixel AP at 128 px). The merged-dataset recipe
+               (724 steps, layers 1+2, sigma 4) stops at img AUROC 0.914 /
+               pixel AP 0.27 (peak at 273 steps, then ~0.88):
+                 - 400 steps with cosine, evaluation every 40: the peak is between 160 and
+                   400 steps but fluctuates by ±0.02 between neighbouring evaluations;
+                 - map from layer 2 only with sigma 8 px (= 4 at 256): ~0.94-0.95 /
+                   0.33-0.37 (layers 1+2: ~0.94 / 0.35-0.38; layers 0+1+2: 0.86);
+                   sigma 12, 16 or 24 px and top-k score do not exceed ~0.945;
+                 - lr 0.001: early peak (0.943 at 160 steps) and then a drop to 0.92.
+               With this script (official metrics at 512): step 400 img_roc_auc
+               0.953 / pxl_avg_prec 0.362, AU-PRO 0.989 (0.93-0.95 from 160 steps).
+               Below, the history of the sweep on the merged dataset (23k bees).
+Training:      normal images of single bees (VarroaDataset, TRAIN split),
+               with geometric augmentation (flip) because bees can have
+               any orientation.
+Optimisation (sweep: experiments/single_bee/sweep_rd4ad.py):
+  - native resolution 512 (varroa mites are small): img AUROC ~0.90 at 256,
+    ~0.96 at 384, ~0.978 at 512;
+  - map from layers 1 and 2 only (layer 0 is noisy: img AP 0.85 vs ~0.75);
+  - short training: with 23k images RD4AD over-generalises already after ~1 epoch
+    (the decoder learns to reconstruct the anomalies too and the metrics drop),
+    hence few epochs with cosine LR and frequent evaluation;
+  - weight EMA (EMA_DECAY) available but disabled: it stabilises long
+    runs, but lags behind at the early peak (384: img AUROC 0.954 vs 0.962);
+  - training in bf16 (autocast), evaluation in fp32.
+Best:          every EVAL_INTERVAL steps (and at the end) metrics on the validation set;
+               the best configuration (img_roc_auc, ties broken by pxl_avg_prec)
+               is saved in checkpoints/single_bee/rd4ad/ (best.pth +
                config.json).
-Heatmap e metriche finali (AUROC, AvgPrec, F1, AUPRO) dalla best:
+Final heatmaps and metrics (AUROC, AvgPrec, F1, AUPRO) from the best checkpoint:
     python experiments/plot_heatmaps.py single_bee rd4ad
 """
 
@@ -66,41 +66,41 @@ import ablation
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Configurazione
+# Configuration
 # ──────────────────────────────────────────────────────────────────────
 MODEL_NAME    = "rd4ad"
 REPO_ROOT     = Path(__file__).resolve().parents[2]
 DATASET_DIR   = DATA_ROOT + "/processed/single_bee3+4+5+6_SAM3_varroa_split"
 TRAIN_DIR     = f"{DATASET_DIR}/train/normal"
-VAL_DIR       = f"{DATASET_DIR}/val"           # selezione della best e soglie F1
-TEST_DIR      = f"{DATASET_DIR}/test_heldout"  # valutato una sola volta sulla best
-# i crop delle api sono 512x512: maschere GT, metriche pixel e heatmap a questa
-# risoluzione per tutti i modelli (la mappa viene riportata a GT_SIZE)
+VAL_DIR       = f"{DATASET_DIR}/val"           # best-checkpoint selection and F1 thresholds
+TEST_DIR      = f"{DATASET_DIR}/test_heldout"  # evaluated only once on the best checkpoint
+# bee crops are 512x512: GT masks, pixel metrics and heatmaps at this
+# resolution for all models (the map is resized back to GT_SIZE)
 GT_SIZE       = (512, 512)
 
 BACKBONE      = ablation.backbone("wide_resnet50_2")   # resnet18: ablation (ABL_BACKBONE)
-IMG_SIZE      = (512, 512)   # RD4AD richiede multipli di 32
-TRAIN_STEPS   = 400          # step totali: picco tra 160 e 400 step (merged: 724 = 1/2 epoca)
+IMG_SIZE      = (512, 512)   # RD4AD requires multiples of 32
+TRAIN_STEPS   = 400          # total steps: peak between 160 and 400 steps (merged: 724 = 1/2 epoch)
 BATCH_SIZE    = 16
 LR            = 0.005        # paper: Adam lr 0.005, betas (0.5, 0.999)
 BETAS         = (0.5, 0.999)
-WARMUP_FRAC   = 0.02         # warmup lineare, poi decadimento coseno fino a 0
-EMA_DECAY     = 0.0          # EMA dei pesi di bn + decoder (0 = off: al picco precoce l'EMA è in ritardo)
+WARMUP_FRAC   = 0.02         # linear warmup, then cosine decay to 0
+EMA_DECAY     = 0.0          # EMA of the bn + decoder weights (0 = off: at the early peak the EMA lags behind)
 AMP           = True         # bf16 autocast in training
-EVAL_INTERVAL = 40           # valuta ogni N step e sempre alla fine
-BLUR_SIGMA    = 8.0          # sigma del blur sulla mappa a IMG_SIZE (= 4 a 256; merged: 4)
-LAYERS        = (2,)         # layer sommati nella mappa (None = tutti e 3; merged: (1, 2))
+EVAL_INTERVAL = 40           # evaluate every N steps and always at the end
+BLUR_SIGMA    = 8.0          # blur sigma on the map at IMG_SIZE (= 4 at 256; merged: 4)
+LAYERS        = (2,)         # layers summed in the map (None = all 3; merged: (1, 2))
 NUM_WORKERS   = 8
 SEED          = 1
 
-NUM_HEATMAPS  = 20           # metà sane, metà con varroa
+NUM_HEATMAPS  = 20           # half healthy, half with varroa
 OUTPUT_DIR    = REPO_ROOT / "heatmaps" / "single_bee_val" / MODEL_NAME
 CHECKPOINT_DIR = REPO_ROOT / "checkpoints" / "single_bee_val" / MODEL_NAME
 CHECKPOINT_DIR, OUTPUT_DIR = ablation.dirs(REPO_ROOT, MODEL_NAME, CHECKPOINT_DIR, OUTPUT_DIR)
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Utilità
+# Utilities
 # ──────────────────────────────────────────────────────────────────────
 def set_seed(seed: int):
     torch.manual_seed(seed)
@@ -112,7 +112,7 @@ def set_seed(seed: int):
 
 
 class AugmentedTrainDataset(Dataset):
-    """Applica flip casuali alle immagini (già normalizzate) del dataset di training."""
+    """Applies random flips to the (already normalised) images of the training dataset."""
 
     def __init__(self, base_dataset):
         self.base = base_dataset
@@ -129,7 +129,7 @@ class AugmentedTrainDataset(Dataset):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Modello e dati (usati anche da experiments/plot_heatmaps.py)
+# Model and data (also used by experiments/plot_heatmaps.py)
 # ──────────────────────────────────────────────────────────────────────
 def dataset_args(test_dir=TEST_DIR):
     return DatasetArguments(
@@ -148,14 +148,14 @@ def dataset_args(test_dir=TEST_DIR):
 def build_model(device):
     model = RD4AD(backbone_name=BACKBONE, input_size=IMG_SIZE,
                   blur_sigma=BLUR_SIGMA, layers=LAYERS).to(device)
-    # l'encoder (teacher) è congelato: l'optimizer aggiorna solo bottleneck e decoder
+    # the encoder (teacher) is frozen: the optimizer updates only bottleneck and decoder
     for p in model.encoder.parameters():
         p.requires_grad_(False)
     return model
 
 
 def model_state(model):
-    # l'encoder è il wide_resnet50_2 ImageNet congelato: bastano bottleneck e decoder
+    # the encoder is the frozen ImageNet wide_resnet50_2: bottleneck and decoder are enough
     return {"bn": clean_state_dict(model.bn.state_dict()),
             "decoder": clean_state_dict(model.decoder.state_dict())}
 
@@ -170,7 +170,7 @@ def load_model_state(model, state):
 # ──────────────────────────────────────────────────────────────────────
 @torch.no_grad()
 def update_ema(ema_model, model, step):
-    # decay ridotto nei primi step (come timm ModelEmaV2 con warmup)
+    # reduced decay in the first steps (like timm ModelEmaV2 with warmup)
     decay = min(EMA_DECAY, (1 + step) / (10 + step))
     for ema_mod, mod in ((ema_model.bn, model.bn), (ema_model.decoder, model.decoder)):
         for e, m in zip(ema_mod.state_dict().values(), mod.state_dict().values()):
@@ -193,7 +193,7 @@ def train_rd4ad_single_bee():
 
     model = build_model(device)
     ema_model = copy.deepcopy(model) if EMA_DECAY > 0 else model
-    ema_model.encoder = model.encoder  # encoder congelato condiviso
+    ema_model.encoder = model.encoder  # shared frozen encoder
 
     train_dataset = AugmentedTrainDataset(ablation.subset_train(VarroaDataset(dataset_args(), "varroa", Split.TRAIN)))
     val_dataset = VarroaDataset(dataset_args(VAL_DIR), "varroa", Split.TEST)
@@ -207,7 +207,7 @@ def train_rd4ad_single_bee():
         num_workers=NUM_WORKERS, pin_memory=True,
     )
 
-    # l'encoder (teacher) è congelato: l'optimizer aggiorna solo bottleneck e decoder
+    # the encoder (teacher) is frozen: the optimizer updates only bottleneck and decoder
     optimizer = torch.optim.Adam(list(model.decoder.parameters()) + list(model.bn.parameters()),
                                  lr=LR, betas=BETAS)
     total_steps = TRAIN_STEPS
@@ -218,8 +218,8 @@ def train_rd4ad_single_bee():
     tracker = BestTracker(CHECKPOINT_DIR, script_config(globals()), selection_data="validation set")
 
     print(f"\n{'='*60}")
-    print(f"Training RD4AD single-bee | {total_steps} step = {total_steps / len(train_loader):.2f} epoche "
-          f"| {len(train_loader)} batch/epoca | valutazione ogni {EVAL_INTERVAL} step")
+    print(f"Training RD4AD single-bee | {total_steps} step = {total_steps / len(train_loader):.2f} epochs "
+          f"| {len(train_loader)} batches/epoch | evaluation every {EVAL_INTERVAL} steps")
     print(f"{'='*60}\n")
 
     step, running_loss, n = 0, 0.0, 0
@@ -241,7 +241,7 @@ def train_rd4ad_single_bee():
             running_loss += loss.item(); n += 1
 
             if step % EVAL_INTERVAL == 0 or step == total_steps:
-                print(f"Step {step}/{total_steps} (epoca {step / len(train_loader):.2f}) — "
+                print(f"Step {step}/{total_steps} (epoch {step / len(train_loader):.2f}) — "
                       f"loss: {running_loss / n:.6f}, lr: {scheduler.get_last_lr()[0]:.2e}")
                 running_loss, n = 0.0, 0
                 maps, scores, labels, masks = run_inference(ema_model, val_loader, device)
@@ -252,8 +252,8 @@ def train_rd4ad_single_bee():
             if step >= total_steps:
                 break
 
-    print(f"\nBest RD4AD (\"epoca\" = step di training) — {tracker.summary()}")
-    print(f"Heatmap e metriche finali: python experiments/plot_heatmaps.py single_bee {MODEL_NAME}")
+    print(f"\nBest RD4AD (\"epoch\" = training step) — {tracker.summary()}")
+    print(f"Final heatmaps and metrics: python experiments/plot_heatmaps.py single_bee {MODEL_NAME}")
 
 
 if __name__ == "__main__":

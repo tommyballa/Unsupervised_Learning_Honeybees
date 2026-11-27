@@ -1,15 +1,15 @@
 """
-Tabella e figure dell'ablation single-bee (numero di api di train, backbone).
+Table and figures of the single-bee ablation (number of training bees, backbone).
 
-Raccoglie i results.json dei run ufficiali (heatmaps/single_bee_val/<modello>,
-= tutte le 102k api e backbone del recipe; patchcore_<backbone> per i backbone
-PatchCore) e dell'ablation (heatmaps/ablation/<modello>/<tag>), più le misure
-di measure_efficiency.py (logs/ablation/efficiency/), e scrive in
+Collects the results.json of the official runs (heatmaps/single_bee_val/<model>,
+= all 102k bees and the recipe backbone; patchcore_<backbone> for the PatchCore
+backbones) and of the ablation (heatmaps/ablation/<model>/<tag>), plus the
+measurements of measure_efficiency.py (logs/ablation/efficiency/), and writes to
 logs/ablation/summary/:
 
-    ablation.csv       una riga per run
-    train_size.pdf     AUROC immagine e AP pixel al variare di N (scala log)
-    efficiency.pdf     AUROC immagine e AP pixel contro GFLOP per immagine, un punto per backbone
+    ablation.csv       one row per run
+    train_size.pdf     image AUROC and pixel AP as N varies (log scale)
+    efficiency.pdf     image AUROC and pixel AP vs GFLOP per image, one point per backbone
 
     python experiments/single_bee/summarize_ablation.py
 """
@@ -31,7 +31,7 @@ FULL_N = 102_303
 MODELS = ["patchcore", "cfa", "dinomaly", "padim", "stfpm", "fastflow", "paste", "rd4ad"]
 LABELS = {"patchcore": "PatchCore", "cfa": "CFA", "dinomaly": "Dinomaly", "padim": "PaDiM",
           "stfpm": "STFPM", "fastflow": "FastFlow", "paste": "PaSTe", "rd4ad": "RD4AD"}
-# palette categoriale in ordine fisso (un colore per modello, mai per rango)
+# categorical palette in fixed order (one colour per model, never by rank)
 COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
 MARKERS = ["o", "s", "D", "^", "v", "P", "X", "*"]
 SHORT_BB = {"wide_resnet50_2": "WRN50", "resnet18": "R18", "mobilenet_v2": "MNv2",
@@ -49,7 +49,7 @@ def backbone_of(ckpt_dir):
 
 
 def runs():
-    """(modello, tag, backbone, N, dir heatmap, dir checkpoint) di tutti i run disponibili."""
+    """(model, tag, backbone, N, heatmap dir, checkpoint dir) of all available runs."""
     for model in MODELS:
         official = [(model, "default")] + ([("patchcore_" + b, b) for b in ("resnet18", "mobilenet_v2")]
                                            if model == "patchcore" else [])
@@ -119,12 +119,12 @@ def plot_train_size(rows, default_bb):
 
 
 def plot_efficiency(rows):
-    # GFLOP e non latenza: le GPU erano condivise con altri job, i tempi sono solo indicativi
+    # GFLOP rather than latency: the GPUs were shared with other jobs, timings are only indicative
     full = [r for r in rows if r["train_n"] == FULL_N and r.get("gflops")]
     if not full:
         return
-    # colore = modello, marker = taglia del backbone (niente etichette di testo, che si sovrappongono);
-    # sull'AUROC l'asse parte da EFF_AUROC_MIN e i punti sotto sono disegnati sul bordo con il valore
+    # colour = model, marker = backbone size (no text labels, they overlap);
+    # on AUROC the axis starts at EFF_AUROC_MIN and points below are drawn on the edge with their value
     fig, axes = plt.subplots(1, 2, figsize=(14, 5.2))
     for ax, metric, title, ylo in zip(axes, ["img_roc_auc", "pxl_avg_prec"], ["Image AUROC", "Pixel AP"],
                                       [EFF_AUROC_MIN, None]):

@@ -3,7 +3,7 @@
 # Uscite in checkpoints/single_bee_val, heatmaps/single_bee_val, logs/val.
 # Uso: GPU=<idx> bash logs/val/queue.sh job1 job2 ...
 #   job = <modello> (training + plot) | eval:<modello>[:<backbone patchcore>] (solo plot)
-cd /home/tommaso_ballarin/moviad_acquario/tesi_v2
+cd "$(dirname "$0")/../.."   # anomaly_detection/
 PY=.venv/bin/python
 for job in "$@"; do
   IFS=: read -r kind model backbone <<< "$job"

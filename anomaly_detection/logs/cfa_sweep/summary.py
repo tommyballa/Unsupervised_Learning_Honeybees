@@ -1,4 +1,4 @@
-"""Riassunto degli sweep CFA: python logs/cfa_sweep/summary.py [tag ...]"""
+"""Summary of the CFA sweeps: python logs/cfa_sweep/summary.py [tag ...]"""
 import json, sys
 from pathlib import Path
 
@@ -7,7 +7,7 @@ tags = sys.argv[1:] or sorted(p.stem for p in d.glob("*.json"))
 for tag in tags:
     f = d / f"{tag}.json"
     if not f.exists():
-        print(f"== {tag}: nessuna valutazione"); continue
+        print(f"== {tag}: no evaluation"); continue
     h = json.load(open(f))
     c = h["config"]
     print(f"== {tag}: " + " ".join(f"{k}={v}" for k, v in c.items() if k not in ("tag", "seed", "eval_zero", "eval_every")))

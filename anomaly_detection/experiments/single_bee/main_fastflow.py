@@ -1,35 +1,35 @@
 """
-FastFlow - Anomaly detection su singole api (single bee crops).
+FastFlow - Anomaly detection on single bees (single bee crops).
 
-Addestramento: feature wide_resnet50_2 ImageNet congelate (layer1-3) sui crop
-               a risoluzione nativa 512x512, LayerNorm addestrabili per scala e un
-               normalizing flow 2D per scala, massimizzando la likelihood delle api
-               sane (VarroaDataset, TRAIN). Adam lr 3e-4, wd 1e-5, one-cycle cosine.
-               Differenze rispetto al FastFlow standard (vedi sweep_fastflow.py):
-               - i crop hanno sfondo nero: la loss è la NLL per pixel mediata solo
-                 sui pixel dell'ape (altrimenti lo sfondo quasi costante domina la
-                 loss e la mappa si accende su sfondo e bordi);
-               - pochi step (STEPS): il flow raggiunge il picco dopo 50-150 step e poi
-                 peggiora (impara anche la varroa come "probabile");
-               - mappa = media sulle scale di mean(z^2), limitata all'ape erosa di
-                 FG_ERODE px, smussata (sigma BLUR_SIGMA); score immagine = massimo
-                 della mappa.
-Ottimizzazione (sweep_fastflow.py, logs/fastflow_sweep/):
-               - dataset merged (23k api, varroa ~25 px): 512 px e loss mascherata
-                 i guadagni maggiori; mappa NLL layer2+3, sigma 8, erosione 8
+Training:      frozen ImageNet wide_resnet50_2 features (layer1-3) on the crops
+               at native 512x512 resolution, trainable LayerNorms per scale and a
+               2D normalizing flow per scale, maximising the likelihood of healthy
+               bees (VarroaDataset, TRAIN). Adam lr 3e-4, wd 1e-5, one-cycle cosine.
+               Differences from standard FastFlow (see sweep_fastflow.py):
+               - the crops have a black background: the loss is the per-pixel NLL
+                 averaged only over bee pixels (otherwise the almost constant
+                 background dominates the loss and the map lights up on background and edges);
+               - few steps (STEPS): the flow peaks after 50-150 steps and then
+                 gets worse (it also learns the varroa as "likely");
+               - map = mean over scales of mean(z^2), restricted to the bee eroded by
+                 FG_ERODE px, smoothed (sigma BLUR_SIGMA); image score = maximum
+                 of the map.
+Optimisation (sweep_fastflow.py, logs/fastflow_sweep/):
+               - merged dataset (23k bees, varroa ~25 px): 512 px and masked loss
+                 gave the largest gains; NLL map layer2+3, sigma 8, erosion 8
                  -> img AUROC 0.962.
-               - dataset finale SAM3 (run f1-f4): con la mappa del merged 0.913.
-                 Le varroe sono più grandi (~43 px) e i bordi delle sagome SAM3 più
-                 rumorosi: z^2 su tutte le scale, sigma 16, erosione 24 px -> 0.983
-                 (erosione 24 px lascia dentro l'ape il 98% dei pixel di varroa).
-                 lr 1e-4 (0.981), loss su ape dilatata 16 px (0.979) e flow ridotto
-                 4 step / hidden 0.5 (0.971) non migliorano.
-Best:          ogni EVAL_INTERVAL step (e all'ultimo) metriche sul validation set;
-               la configurazione migliore (img_roc_auc, a parità pxl_avg_prec)
-               viene salvata in checkpoints/single_bee/fastflow/ (best.pth +
-               config.json). best.pth è lo state dict completo del modello, lo
-               stesso formato letto da diagnose_fastflow_varroa.py.
-Heatmap e metriche finali (AUROC, AvgPrec, F1, AUPRO) dalla best:
+               - final SAM3 dataset (runs f1-f4): 0.913 with the merged-dataset map.
+                 The varroa are larger (~43 px) and the edges of the SAM3 silhouettes
+                 noisier: z^2 on all scales, sigma 16, erosion 24 px -> 0.983
+                 (a 24 px erosion keeps 98% of the varroa pixels inside the bee).
+                 lr 1e-4 (0.981), loss on the bee dilated by 16 px (0.979) and a reduced flow
+                 4 steps / hidden 0.5 (0.971) do not improve.
+Best:          every EVAL_INTERVAL steps (and at the last one) metrics on the validation set;
+               the best configuration (img_roc_auc, ties broken by pxl_avg_prec)
+               is saved in checkpoints/single_bee/fastflow/ (best.pth +
+               config.json). best.pth is the full state dict of the model, the
+               same format read by diagnose_fastflow_varroa.py.
+Final heatmaps and metrics (AUROC, AvgPrec, F1, AUPRO) from the best checkpoint:
     python experiments/plot_heatmaps.py single_bee fastflow
 """
 
@@ -56,42 +56,42 @@ import ablation
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Configurazione
+# Configuration
 # ──────────────────────────────────────────────────────────────────────
 MODEL_NAME    = "fastflow"
 REPO_ROOT     = Path(__file__).resolve().parents[2]
 DATASET_DIR   = DATA_ROOT + "/processed/single_bee3+4+5+6_SAM3_varroa_split"
 TRAIN_DIR     = f"{DATASET_DIR}/train/normal"
-VAL_DIR       = f"{DATASET_DIR}/val"           # selezione della best e soglie F1
-TEST_DIR      = f"{DATASET_DIR}/test_heldout"  # valutato una sola volta sulla best
-# False = sottoinsieme di 5.000 sane + tutte le 1.279 con varroa (come gli altri
-# modelli); True = tutto il test set (24.297 sane): AP e F1 dipendono dalla quota di anomale
+VAL_DIR       = f"{DATASET_DIR}/val"           # best-checkpoint selection and F1 thresholds
+TEST_DIR      = f"{DATASET_DIR}/test_heldout"  # evaluated only once on the best checkpoint
+# False = subset of 5,000 healthy + all 1,279 with varroa (like the other
+# models); True = the whole test set (24,297 healthy): AP and F1 depend on the anomaly share
 FULL_TEST     = False
-# i crop delle api sono 512x512: maschere GT, metriche pixel e heatmap a questa
-# risoluzione per tutti i modelli (la mappa viene riportata a GT_SIZE)
+# bee crops are 512x512: GT masks, pixel metrics and heatmaps at this
+# resolution for all models (the map is resized back to GT_SIZE)
 GT_SIZE       = (512, 512)
 
 # cait_m48_448, deit_base_distilled_patch16_384, resnet18, wide_resnet50_2
 BACKBONE      = ablation.backbone("wide_resnet50_2")   # resnet18: ablation (ABL_BACKBONE)
-IMG_SIZE      = (512, 512)   # risoluzione nativa: a 256 la varroa copre ~14x14 px
-STEPS         = 200          # step di training (1 epoca = ~12800 step)
+IMG_SIZE      = (512, 512)   # native resolution: at 256 the varroa covers ~14x14 px
+STEPS         = 200          # training steps (1 epoch = ~12800 steps)
 BATCH_SIZE    = 8
 LR            = 3e-4
 WEIGHT_DECAY  = 1e-5
-EVAL_INTERVAL = 25           # valuta ogni N step (e sempre all'ultimo)
+EVAL_INTERVAL = 25           # evaluate every N steps (and always at the last one)
 NUM_WORKERS   = 8
 
-# foreground: crop delle api su sfondo nero
-FG_THRESHOLD  = 0.1          # intensità RGB massima (0-1) sopra cui un pixel è ape
-MASKED_LOSS_DILATE = 4       # loss sui pixel dell'ape dilatati di N px
-FG_ERODE      = 24           # mappa limitata all'ape erosa di N px (bordo della sagoma instabile)
-# mappa di anomalia
-MAP_TYPE      = "z2"         # "z2" (FastFlow originale) | "nll" (0.5 z^2 - log-det per pixel)
-MAP_SCALES    = None         # None = tutte (layer1-3)
+# foreground: bee crops on a black background
+FG_THRESHOLD  = 0.1          # max RGB intensity (0-1) above which a pixel is bee
+MASKED_LOSS_DILATE = 4       # loss on the bee pixels dilated by N px
+FG_ERODE      = 24           # map restricted to the bee eroded by N px (unstable silhouette edge)
+# anomaly map
+MAP_TYPE      = "z2"         # "z2" (original FastFlow) | "nll" (0.5 z^2 - log-det per pixel)
+MAP_SCALES    = None         # None = all (layer1-3)
 BLUR_SIGMA    = 16.0
 SEED          = 1
 
-NUM_HEATMAPS  = 20           # metà sane, metà con varroa
+NUM_HEATMAPS  = 20           # half healthy, half with varroa
 OUTPUT_DIR    = REPO_ROOT / "heatmaps" / "single_bee_val" / MODEL_NAME
 CHECKPOINT_DIR = REPO_ROOT / "checkpoints" / "single_bee_val" / MODEL_NAME
 CHECKPOINT_DIR, OUTPUT_DIR = ablation.dirs(REPO_ROOT, MODEL_NAME, CHECKPOINT_DIR, OUTPUT_DIR)
@@ -100,7 +100,7 @@ CHECKPOINT_DIR, OUTPUT_DIR = ablation.dirs(REPO_ROOT, MODEL_NAME, CHECKPOINT_DIR
 def set_seed(seed: int):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    # benchmark=True è sicuro con input size fisso e velocizza le convoluzioni
+    # benchmark=True is safe with a fixed input size and speeds up convolutions
     torch.backends.cudnn.deterministic = False
     torch.backends.cudnn.benchmark = True
     random.seed(seed)
@@ -108,7 +108,7 @@ def set_seed(seed: int):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Modello e dati (usati anche da experiments/plot_heatmaps.py)
+# Model and data (also used by experiments/plot_heatmaps.py)
 # ──────────────────────────────────────────────────────────────────────
 def dataset_args(test_dir=TEST_DIR):
     return DatasetArguments(
@@ -126,7 +126,7 @@ def dataset_args(test_dir=TEST_DIR):
 
 
 def build_model(device):
-    # LayerNorm per scala + normalizing flow, come nel paper
+    # LayerNorm per scale + normalizing flow, as in the paper
     return create_fastflow(
         img_shape=IMG_SIZE, backbone_name=BACKBONE, device=device, normalize=True,
         blur_sigma=BLUR_SIGMA, map_type=MAP_TYPE, map_scales=MAP_SCALES,
@@ -172,7 +172,7 @@ def train_fastflow_single_bee():
         num_workers=NUM_WORKERS, pin_memory=True,
     )
 
-    # --- Optimizer (flow + LayerNorm), scheduler per step e loss ---
+    # --- Optimizer (flow + LayerNorm), per-step scheduler and loss ---
     optimizer = torch.optim.Adam(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
         optimizer, max_lr=LR, total_steps=STEPS, pct_start=0.05,
@@ -180,11 +180,11 @@ def train_fastflow_single_bee():
     training_args = FastFlowTrainArgs(epochs=1, batch_size=BATCH_SIZE,
                                       optimizer=optimizer, scheduler=scheduler)
     training_args.init_train(model)
-    # la best è indicizzata per step (config.json: "best_epoch" = step)
+    # the best checkpoint is indexed by step (config.json: "best_epoch" = step)
     tracker = BestTracker(CHECKPOINT_DIR, script_config(globals()), selection_data="validation set")
 
     print(f"\n{'='*60}")
-    print(f"Training FastFlow single-bee | {STEPS} step | {len(train_loader)} batch/epoca")
+    print(f"Training FastFlow single-bee | {STEPS} steps | {len(train_loader)} batches/epoch")
     print(f"{'='*60}\n")
 
     def batches():
@@ -211,7 +211,7 @@ def train_fastflow_single_bee():
             break
 
     print(f"\nBest FastFlow — {tracker.summary()}")
-    print(f"Heatmap e metriche finali: python experiments/plot_heatmaps.py single_bee {MODEL_NAME}")
+    print(f"Final heatmaps and metrics: python experiments/plot_heatmaps.py single_bee {MODEL_NAME}")
 
 
 if __name__ == "__main__":

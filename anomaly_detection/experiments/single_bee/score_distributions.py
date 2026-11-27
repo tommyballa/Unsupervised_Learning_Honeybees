@@ -1,12 +1,12 @@
 """
-Distribuzione degli score immagine sul test held-out, un pannello per modello.
+Distribution of image scores on the held-out test, one panel per model.
 
-Ricarica la best ufficiale di ogni modello (checkpoints/single_bee_val/,
-stesso percorso di plot_heatmaps.py), calcola gli score immagine sul test
-held-out e li salva in logs/score_dist/<modello>.npz (riusati se esistono:
---recompute per rifarli). La soglia F1 disegnata è quella scelta sul
-validation set (image_threshold in heatmaps/single_bee_val/<modello>/results.json).
-Figure: logs/score_dist/score_distributions.{pdf,png} (griglia) e\nscore_distribution_<modello>.{pdf,png} (una per modello).
+Reloads the official best checkpoint of each model (checkpoints/single_bee_val/,
+same path as plot_heatmaps.py), computes the image scores on the held-out
+test and saves them in logs/score_dist/<model>.npz (reused if they exist:
+--recompute to redo them). The F1 threshold drawn is the one chosen on the
+validation set (image_threshold in heatmaps/single_bee_val/<model>/results.json).
+Figures: logs/score_dist/score_distributions.{pdf,png} (grid) and\nscore_distribution_<model>.{pdf,png} (one per model).
 
     CUDA_VISIBLE_DEVICES=1 python experiments/single_bee/score_distributions.py
 """
@@ -97,7 +97,7 @@ def plot(data):
     fig.savefig(OUT_DIR / "score_distributions.png", dpi=150)
     plt.close(fig)
 
-    # una figura per modello (per inserirle separatamente)
+    # one figure per model (to include them separately)
     for name in data:
         fig, ax = plt.subplots(figsize=(5, 3.4))
         draw_panel(ax, name, *data[name])

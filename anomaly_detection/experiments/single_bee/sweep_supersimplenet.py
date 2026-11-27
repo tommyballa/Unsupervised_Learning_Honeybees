@@ -1,15 +1,15 @@
 """
-Sweep di iperparametri per SuperSimpleNet single-bee (basato su main_supersimplenet.py).
+Hyperparameter sweep for single-bee SuperSimpleNet (based on main_supersimplenet.py).
 
-Ogni run addestra adaptor + segdec e ogni --eval-every step calcola sul test set
-la mappa (logit, alla risoluzione delle feature) e lo score della testa di
-classificazione. Sulle stesse mappe vengono poi valutate varianti di
-post-processing senza riaddestrare:
-    sigma    blur gaussiano (in pixel a 128x128)
-    score    cls (testa di classificazione) | max | topk<N> (media degli N
-             pixel più alti della mappa, a 128x128)
-Le metriche sono img AUROC / img AP e pixel AP a 128x128 (calcolata su GPU su
-tutti i pixel del test set).
+Each run trains adaptor + segdec and every --eval-every steps computes on the test set
+the map (logits, at feature resolution) and the classification head
+score. Post-processing variants are then evaluated on the same maps
+without retraining:
+    sigma    Gaussian blur (in pixels at 128x128)
+    score    cls (classification head) | max | topk<N> (mean of the N
+             highest pixels of the map, at 128x128)
+The metrics are img AUROC / img AP and pixel AP at 128x128 (computed on GPU over
+all test-set pixels).
 
     CUDA_VISIBLE_DEVICES=0 python experiments/single_bee/sweep_supersimplenet.py --tag base
 """
@@ -43,12 +43,12 @@ def parse_args():
     p.add_argument("--tag", required=True)
     p.add_argument("--backbone", default="wide_resnet50_2")
     p.add_argument("--img-size", type=int, default=256)
-    p.add_argument("--layers", default="2,3", help="layer del backbone (layer<N>)")
-    p.add_argument("--upscale", type=float, default=2, help="feature a upscale x la risoluzione del primo layer")
-    p.add_argument("--pool", type=int, default=3, help="lato dell'average pooling sulle feature (1 = nessuno)")
+    p.add_argument("--layers", default="2,3", help="backbone layers (layer<N>)")
+    p.add_argument("--upscale", type=float, default=2, help="features at upscale x the resolution of the first layer")
+    p.add_argument("--pool", type=int, default=3, help="side of the average pooling on the features (1 = none)")
     p.add_argument("--feat-norm", type=int, default=0,
-                   help="standardizza le feature per canale (media/std stimate su N batch di train; 0 = no)")
-    p.add_argument("--cls", type=int, default=1, help="0 = solo testa di segmentazione (niente testa cls)")
+                   help="standardise the features per channel (mean/std estimated on N training batches; 0 = no)")
+    p.add_argument("--cls", type=int, default=1, help="0 = segmentation head only (no cls head)")
     p.add_argument("--steps", type=int, default=4000)
     p.add_argument("--eval-every", type=int, default=1000)
     p.add_argument("--bs", type=int, default=32)
@@ -61,16 +61,16 @@ def parse_args():
     p.add_argument("--perlin-thr", type=float, default=0.2)
     p.add_argument("--stop-grad", type=int, default=1)
     p.add_argument("--aug", default="flip", help="'' | flip | rot (flip + rot90)")
-    p.add_argument("--amp", type=int, default=1, help="fp16 su backbone e segdec")
+    p.add_argument("--amp", type=int, default=1, help="fp16 on backbone and segdec")
     p.add_argument("--seed", type=int, default=1)
     return p.parse_args()
 
 
-FEAT_NORM = None  # (media, std) per canale delle feature, con --feat-norm
+FEAT_NORM = None  # per-channel (mean, std) of the features, with --feat-norm
 
 
 def extract(model, x, upscale, amp):
-    """Come UpscalingFeatureExtractor, con fattore di upscale configurabile (backbone congelato)."""
+    """Like UpscalingFeatureExtractor, with a configurable upscale factor (frozen backbone)."""
     with torch.no_grad(), torch.autocast("cuda", dtype=torch.float16, enabled=bool(amp)):
         feats = model.feature_extractor.feature_extractor(x)
         size = (int(feats[0].shape[-2] * upscale), int(feats[0].shape[-1] * upscale))
@@ -83,7 +83,7 @@ def extract(model, x, upscale, amp):
 
 @torch.no_grad()
 def feature_stats(model, loader, device, args):
-    """Media e std per canale delle feature sulle prime --feat-norm batch di train."""
+    """Per-channel mean and std of the features over the first --feat-norm training batches."""
     tot, tot2, n = 0.0, 0.0, 0
     for i, x in enumerate(loader):
         if i >= args.feat_norm:
@@ -97,7 +97,7 @@ def feature_stats(model, loader, device, args):
 
 
 def heads(model, feats, args):
-    """Mappa e score; con --cls 0 solo la testa di segmentazione (score = None)."""
+    """Map and score; with --cls 0 only the segmentation head (score = None)."""
     with torch.autocast("cuda", dtype=torch.float16, enabled=bool(args.amp)):
         if args.cls:
             return model.segdec(feats)
@@ -108,7 +108,7 @@ def heads(model, feats, args):
 def infer(model, loader, device, args):
     model.eval()
     maps, cls, labels, masks = [], [], [], []
-    for images, batch_labels, batch_masks, _ in tqdm(loader, desc="Inferenza", leave=False):
+    for images, batch_labels, batch_masks, _ in tqdm(loader, desc="Inference", leave=False):
         x = images.to(device, non_blocking=True).contiguous(memory_format=torch.channels_last)
         adapted = model.adaptor(extract(model, x, args.upscale, args.amp))
         amap, score = heads(model, adapted, args)
@@ -189,7 +189,7 @@ def main():
 
     config = vars(args)
     history = []
-    print(f"[{args.tag}] {config}\n{len(train_loader)} step/epoca, {args.steps} step totali", flush=True)
+    print(f"[{args.tag}] {config}\n{len(train_loader)} steps/epoch, {args.steps} total steps", flush=True)
 
     step, t0, tot, n = 0, time.time(), 0.0, 0
     while step < args.steps:
@@ -197,7 +197,7 @@ def main():
             model.train()
             x = augment(x.to(device, non_blocking=True), args.aug).contiguous(memory_format=torch.channels_last)
             b = x.shape[0]
-            # adaptor e generazione delle anomalie in fp32 (il rumore è piccolo rispetto alle feature)
+            # adaptor and anomaly generation in fp32 (the noise is small compared to the features)
             adapted = model.adaptor(extract(model, x, args.upscale, args.amp))
             feats, masks, labels = model.anomaly_generator(
                 adapted, torch.zeros(b, 1, *adapted.shape[-2:], device=device), torch.zeros(b, device=device))
@@ -228,12 +228,12 @@ def main():
                 torch.save(state, ckpt_dir / f"step{step}.pth")
                 for key in ("img_auc", "pxl_ap"):
                     rows.sort(key=lambda r: -r[key])
-                    print(f"  top varianti ({key}):")
+                    print(f"  top variants ({key}):")
                     for r in rows[:4]:
                         print(f"    sigma={r['sigma']} score={r['score']}: "
                               f"auc={r['img_auc']:.4f} ap={r['img_ap']:.4f} pxl_ap={r['pxl_ap']:.4f}")
                 ref = next(r for r in rows if r["score"] == "cls")
-                print(f"  cls sigma=0 (come main): auc={ref['img_auc']:.4f} ap={ref['img_ap']:.4f} "
+                print(f"  cls sigma=0 (as in main): auc={ref['img_auc']:.4f} ap={ref['img_ap']:.4f} "
                       f"pxl_ap={ref['pxl_ap']:.4f}")
                 print(f"  eval {time.time() - t0:.0f}s", flush=True)
                 history.append({"step": step, "loss": mean_loss, "variants": rows})

@@ -1,18 +1,18 @@
 """
-Sweep di iperparametri per STFPM single-bee (basato su main_stfpm.py).
+Hyperparameter sweep for single-bee STFPM (based on main_stfpm.py).
 
-Ogni run addestra lo student e ogni --eval-every step calcola sul test set le
-mappe teacher/student PER LAYER (alla loro risoluzione nativa). Sulle stesse
-mappe vengono poi valutate varianti di post-processing senza riaddestrare
-(stesse di sweep_paste.py):
-    layer    sottoinsieme dei layer usato per la mappa
-    agg      sum | prod (STFPM originale) | nsum (somma di mappe normalizzate
-             con media/std globali per layer, stimate su immagini di TRAIN) |
-             psum (come nsum ma con media/std per posizione)
-    sigma    blur gaussiano (in pixel a 128x128)
-    score    max | topk<N> (media degli N pixel più alti, a 128x128)
-Le metriche sono img AUROC / img AP e pixel AP a 128x128 (calcolata su GPU su
-tutti i pixel del test set).
+Each run trains the student and every --eval-every steps computes on the test set the
+teacher/student maps PER LAYER (at their native resolution). Post-processing
+variants are then evaluated on the same maps without retraining
+(the same as sweep_paste.py):
+    layer    subset of the layers used for the map
+    agg      sum | prod (original STFPM) | nsum (sum of maps normalised
+             with global per-layer mean/std, estimated on TRAIN images) |
+             psum (like nsum but with per-position mean/std)
+    sigma    Gaussian blur (in pixels at 128x128)
+    score    max | topk<N> (mean of the N highest pixels, at 128x128)
+The metrics are img AUROC / img AP and pixel AP at 128x128 (computed on GPU over
+all test-set pixels).
 
     CUDA_VISIBLE_DEVICES=0 python experiments/single_bee/sweep_stfpm.py --tag r18_512 --img-size 512
 """
@@ -44,24 +44,24 @@ def parse_args():
     p.add_argument("--tag", required=True)
     p.add_argument("--backbone", default="resnet18")
     p.add_argument("--img-size", type=int, default=512)
-    p.add_argument("--layers", default="1,2,3", help="layer del backbone (layer<N>) su cui si addestra lo student")
+    p.add_argument("--layers", default="1,2,3", help="backbone layers (layer<N>) the student is trained on")
     p.add_argument("--epochs", type=float, default=4)
-    p.add_argument("--steps", type=int, default=0, help="step totali (0 = --epochs epoche)")
-    p.add_argument("--eval-every", type=int, default=0, help="step tra le valutazioni (0 = ogni epoca)")
+    p.add_argument("--steps", type=int, default=0, help="total steps (0 = --epochs epochs)")
+    p.add_argument("--eval-every", type=int, default=0, help="steps between evaluations (0 = every epoch)")
     p.add_argument("--bs", type=int, default=32)
     p.add_argument("--lr", type=float, default=0.4)
     p.add_argument("--wd", type=float, default=1e-4)
     p.add_argument("--sched", default="cos", help="cos | const")
     p.add_argument("--aug", default="", help="flip | rot (flip + rot90)")
     p.add_argument("--amp", type=int, default=1)
-    p.add_argument("--n-stats", type=int, default=1024, help="immagini di train per le statistiche nsum/psum")
+    p.add_argument("--n-stats", type=int, default=1024, help="training images for the nsum/psum statistics")
     p.add_argument("--seed", type=int, default=1)
     return p.parse_args()
 
 
 @torch.no_grad()
 def layer_maps(model, x, amp):
-    """Mappe (B,1,h,w) di ||t/|t| - s/|s|||^2 per ogni layer."""
+    """Maps (B,1,h,w) of ||t/|t| - s/|s|||^2 for each layer."""
     with torch.autocast("cuda", dtype=torch.bfloat16, enabled=bool(amp)):
         t_feat = model.teacher(x)
         s_feat = model.student(x)
@@ -77,7 +77,7 @@ def layer_maps(model, x, amp):
 def infer(model, loader, device, amp, with_labels=True):
     model.eval()
     per_layer, labels, masks = None, [], []
-    for batch in tqdm(loader, desc="Inferenza", leave=False):
+    for batch in tqdm(loader, desc="Inference", leave=False):
         images = batch[0] if isinstance(batch, (list, tuple)) else batch
         images = images.to(device, non_blocking=True).contiguous(memory_format=torch.channels_last)
         maps = [m.half().cpu() for m in layer_maps(model, images, amp)]
@@ -127,8 +127,8 @@ def main():
 
     config = vars(args)
     history = []
-    print(f"[{args.tag}] {config}\n{len(train_loader)} step/epoca, {total} step totali, "
-          f"eval ogni {eval_every}", flush=True)
+    print(f"[{args.tag}] {config}\n{len(train_loader)} steps/epoch, {total} total steps, "
+          f"eval every {eval_every}", flush=True)
 
     step, t0, tot, n = 0, time.time(), 0.0, 0
     while step < total:
@@ -162,7 +162,7 @@ def main():
                 del per_layer
                 for key in ("img_auc", "pxl_ap"):
                     rows.sort(key=lambda r: -r[key])
-                    print(f"  top varianti ({key}):")
+                    print(f"  top variants ({key}):")
                     for r in rows[:5]:
                         print(f"    layers={r['layers']} agg={r['agg']} sigma={r['sigma']} score={r['score']}: "
                               f"auc={r['img_auc']:.4f} ap={r['img_ap']:.4f} pxl_ap={r['pxl_ap']:.4f}")

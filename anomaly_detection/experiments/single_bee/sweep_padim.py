@@ -1,19 +1,19 @@
 """
-Sweep di iperparametri per PaDiM single-bee (basato su main_padim.py).
+Hyperparameter sweep for single-bee PaDiM (based on main_padim.py).
 
-Ogni run stima le gaussiane con la configurazione data (backbone, layer,
-risoluzione, canali, gaussiana per posizione o condivisa) e le salva in
-checkpoints/single_bee/padim_sweep/<tag>/ (riusate se esistono già), poi
-calcola una sola volta sul test set le distanze di Mahalanobis sulla griglia
-delle feature (una volta per ogni --eps, la regolarizzazione della
-covarianza: non serve rifare il fitting) e da quelle confronta, senza rifare l'inferenza, il sigma del
-blur della mappa, lo score immagine (max / media top-k pixel) e la maschera
-dell'ape (mappa azzerata fuori dall'ape).
-Le metriche sono quelle veloci (image-level + pixel AUROC/AP a 128x128).
+Each run estimates the Gaussians with the given configuration (backbone, layers,
+resolution, channels, per-position or shared Gaussian) and saves them in
+checkpoints/single_bee/padim_sweep/<tag>/ (reused if they already exist), then
+computes once on the test set the Mahalanobis distances on the feature
+grid (once for each --eps, the covariance
+regularisation: no need to redo the fitting) and from those compares, without redoing inference, the
+map blur sigma, the image score (max / top-k pixel mean) and the
+bee mask (map zeroed outside the bee).
+The metrics are the fast ones (image-level + pixel AUROC/AP at 128x128).
 
     CUDA_VISIBLE_DEVICES=1 python experiments/single_bee/sweep_padim.py --tag wrn_l123_256
 
-Log e risultati: logs/padim_sweep/<tag>.{log,json}
+Logs and results: logs/padim_sweep/<tag>.{log,json}
 """
 
 import argparse
@@ -38,9 +38,9 @@ from moviad.utilities.configurations import Split
 from moviad.utilities.evaluation.checkpoints import load_checkpoint, save_checkpoint
 
 
-SIGMAS = (0.0, 4.0, 8.0, 16.0)       # px a 512
+SIGMAS = (0.0, 4.0, 8.0, 16.0)       # px at 512
 SCORES = ("max", "topk1000")
-EVAL_SIZE = (512, 512)      # le mappe si valutano alla risoluzione dei crop
+EVAL_SIZE = (512, 512)      # maps are evaluated at the crop resolution
 
 
 def parse_args():
@@ -49,12 +49,12 @@ def parse_args():
     p.add_argument("--img-size", type=int, default=256)
     p.add_argument("--backbone", default=mp.BACKBONE)
     p.add_argument("--layers", default="1,2,3",
-                   help="layer del backbone: 1,2,3 (layerN dei resnet) oppure i nomi, es. features.4,features.7")
-    p.add_argument("--proj-dim", type=int, default=mp.PROJ_DIM, help="canali della random projection (0 = tutti)")
+                   help="backbone layers: 1,2,3 (resnet layerN) or the names, e.g. features.4,features.7")
+    p.add_argument("--proj-dim", type=int, default=mp.PROJ_DIM, help="random projection channels (0 = all)")
     p.add_argument("--gaussian", choices=("position", "shared"), default=mp.GAUSSIAN)
-    p.add_argument("--pool", type=int, default=1, help="avg pool locale delle feature")
-    p.add_argument("--eps", default="0.01,0.001,0.0001,0.00001", help="regolarizzazioni della covarianza da valutare")
-    p.add_argument("--train-images", type=int, default=20000, help="0 = tutte")
+    p.add_argument("--pool", type=int, default=1, help="local avg pool of the features")
+    p.add_argument("--eps", default="0.01,0.001,0.0001,0.00001", help="covariance regularisations to evaluate")
+    p.add_argument("--train-images", type=int, default=20000, help="0 = all")
     p.add_argument("--bs", type=int, default=32)
     p.add_argument("--seed", type=int, default=1)
     return p.parse_args()
@@ -75,9 +75,9 @@ def image_score(m, mode):
 
 @torch.no_grad()
 def infer(model, loader):
-    """Distanze sulla griglia, maschere dell'ape a EVAL_SIZE, label e maschere GT a 128."""
+    """Grid distances, bee masks at EVAL_SIZE, labels and GT masks at 128."""
     grids, fgs, labels, masks = [], [], [], []
-    for images, y, m, _ in tqdm(loader, desc="Inferenza", leave=False):
+    for images, y, m, _ in tqdm(loader, desc="Inference", leave=False):
         images = images.to(model.device, non_blocking=True)
         grids.append(model.distances(model.embed(images)).half().cpu())
         fg = F.interpolate(images, size=EVAL_SIZE, mode="bilinear", align_corners=False)
@@ -127,12 +127,12 @@ def main():
     print(f"[{args.tag}] {config}", flush=True)
 
     model = mp.build_model(device)
-    print(f"[{args.tag}] griglia {model.grid}, {len(model.dims)} canali", flush=True)
+    print(f"[{args.tag}] grid {model.grid}, {len(model.dims)} channels", flush=True)
     t0 = time.time()
     try:
         state, _ = load_checkpoint(ckpt_dir)
         mp.load_model_state(model, state)
-        print(f"[{args.tag}] gaussiane riusate da {ckpt_dir}")
+        print(f"[{args.tag}] Gaussians reused from {ckpt_dir}")
     except FileNotFoundError:
         loader = DataLoader(mp.train_dataset(), batch_size=args.bs, shuffle=False, num_workers=12, pin_memory=True)
         model.fit(loader)
@@ -146,10 +146,10 @@ def main():
         model.set_precision(eps)
         t0 = time.time()
         grid, fg, labels, masks128 = infer(model, test_loader)
-        print(f"\n[{args.tag}] eps {eps}: inferenza {time.time() - t0:.0f}s", flush=True)
+        print(f"\n[{args.tag}] eps {eps}: inference {time.time() - t0:.0f}s", flush=True)
         step = max(1, masks128.size // 4_000_000)
         gt = masks128.ravel()[::step]
-        for use_fg in (True,):            # senza maschera dell'ape: sempre peggio o uguale
+        for use_fg in (True,):            # without the bee mask: always worse or equal
             for sigma in SIGMAS:
                 maps, scores = evaluate(grid, fg, sigma, use_fg, device)
                 pr = maps.ravel()[::step]

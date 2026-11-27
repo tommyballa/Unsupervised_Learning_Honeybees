@@ -1,18 +1,18 @@
 """
-Heatmap dei casi difficili del test held-out: le immagini che la maggior parte
-degli 8 modelli classifica male alla soglia immagine scelta sul validation set.
+Heatmaps of the hard cases of the held-out test: the images that most of the
+8 models misclassify at the image threshold chosen on the validation set.
 
-Gli score immagine vengono da logs/score_dist/<modello>.npz (score_distributions.py),
-le soglie e la normalizzazione delle heatmap da heatmaps/single_bee_val/<modello>/results.json.
-Per ogni classe si prendono le --per-class immagini sbagliate dal maggior numero
-di modelli (a parità, quelle con il percentile medio dello score più "dalla parte
-sbagliata"); poi ogni modello rifà l'inferenza solo su quelle immagini.
+Image scores come from logs/score_dist/<model>.npz (score_distributions.py),
+thresholds and heatmap normalisation from heatmaps/single_bee_val/<model>/results.json.
+For each class, the --per-class images misclassified by the largest number
+of models are taken (ties broken by the mean score percentile furthest "on the
+wrong side"); then each model reruns inference only on those images.
 
 Output in heatmaps/hard_cases/:
-    hard_cases.csv                     indice, classe, path, modelli che sbagliano, score
-    grid_varroa.png / grid_healthy.png righe = immagini, colonne = originale, GT,
-                                       overlay di ogni modello (✗ = sbagliato)
-    <modello>/...png                   figura completa a 5 pannelli (come plot_heatmaps.py)
+    hard_cases.csv                     index, class, path, models that get it wrong, scores
+    grid_varroa.png / grid_healthy.png rows = images, columns = original, GT,
+                                       overlay of each model (✗ = wrong)
+    <model>/...png                   full 5-panel figure (as in plot_heatmaps.py)
 
     CUDA_VISIBLE_DEVICES=2 python experiments/single_bee/hard_cases.py
 """
@@ -51,7 +51,7 @@ def load_scores():
         npz = np.load(SCORE_DIR / f"{name}.npz")
         results = json.loads((REPO_ROOT / "heatmaps" / "single_bee_val" / name / "results.json").read_text())
         if labels is not None and not np.array_equal(labels, npz["labels"]):
-            raise ValueError(f"{name}: ordine del test set diverso dagli altri modelli")
+            raise ValueError(f"{name}: test set order differs from the other models")
         labels = npz["labels"]
         scores[name] = npz["scores"]
         thresholds[name] = results["image_threshold"]
@@ -61,12 +61,12 @@ def load_scores():
 
 def select_hard(scores, thresholds, labels, per_class):
     wrong = np.stack([(scores[m] >= thresholds[m]) != (labels == 1) for m in MODELS])
-    # percentile dello score di ogni modello: alto = "sembra varroa"
+    # score percentile of each model: high = "looks like varroa"
     pct = np.stack([rankdata(scores[m]) / len(labels) for m in MODELS]).mean(0)
     selected = {}
     for label in (1, 0):
         idx = np.flatnonzero(labels == label)
-        # varroa: percentile basso = più difficile; sane: percentile alto
+        # varroa: low percentile = harder; healthy: high percentile
         wrong_side = pct[idx] if label == 1 else -pct[idx]
         order = np.lexsort((wrong_side, -wrong[:, idx].sum(0)))
         selected[label] = idx[order[:per_class]]
@@ -122,14 +122,14 @@ def main():
     from moviad.utilities.evaluation.report import load_rgb, save_heatmap_figure
 
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--per-class", type=int, default=10, help="casi difficili per classe")
+    parser.add_argument("--per-class", type=int, default=10, help="hard cases per class")
     args = parser.parse_args()
 
     scores, thresholds, norms, labels = load_scores()
     selected, wrong = select_hard(scores, thresholds, labels, args.per_class)
     indices = np.concatenate([selected[1], selected[0]])
-    for label, text in [(1, "Varroa (falsi negativi)"), (0, "Sane (falsi positivi)")]:
-        print(f"{text}: errori per immagine {wrong[:, selected[label]].sum(0).tolist()}")
+    for label, text in [(1, "Varroa (false negatives)"), (0, "Healthy (false positives)")]:
+        print(f"{text}: errors per image {wrong[:, selected[label]].sum(0).tolist()}")
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     device = torch.device("cuda:0")
@@ -141,9 +141,9 @@ def main():
         (OUT_DIR / name).mkdir(exist_ok=True)
         for k, i in enumerate(indices):
             i = int(i)
-            # controllo: lo score rifatto sul sottoinsieme deve coincidere con quello in cache
+            # check: the score recomputed on the subset must match the cached one
             if not np.isclose(batch_scores[k], scores[name][i], rtol=1e-3, atol=1e-5):
-                print(f"  ATTENZIONE {name} #{i}: score {batch_scores[k]:.5g} vs cache {scores[name][i]:.5g}")
+                print(f"  WARNING {name} #{i}: score {batch_scores[k]:.5g} vs cache {scores[name][i]:.5g}")
             entry = per_image[i]
             if "img" not in entry:
                 entry["img"] = load_rgb(image_paths[i], masks.shape[-2:])
@@ -172,7 +172,7 @@ def main():
                              int(wrong[:, i].sum()),
                              " ".join(m for k, m in enumerate(MODELS) if wrong[k, i])]
                             + [f"{scores[m][i]:.5g}" for m in MODELS])
-    print(f"Salvato in {OUT_DIR}")
+    print(f"Saved to {OUT_DIR}")
 
 
 if __name__ == "__main__":

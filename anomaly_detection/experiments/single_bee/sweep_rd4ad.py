@@ -1,12 +1,12 @@
 """
-Sweep di iperparametri per RD4AD single-bee (basato su main_rd4ad.py).
+Hyperparameter sweep for single-bee RD4AD (based on main_rd4ad.py).
 
-Ogni run addestra per poche epoche, valuta ogni --eval-every step e salva la
-best in checkpoints/single_bee/rd4ad_sweep/<tag>/. Oltre alla mappa "di
-default" della run, per ogni valutazione vengono stampate le metriche
-image-level (e pixel AP a 128) di varianti di post-processing calcolate sulle
-stesse mappe per layer (layer usati, sigma del blur, score = max / media
-top-k), per scegliere il post-processing senza riaddestrare.
+Each run trains for a few epochs, evaluates every --eval-every steps and saves the
+best checkpoint in checkpoints/single_bee/rd4ad_sweep/<tag>/. Besides the run's
+"default" map, each evaluation also prints the image-level metrics
+(and pixel AP at 128) of post-processing variants computed on the
+same per-layer maps (layers used, blur sigma, score = max / top-k
+mean), to choose the post-processing without retraining.
 
     CUDA_VISIBLE_DEVICES=2 python experiments/single_bee/sweep_rd4ad.py --tag base --epochs 5
 """
@@ -43,20 +43,20 @@ def parse_args():
     p.add_argument("--backbone", default="wide_resnet50_2")
     p.add_argument("--img-size", type=int, default=256)
     p.add_argument("--epochs", type=float, default=5)
-    p.add_argument("--steps", type=int, default=0, help="step totali (0 = --epochs epoche)")
+    p.add_argument("--steps", type=int, default=0, help="total steps (0 = --epochs epochs)")
     p.add_argument("--bs", type=int, default=16)
     p.add_argument("--lr", type=float, default=0.005)
     p.add_argument("--beta1", type=float, default=0.5)
     p.add_argument("--wd", type=float, default=0.0)
-    p.add_argument("--sched", default="const", help="const | cos (warmup 2%% + coseno)")
-    p.add_argument("--aug", default="flip", help="none | flip | flip_rot (flip + rotazioni di 90°)")
-    p.add_argument("--ema", type=float, default=0.0, help="decay EMA dei pesi di bn+decoder (0 = off)")
+    p.add_argument("--sched", default="const", help="const | cos (warmup 2%% + cosine)")
+    p.add_argument("--aug", default="flip", help="none | flip | flip_rot (flip + 90° rotations)")
+    p.add_argument("--ema", type=float, default=0.0, help="EMA decay of the bn+decoder weights (0 = off)")
     p.add_argument("--amp", action="store_true", help="bf16 autocast in training")
-    p.add_argument("--eval-every", type=int, default=0, help="step tra le valutazioni (0 = ogni epoca)")
-    # post-processing della mappa usata per la selezione della best
+    p.add_argument("--eval-every", type=int, default=0, help="steps between evaluations (0 = every epoch)")
+    # post-processing of the map used to select the best checkpoint
     p.add_argument("--layers", default="0,1,2")
     p.add_argument("--sigma", type=float, default=4.0)
-    p.add_argument("--score", default="max", help="max | topk<N> (media dei N pixel più alti)")
+    p.add_argument("--score", default="max", help="max | topk<N> (mean of the N highest pixels)")
     p.add_argument("--seed", type=int, default=1)
     return p.parse_args()
 
@@ -69,7 +69,7 @@ def blur(m, sigma):
 
 
 def build_map(layer_maps, layers, size, sigma):
-    """layer_maps: lista (B,1,h,w) di 1-cos per layer -> mappa (B,1,H,W) (somma, come RD4AD)."""
+    """layer_maps: list of (B,1,h,w) per-layer 1-cos maps -> map (B,1,H,W) (sum, as in RD4AD)."""
     ups = [F.interpolate(layer_maps[l], size=size, mode="bilinear", align_corners=True) for l in layers]
     return blur(torch.stack(ups, 0).sum(0), sigma)
 
@@ -84,10 +84,10 @@ def image_score(m, mode):
 
 @torch.no_grad()
 def infer(model, loader, device):
-    """Mappe 1-cos per layer (CPU, risoluzione nativa), label e maschere GT."""
+    """Per-layer 1-cos maps (CPU, native resolution), labels and GT masks."""
     model.eval()
     per_layer, labels, masks = None, [], []
-    for images, y, m, _ in tqdm(loader, desc="Inferenza", leave=False):
+    for images, y, m, _ in tqdm(loader, desc="Inference", leave=False):
         x = images.to(device, non_blocking=True)
         enc = model.encoder(x)
         dec = model.decoder(model.bn(enc))
@@ -99,7 +99,7 @@ def infer(model, loader, device):
 
 
 def fast_metrics(maps128, scores, labels, masks128):
-    """Metriche image-level + pixel AUROC/AP a 128x128 (sottocampionate a ~4M pixel)."""
+    """Image-level metrics + pixel AUROC/AP at 128x128 (subsampled to ~4M pixels)."""
     step = max(1, masks128.size // 4_000_000)
     gt, pr = masks128.ravel()[::step], maps128.ravel()[::step]
     prec, rec, _ = precision_recall_curve(labels, scores)
@@ -109,8 +109,8 @@ def fast_metrics(maps128, scores, labels, masks128):
 
 
 def evaluate(per_layer, layers, size, sigma, device, modes=("max",)):
-    """Mappe a 128x128 e score (per ogni modo) per una variante di post-processing."""
-    s = size[0] / 256  # sigma e top-k riferiti a una mappa 256x256
+    """Maps at 128x128 and scores (for each mode) for one post-processing variant."""
+    s = size[0] / 256  # sigma and top-k refer to a 256x256 map
     maps, scores = [], {m: [] for m in modes}
     for i in range(0, per_layer[0].shape[0], 256):
         mp = build_map([pl[i:i + 256].to(device) for pl in per_layer], layers, size, sigma * s)
@@ -122,9 +122,9 @@ def evaluate(per_layer, layers, size, sigma, device, modes=("max",)):
 
 
 def variant_table(per_layer, labels, masks128, size, device):
-    """AUROC / AP image e AP pixel (a 128) per diverse varianti di post-processing."""
+    """Image AUROC / AP and pixel AP (at 128) for several post-processing variants."""
     n = len(per_layer)
-    # sottoinsieme ridotto: il blur a risoluzione alta (σ grande) è molto costoso
+    # reduced subset: blurring at high resolution (large σ) is very expensive
     layer_sets = [tuple(range(n)), tuple(range(1, n)), (n - 1,)]
     step = max(1, masks128.size // 2_000_000)
     gt = masks128.ravel()[::step]
@@ -189,7 +189,7 @@ def main():
     eval_every = args.eval_every or len(train_loader)
     ema = None
     if args.ema > 0:
-        # copia EMA di bn+decoder, usata per valutazione e checkpoint
+        # EMA copy of bn+decoder, used for evaluation and checkpoints
         ema = RD4AD(backbone_name=args.backbone, input_size=size).to(device)
         ema.encoder = model.encoder
         ema.bn.load_state_dict(model.bn.state_dict())
@@ -200,7 +200,7 @@ def main():
     config = {**vars(args), "img_size": list(size)}
     tracker = BestTracker(ckpt_dir, config)
     history = []
-    print(f"[{args.tag}] {config}\n{len(train_loader)} step/epoca, {total} step totali, eval ogni {eval_every}")
+    print(f"[{args.tag}] {config}\n{len(train_loader)} steps/epoch, {total} total steps, eval every {eval_every}")
 
     step, t0, tot, n = 0, time.time(), 0.0, 0
     done = False
@@ -244,7 +244,7 @@ def main():
                 print_metrics(results)
                 rows = variant_table(per_layer, labels, masks128, size, device)
                 rows.sort(key=lambda r: -r["img_auc"])
-                print("  top varianti (img_auc):")
+                print("  top variants (img_auc):")
                 for r in rows[:6]:
                     print(f"    layers={r['layers']} sigma={r['sigma']} score={r['score']}: "
                           f"auc={r['img_auc']:.4f} ap={r['img_ap']:.4f} pxl_ap128={r['pxl_ap128']:.4f}")

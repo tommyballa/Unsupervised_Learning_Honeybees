@@ -1,4 +1,4 @@
-"""Riassunto dei run in logs/supersimplenet_sweep: per ogni valutazione la testa cls e le migliori varianti."""
+"""Summary of the runs in logs/supersimplenet_sweep: for each evaluation, the cls head and the best variants."""
 import glob, json, os
 here = os.path.dirname(os.path.abspath(__file__))
 for path in sorted(glob.glob(os.path.join(here, "*.json"))):

@@ -1,6 +1,6 @@
 #!/bin/bash
 # uso: queue.sh <file con una run per riga: tag args...>
-cd /home/tommaso_ballarin/moviad_acquario/tesi_v2
+cd "$(dirname "$0")/../.."   # anomaly_detection/
 while read -r tag args; do
   [ -z "$tag" ] && continue
   [ -f logs/fastflow_sweep/$tag.done ] && continue

@@ -1,36 +1,36 @@
 """
-PatchCore — Anomaly detection su singole api (dataset Ceschi).
+PatchCore — Anomaly detection on single bees (Ceschi dataset).
 
-Dataset:       single_bee3+4+5+6_SAM3_varroa_split (train/normal: 102k api sane;
-               val: 322 con varroa + 1251 sane, per la best e le soglie F1;
-               test_heldout: 957 con varroa + 5000 sane, valutato una volta;
-               vedi make_val_split.py).
-Addestramento: feature wide_resnet50_2 ImageNet congelate (layer2-3) delle api
-               sane (VarroaDataset, TRAIN), MAX_TRAIN_PATCHES patch casuali in totale
-               (stesso numero per immagine, prese sull'ape e non sullo sfondo
-               nero), memory bank ridotta a MEMORY_BANK_SIZE patch con coreset
-               greedy. Nessuna
-               epoca da scegliere: la memory bank viene salvata in
+Dataset:       single_bee3+4+5+6_SAM3_varroa_split (train/normal: 102k healthy bees;
+               val: 322 with varroa + 1251 healthy, for the best checkpoint and the F1 thresholds;
+               test_heldout: 957 with varroa + 5000 healthy, evaluated once;
+               see make_val_split.py).
+Training:      frozen ImageNet wide_resnet50_2 features (layer2-3) of healthy
+               bees (VarroaDataset, TRAIN), MAX_TRAIN_PATCHES random patches in total
+               (same number per image, taken on the bee and not on the black
+               background), memory bank reduced to MEMORY_BANK_SIZE patches with a greedy
+               coreset. No
+               epoch to choose: the memory bank is saved in
                checkpoints/single_bee/patchcore/ (best.pth + config.json).
-Valutazione:   mappa = distanza dal vicino più prossimo nella memory bank
-               (blur gaussiano MAP_SIGMA px), azzerata fuori dall'ape; score
-               immagine = massimo della mappa.
-Ottimizzazione (sweep: experiments/single_bee/sweep_patchcore.py, dataset
-batch3+4, AUROC immagine a 512 px, bank 30k, 4M patch candidate):
-  - configurazione precedente (layer1-3, blur sigma 2, score = media ripesata
-    delle 5 patch peggiori): 0.928 (0.932 con 10M patch candidate);
-  - blur della mappa più largo e score = massimo della mappa: sigma 8 -> 0.949,
-    oltre sigma 12 peggiora (a 16-24 cala anche l'AP pixel): la varroa è una
-    macchia di ~25 px, i falsi positivi picchi isolati di poche patch;
-  - layer2-3 al posto di layer1-3: 0.956, inferenza in meno della metà del tempo;
-  - memory bank 60k: +0.001, non vale il costo;
-  - mobilenet_v2 (features.6 + features.13, 20k immagini di training): 0.963
-    a livello immagine ma AP pixel più bassa (0.60 contro 0.66 a 128 px).
-Heatmap e metriche finali (AUROC, AvgPrec, F1, AUPRO), con la stessa
-normalizzazione globale degli altri modelli:
+Evaluation:    map = distance from the nearest neighbour in the memory bank
+               (Gaussian blur MAP_SIGMA px), zeroed outside the bee; image
+               score = maximum of the map.
+Optimisation (sweep: experiments/single_bee/sweep_patchcore.py, batch3+4
+dataset, image AUROC at 512 px, bank 30k, 4M candidate patches):
+  - previous configuration (layer1-3, blur sigma 2, score = reweighted mean
+    of the 5 worst patches): 0.928 (0.932 with 10M candidate patches);
+  - wider map blur and score = maximum of the map: sigma 8 -> 0.949,
+    beyond sigma 12 it gets worse (at 16-24 pixel AP drops too): the varroa is a
+    blob of ~25 px, false positives are isolated peaks of a few patches;
+  - layer2-3 instead of layer1-3: 0.956, inference in less than half the time;
+  - memory bank 60k: +0.001, not worth the cost;
+  - mobilenet_v2 (features.6 + features.13, 20k training images): 0.963
+    at image level but lower pixel AP (0.60 vs 0.66 at 128 px).
+Final heatmaps and metrics (AUROC, AvgPrec, F1, AUPRO), with the same
+global normalisation as the other models:
     python experiments/plot_heatmaps.py single_bee patchcore
 
-Il training usa PatchCoreCL (un solo task) come nella versione originale.
+Training uses PatchCoreCL (a single task) as in the original version.
 """
 
 from moviad.datasets.varroa.paths import DATA_ROOT
@@ -58,24 +58,24 @@ import ablation
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Configurazione
+# Configuration
 # ──────────────────────────────────────────────────────────────────────
 MODEL_NAME   = "patchcore"
 REPO_ROOT    = Path(__file__).resolve().parents[2]
 DATASET_DIR  = DATA_ROOT + "/processed/single_bee3+4+5+6_SAM3_varroa_split"
 TRAIN_DIR    = f"{DATASET_DIR}/train/normal"
-VAL_DIR      = f"{DATASET_DIR}/val"           # selezione della best e soglie F1
-TEST_DIR     = f"{DATASET_DIR}/test_heldout"  # valutato una sola volta sulla best
-# i crop delle api sono 512x512: maschere GT, metriche pixel e heatmap a questa
-# risoluzione per tutti i modelli (la mappa viene riportata a GT_SIZE)
+VAL_DIR      = f"{DATASET_DIR}/val"           # best-checkpoint selection and F1 thresholds
+TEST_DIR     = f"{DATASET_DIR}/test_heldout"  # evaluated only once on the best checkpoint
+# bee crops are 512x512: GT masks, pixel metrics and heatmaps at this
+# resolution for all models (the map is resized back to GT_SIZE)
 GT_SIZE      = (512, 512)
 
-# backbone ImageNet congelato e layer delle feature (stride 8 e 16). Il default
-# è wide_resnet50_2; per confrontare i backbone:
+# frozen ImageNet backbone and feature layers (stride 8 and 16). The default
+# is wide_resnet50_2; to compare backbones:
 #     PATCHCORE_BACKBONE=mobilenet_v2 python experiments/single_bee/main_patchcore.py
 #     PATCHCORE_BACKBONE=mobilenet_v2 python experiments/plot_heatmaps.py single_bee patchcore
-# con un backbone diverso dal default checkpoint e heatmap vanno in
-# patchcore_<backbone>/, senza toccare quelli del default
+# with a non-default backbone, checkpoints and heatmaps go to
+# patchcore_<backbone>/, without touching the default ones
 BACKBONE_LAYERS = {
     "wide_resnet50_2": ["layer2", "layer3"],
     "resnet18":        ["layer2", "layer3"],
@@ -87,24 +87,24 @@ BACKBONE     = os.environ.get("PATCHCORE_BACKBONE") or ablation.backbone(DEFAULT
 LAYERS       = BACKBONE_LAYERS[BACKBONE]
 RUN_NAME     = MODEL_NAME if BACKBONE == DEFAULT_BACKBONE else f"{MODEL_NAME}_{BACKBONE}"
 MEMORY_BANK_SIZE = 30000
-# patch candidate al coreset in totale (fp16 su CPU, ~31GB): ~100 per immagine
+# total candidate patches for the coreset (fp16 on CPU, ~31GB): ~100 per image
 MAX_TRAIN_PATCHES = 10_000_000
-MAP_SIGMA    = 8            # px a IMG_SIZE, blur gaussiano della mappa
-# maschera dell'ape: pixel non neri (lo sfondo dei crop è nero, ~86% dell'immagine),
-# chiusura per riempire le zone scure del corpo, poi margine attorno all'ape
+MAP_SIGMA    = 8            # px at IMG_SIZE, Gaussian blur of the map
+# bee mask: non-black pixels (the crop background is black, ~86% of the image),
+# closing to fill the dark areas of the body, then a margin around the bee
 FG_THRESHOLD = 10 / 255
-FG_CLOSING   = 15           # px (lato del kernel)
-FG_DILATION  = 8            # px di margine
+FG_CLOSING   = 15           # px (kernel side)
+FG_DILATION  = 8            # px of margin
 IMG_SIZE     = (512, 512)
 BATCH_SIZE   = 32
 TEST_BATCH_SIZE = 16
 NUM_WORKERS  = 8
 SEED         = 1
 
-NUM_HEATMAPS = 20           # metà sane, metà con varroa
+NUM_HEATMAPS = 20           # half healthy, half with varroa
 OUTPUT_DIR   = REPO_ROOT / "heatmaps" / "single_bee_val" / RUN_NAME
 CHECKPOINT_DIR = REPO_ROOT / "checkpoints" / "single_bee_val" / RUN_NAME
-# ABL_TRAIN_N / ABL_BACKBONE: vedi ablation.py
+# ABL_TRAIN_N / ABL_BACKBONE: see ablation.py
 CHECKPOINT_DIR, OUTPUT_DIR = ablation.dirs(REPO_ROOT, MODEL_NAME, CHECKPOINT_DIR, OUTPUT_DIR)
 
 
@@ -119,7 +119,7 @@ def set_seed(seed: int = 1):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Modello e dati (usati anche da experiments/plot_heatmaps.py)
+# Model and data (also used by experiments/plot_heatmaps.py)
 # ──────────────────────────────────────────────────────────────────────
 def dataset_args(test_dir=TEST_DIR):
     return DatasetArguments(
@@ -141,17 +141,17 @@ def _dilate(mask, size):
 
 
 def bee_foreground(images):
-    """Maschera (B,1,H,W) dell'ape da immagini normalizzate ImageNet."""
+    """(B,1,H,W) bee mask from ImageNet-normalised images."""
     mean = torch.tensor(IMAGENET_MEAN, device=images.device).view(1, 3, 1, 1)
     std = torch.tensor(IMAGENET_STD, device=images.device).view(1, 3, 1, 1)
     rgb = images * std + mean
     mask = (rgb.amax(dim=1, keepdim=True) > FG_THRESHOLD).float()
-    mask = 1 - _dilate(1 - _dilate(mask, FG_CLOSING), FG_CLOSING)    # chiusura
+    mask = 1 - _dilate(1 - _dilate(mask, FG_CLOSING), FG_CLOSING)    # closing
     return _dilate(mask, 2 * FG_DILATION + 1)
 
 
 class PatchCoreSingleBee(PatchCoreCL):
-    """PatchCoreCL con score immagine = massimo della mappa (smussata e azzerata fuori dall'ape)."""
+    """PatchCoreCL with image score = maximum of the map (smoothed and zeroed outside the bee)."""
 
     def forward(self, batch):
         anomaly_maps, _ = super().forward(batch)
@@ -186,16 +186,16 @@ def train_patchcore_single_bee():
     patchcore = build_model(device)
     train_dataset = ablation.subset_train(VarroaDataset(dataset_args(), "varroa", Split.TRAIN))
 
-    # memory bank (un solo task)
+    # memory bank (a single task)
     training_args = TrainingArgs(batch_size=BATCH_SIZE, epochs=1)
     patchcore.train()
     patchcore.start_task(0, train_dataset, training_args)
     patchcore.train_task(0, train_dataset, None, metrics=[], device=device, train_args=training_args)
 
     save_checkpoint(CHECKPOINT_DIR, model_state(patchcore), script_config(globals()),
-                    best_epoch=None, note="memory bank costruita in un solo passaggio")
-    print(f"\nMemory bank PatchCore salvata in {CHECKPOINT_DIR}")
-    print(f"Heatmap e metriche finali: python experiments/plot_heatmaps.py single_bee {MODEL_NAME}")
+                    best_epoch=None, note="memory bank built in a single pass")
+    print(f"\nPatchCore memory bank saved to {CHECKPOINT_DIR}")
+    print(f"Final heatmaps and metrics: python experiments/plot_heatmaps.py single_bee {MODEL_NAME}")
 
 
 if __name__ == "__main__":

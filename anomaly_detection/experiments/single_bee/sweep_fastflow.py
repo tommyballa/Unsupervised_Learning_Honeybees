@@ -1,12 +1,12 @@
 """
-Sweep di iperparametri per FastFlow single-bee (basato su main_fastflow.py).
+Hyperparameter sweep for single-bee FastFlow (based on main_fastflow.py).
 
-Ogni run addestra per pochi step (1 epoca = ~1450 step con 23k immagini),
-valuta ai --eval-steps e salva la best in checkpoints/single_bee/fastflow_sweep/<tag>/.
-Oltre alla mappa "di default" della run, per ogni valutazione vengono
-stampate le metriche image-level (e pixel AP a 256) di varianti di
-post-processing calcolate sulle stesse z (scale usate, sigma del blur,
-score = max / media top-k), per scegliere il post-processing senza riaddestrare.
+Each run trains for a few steps (1 epoch = ~1450 steps with 23k images),
+evaluates at --eval-steps and saves the best checkpoint in checkpoints/single_bee/fastflow_sweep/<tag>/.
+Besides the run's "default" map, each evaluation also prints
+the image-level metrics (and pixel AP at 256) of post-processing
+variants computed on the same z (scales used, blur sigma,
+score = max / top-k mean), to choose the post-processing without retraining.
 
     CUDA_VISIBLE_DEVICES=0 python experiments/single_bee/sweep_fastflow.py --tag base --steps 1500 --masked-loss 4 --fg-dilate 0 --sigma 12
 """
@@ -40,9 +40,9 @@ def parse_args():
     p.add_argument("--tag", required=True)
     p.add_argument("--backbone", default="wide_resnet50_2")
     p.add_argument("--img-size", type=int, default=256)
-    p.add_argument("--steps", type=int, default=1500, help="step di training totali")
-    p.add_argument("--eval-steps", default="250,500,1000,1500", help="step a cui valutare")
-    p.add_argument("--full-variants", action="store_true", help="tabella completa di varianti (lenta)")
+    p.add_argument("--steps", type=int, default=1500, help="total training steps")
+    p.add_argument("--eval-steps", default="250,500,1000,1500", help="steps at which to evaluate")
+    p.add_argument("--full-variants", action="store_true", help="full variant table (slow)")
     p.add_argument("--bs", type=int, default=16)
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--wd", type=float, default=1e-5)
@@ -50,25 +50,25 @@ def parse_args():
     p.add_argument("--hidden-ratio", type=float, default=1.0)
     p.add_argument("--conv3x3-only", action="store_true")
     p.add_argument("--norm", default="affine",
-                   help="affine (paper) | plain (LayerNorm senza affine) | channel (LN sui soli canali) | none")
+                   help="affine (paper) | plain (LayerNorm without affine) | channel (LN over channels only) | none")
     p.add_argument("--clip-grad", type=float, default=0.0)
-    p.add_argument("--hflip", action="store_true", help="augment: flip orizzontale/verticale in training")
-    # post-processing della mappa usata per la selezione della best
-    p.add_argument("--scales", default="0,1,2", help="indici delle scale usate per la mappa")
+    p.add_argument("--hflip", action="store_true", help="augment: horizontal/vertical flip in training")
+    # post-processing of the map used to select the best checkpoint
+    p.add_argument("--scales", default="0,1,2", help="indices of the scales used for the map")
     p.add_argument("--sigma", type=float, default=4.0)
-    p.add_argument("--map", default="z2", help="z2 (FastFlow: mean z^2) | nll (0.5 z^2 - log-det, per canale)")
-    p.add_argument("--score", default="max", help="max | topk<N> (media dei N pixel più alti)")
+    p.add_argument("--map", default="z2", help="z2 (FastFlow: mean z^2) | nll (0.5 z^2 - log-det, per channel)")
+    p.add_argument("--score", default="max", help="max | topk<N> (mean of the N highest pixels)")
     p.add_argument("--fg-dilate", type=int, default=-99,
-                   help="mappa limitata all'ape (pixel non neri) dilatata di N px (negativo = erosione); -99 = nessuna maschera")
+                   help="map restricted to the bee (non-black pixels) dilated by N px (negative = erosion); -99 = no mask")
     p.add_argument("--masked-loss", type=int, default=-99,
-                   help="NLL per pixel mediata solo sui pixel dell'ape dilatati di N px (a 256); -99 = loss standard")
-    p.add_argument("--eval-ckpt", default="", help="solo valutazione di un best.pth (nessun training)")
+                   help="per-pixel NLL averaged only over the bee pixels dilated by N px (at 256); -99 = standard loss")
+    p.add_argument("--eval-ckpt", default="", help="only evaluate a best.pth (no training)")
     p.add_argument("--seed", type=int, default=1)
     return p.parse_args()
 
 
 class ChannelLayerNorm(torch.nn.Module):
-    """LayerNorm sui canali di ogni posizione (invariante alla posizione dell'ape)."""
+    """LayerNorm over the channels of each position (invariant to the bee's position)."""
 
     def __init__(self, channels):
         super().__init__()
@@ -107,7 +107,7 @@ def blur(m, sigma):
 
 
 def masked_fastflow_loss(model, z, fg, dilate):
-    """NLL media per pixel (per dimensione) sui soli pixel dell'ape."""
+    """Mean per-pixel NLL (per dimension) over the bee pixels only."""
     mask = fg.float()
     if dilate > 0:
         mask = F.max_pool2d(mask, 2 * dilate + 1, stride=1, padding=dilate)
@@ -119,19 +119,19 @@ def masked_fastflow_loss(model, z, fg, dilate):
     return loss
 
 
-FG_THR = 0.1  # intensità massima RGB (0-1) sopra cui un pixel è ape e non sfondo nero
+FG_THR = 0.1  # max RGB intensity (0-1) above which a pixel is bee and not black background
 
 
 def foreground(images):
-    """Maschera (B,1,H,W) dei pixel dell'ape: lo sfondo dei crop è nero."""
+    """(B,1,H,W) mask of the bee pixels: the crop background is black."""
     mean = torch.tensor(mf.IMAGENET_MEAN, device=images.device).view(1, 3, 1, 1)
     std = torch.tensor(mf.IMAGENET_STD, device=images.device).view(1, 3, 1, 1)
     return ((images * std + mean).amax(1, keepdim=True) > FG_THR).to(torch.uint8)
 
 
 def build_map(scale_maps, scales, size, sigma, fg=None, dilate=-1):
-    """scale_maps: lista (B,1,h,w) di mappe per scala -> mappa (B,1,H,W).
-    Con dilate > -99 la mappa viene limitata all'ape (dilatata/erosa) prima del blur."""
+    """scale_maps: list of (B,1,h,w) per-scale maps -> map (B,1,H,W).
+    With dilate > -99 the map is restricted to the bee (dilated/eroded) before the blur."""
     ups = [F.interpolate(scale_maps[s], size=size, mode="bilinear", align_corners=False) for s in scales]
     m = torch.stack(ups, 0).mean(0)
     if fg is not None and dilate > -99:
@@ -140,7 +140,7 @@ def build_map(scale_maps, scales, size, sigma, fg=None, dilate=-1):
             mask = F.max_pool2d(mask, 2 * dilate + 1, stride=1, padding=dilate)
         elif dilate < 0:
             mask = 1 - F.max_pool2d(1 - mask, -2 * dilate + 1, stride=1, padding=-dilate)
-        # fuori dall'ape la mappa vale il minimo sull'ape (la NLL può essere negativa)
+        # outside the bee the map takes the minimum over the bee (the NLL can be negative)
         low = m.masked_fill(mask == 0, float("inf")).amin(dim=(2, 3), keepdim=True)
         low = torch.where(torch.isinf(low), torch.zeros_like(low), low)
         m = torch.where(mask > 0, m, low)
@@ -157,10 +157,10 @@ def image_score(m, mode):
 
 @torch.no_grad()
 def infer(model, loader, device, args):
-    """Restituisce le mappe per scala (CPU, risoluzione nativa), label e maschere a 256."""
+    """Returns the per-scale maps (CPU, native resolution), labels and masks at 256."""
     model.eval()
     per_scale, labels, fgs, masks_full = None, [], [], []
-    for images, y, m, _ in tqdm(loader, desc="Inferenza", leave=False):
+    for images, y, m, _ in tqdm(loader, desc="Inference", leave=False):
         images = images.to(device, non_blocking=True)
         fgs.append(foreground(images).cpu())
         z, _ = model.fast_flow_module(features(model, images))
@@ -179,15 +179,15 @@ def infer(model, loader, device, args):
 
 
 def variant_table(per_scale, fg, labels, masks_full, size, device, full=False):
-    """AUROC / AP image e AP pixel (a 256) per diverse varianti di post-processing."""
+    """Image AUROC / AP and pixel AP (at 256) for several post-processing variants."""
     n_scales = len(per_scale["z2"])
     masks_small = F.interpolate(torch.from_numpy(masks_full).float(), size=size, mode="nearest").numpy() > 0.5
     if full:
         grid = itertools.product([tuple(range(n_scales))] + list(itertools.combinations(range(n_scales), 2)),
                                  (4.0, 8.0, 12.0), (-99, -4, 0, 4))
     else:
-        f = size[0] / 256  # sigma ed erosione in pixel del modello, scalati con la risoluzione
-        # attorno all'ottimo sul dataset finale SAM3 (z2, tutte le scale, sigma 16, erosione 24 a 512 px)
+        f = size[0] / 256  # sigma and erosion in model pixels, scaled with the resolution
+        # around the optimum on the final SAM3 dataset (z2, all scales, sigma 16, erosion 24 at 512 px)
         grid = itertools.product([tuple(range(n_scales))], (6.0 * f, 8.0 * f, 10.0 * f), (int(-8 * f), int(-12 * f)))
     rows = []
     kinds = ("z2", "nll") if full else ("z2",)
@@ -200,7 +200,7 @@ def variant_table(per_scale, fg, labels, masks_full, size, device, full=False):
                 for mode in scores:
                     scores[mode].append(image_score(mp, mode).cpu().numpy())
                 st = size[0] // 128
-                maps.append(mp.cpu().numpy()[:, :, ::st, ::st])  # AP pixel a 128 (sottocampionata)
+                maps.append(mp.cpu().numpy()[:, :, ::st, ::st])  # pixel AP at 128 (subsampled)
             maps = np.concatenate(maps)
             ms = masks_small[:, :, ::st, ::st]
             step = max(1, ms.size // 4_000_000)
@@ -216,7 +216,7 @@ def variant_table(per_scale, fg, labels, masks_full, size, device, full=False):
 def evaluate(model, test_loader, device, args, scales, size):
     t0 = time.time()
     per_scale, fg, labels, masks_full = infer(model, test_loader, device, args)
-    # mappa della run alla risoluzione GT (come run_inference) per le metriche ufficiali
+    # the run's map at GT resolution (as in run_inference) for the official metrics
     maps, scores = [], []
     for i in range(0, len(labels), 128):
         mp = build_map([ps[i:i + 128].to(device) for ps in per_scale[args.map]], scales, size, args.sigma,
@@ -234,10 +234,10 @@ def evaluate(model, test_loader, device, args, scales, size):
     def fmt(r):
         return (f"map={r['map']} scales={r['scales']} sigma={r['sigma']} fg={r['fg_dilate']} score={r['score']}: "
                 f"auc={r['img_auc']:.4f} ap={r['img_ap']:.4f} pxl_ap128={r['pxl_ap128']:.4f}")
-    print("  top varianti (img_auc):")
+    print("  top variants (img_auc):")
     for r in sorted(rows, key=lambda r: -r["img_auc"])[:6]:
         print("    " + fmt(r))
-    print("  top varianti (pxl_ap128):")
+    print("  top variants (pxl_ap128):")
     for r in sorted(rows, key=lambda r: -r["pxl_ap128"])[:3]:
         print("    " + fmt(r))
     print(f"  eval {time.time() - t0:.0f}s")
@@ -264,7 +264,7 @@ def main():
 
     model = build_model(args, device)
     if args.eval_ckpt:
-        if args.eval_ckpt != "init":  # "init" = flow non addestrato (riferimento)
+        if args.eval_ckpt != "init":  # "init" = untrained flow (reference)
             model.load_state_dict(torch.load(args.eval_ckpt, map_location=device))
         results, rows = evaluate(model, test_loader, device, args, scales, size)
         with open(log_dir / f"{args.tag}.json", "w") as f:
@@ -276,7 +276,7 @@ def main():
         optimizer, max_lr=args.lr, total_steps=args.steps, pct_start=0.05,
         anneal_strategy="cos", div_factor=10, final_div_factor=100)
     from moviad.models.fastflow.loss_functions import fastflow_loss
-    # verifica: la somma del log-det per pixel coincide con quello del flow
+    # check: the sum of the per-pixel log-det matches the flow's one
     with torch.no_grad():
         xb = next(iter(test_loader))[0][:2].to(device)
         z, jac = model.fast_flow_module(features(model, xb))
@@ -288,7 +288,7 @@ def main():
     tracker = BestTracker(ckpt_dir, config)
     history = []
     eval_steps = {int(v) for v in args.eval_steps.split(",")} | {args.steps}
-    print(f"[{args.tag}] {config}\n{len(train_loader)} step/epoca")
+    print(f"[{args.tag}] {config}\n{len(train_loader)} steps/epoch")
 
     def batches():
         while True:

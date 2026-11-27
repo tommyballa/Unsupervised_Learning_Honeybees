@@ -1,44 +1,44 @@
 """
-PaSTe (Partially Shared Teacher-student) - Anomaly detection su singole api
+PaSTe (Partially Shared Teacher-student) - Anomaly detection on single bees
 (single bee crops).
 
-Addestramento: teacher resnet18 ImageNet congelato; lo student (pesi casuali)
-               parte dall'output di conv1 del teacher (bootstrap layer 0) e
-               impara a riprodurre le feature di layer1-3 sulle api sane
+Training:      frozen ImageNet resnet18 teacher; the student (random weights)
+               starts from the output of the teacher's conv1 (bootstrap layer 0) and
+               learns to reproduce the layer1-3 features on healthy bees
                (VarroaDataset, TRAIN). SGD lr 0.4 (momentum 0.9, weight decay
-               1e-4) con cosine annealing per step su TRAIN_STEPS step, bf16
-               autocast; la loss usa MSE con reduction="sum". Input 512x512
-               (risoluzione nativa dei crop).
-Ottimizzazione (sweep: experiments/single_bee/sweep_paste.py, logs/paste_sweep/;
-dataset batch3+4: 68.5k api di train, test 5000 sane + 3119 con varroa;
-metriche dello sweep: img AUROC / pixel AP a 128 px, miglior variante di mappa):
-  - lo student generalizza presto anche sulla varroa: le metriche hanno il
-    picco dopo poche centinaia di step e poi scendono mentre la loss continua
-    a calare. Con resnet18 e lr 0.4 il picco è a ~250 step (0.944 / 0.43) e
-    dopo 2000 step si scende a 0.906 / 0.28; con 400 step e coseno si resta a
-    0.939-0.945 / 0.42-0.47 da 250 step in poi, quindi training di 400 step
-    con valutazione ogni 50;
-  - resnet18 al posto di wide_resnet50_2: la ricetta precedente (wide_resnet50_2,
-    lr 0.04, mappa dal solo layer3) si ferma a 0.89-0.90 / 0.21-0.26 in 3000
-    step, e 0.90-0.92 con lr 0.4;
-  - mappa = somma di layer2 e layer3 con blur gaussiano (MAP_SIGMA 16 px a
-    512): layer1 è rumoroso (0.92 con i 3 layer), senza blur o con blur 32 px
-    si perde (0.92). Il solo layer3 ha pixel AP un po' più alta (~0.45 contro
-    ~0.42) ma img AUROC appena più bassa; normalizzazione per layer, prodotto
-    e score top-k sono equivalenti;
-  - non aiutano: loss solo sulle celle dell'ape (0.92-0.93; azzerare la mappa
-    sullo sfondo nero non cambia nulla), lr 0.1 (0.934-0.940), bootstrap al
-    layer1 (0.90-0.92), input ingrandito a 768 (0.92) o 1024 (0.87). Senza
-    bootstrap (student dall'immagine, cioè STFPM) il risultato è lo stesso
-    (0.945-0.948): condividere conv1 non costa accuratezza. Sul dataset
-    precedente non aiutavano nemmeno EMA dei pesi e flip/rot90.
-Con questo script (metriche ufficiali a 512): step 400 img_roc_auc 0.932 /
-pxl_avg_prec 0.404, e 0.931-0.932 / 0.40-0.42 da 250 step in poi.
-Best:          ogni EVAL_INTERVAL epoche (e all'ultima) metriche sul validation set;
-               la configurazione migliore (img_roc_auc, a parità pxl_avg_prec)
-               viene salvata in checkpoints/single_bee/paste/ (best.pth +
+               1e-4) with per-step cosine annealing over TRAIN_STEPS steps, bf16
+               autocast; the loss uses MSE with reduction="sum". Input 512x512
+               (native crop resolution).
+Optimisation (sweep: experiments/single_bee/sweep_paste.py, logs/paste_sweep/;
+batch3+4 dataset: 68.5k training bees, test 5000 healthy + 3119 with varroa;
+sweep metrics: img AUROC / pixel AP at 128 px, best map variant):
+  - the student soon generalises to the varroa too: the metrics peak
+    after a few hundred steps and then drop while the loss keeps
+    decreasing. With resnet18 and lr 0.4 the peak is at ~250 steps (0.944 / 0.43) and
+    after 2000 steps it drops to 0.906 / 0.28; with 400 steps and cosine it stays at
+    0.939-0.945 / 0.42-0.47 from 250 steps on, hence 400-step training
+    with evaluation every 50;
+  - resnet18 instead of wide_resnet50_2: the previous recipe (wide_resnet50_2,
+    lr 0.04, map from layer3 only) stops at 0.89-0.90 / 0.21-0.26 in 3000
+    steps, and 0.90-0.92 with lr 0.4;
+  - map = sum of layer2 and layer3 with Gaussian blur (MAP_SIGMA 16 px at
+    512): layer1 is noisy (0.92 with all 3 layers), without blur or with a 32 px blur
+    it loses (0.92). layer3 alone has slightly higher pixel AP (~0.45 vs
+    ~0.42) but slightly lower img AUROC; per-layer normalisation, product
+    and top-k score are equivalent;
+  - these do not help: loss only on bee cells (0.92-0.93; zeroing the map
+    on the black background changes nothing), lr 0.1 (0.934-0.940), bootstrap at
+    layer1 (0.90-0.92), input upscaled to 768 (0.92) or 1024 (0.87). Without
+    bootstrap (student from the image, i.e. STFPM) the result is the same
+    (0.945-0.948): sharing conv1 costs no accuracy. On the previous
+    dataset weight EMA and flip/rot90 did not help either.
+With this script (official metrics at 512): step 400 img_roc_auc 0.932 /
+pxl_avg_prec 0.404, and 0.931-0.932 / 0.40-0.42 from 250 steps on.
+Best:          every EVAL_INTERVAL epochs (and at the last one) metrics on the validation set;
+               the best configuration (img_roc_auc, ties broken by pxl_avg_prec)
+               is saved in checkpoints/single_bee/paste/ (best.pth +
                config.json).
-Heatmap e metriche finali (AUROC, AvgPrec, F1, AUPRO) dalla best:
+Final heatmaps and metrics (AUROC, AvgPrec, F1, AUPRO) from the best checkpoint:
     python experiments/plot_heatmaps.py single_bee paste
 """
 
@@ -67,20 +67,20 @@ import ablation
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Configurazione
+# Configuration
 # ──────────────────────────────────────────────────────────────────────
 MODEL_NAME      = "paste"
 REPO_ROOT       = Path(__file__).resolve().parents[2]
 DATASET_DIR     = DATA_ROOT + "/processed/single_bee3+4+5+6_SAM3_varroa_split"
 TRAIN_DIR       = f"{DATASET_DIR}/train/normal"
-VAL_DIR         = f"{DATASET_DIR}/val"           # selezione della best e soglie F1
-TEST_DIR        = f"{DATASET_DIR}/test_heldout"  # valutato una sola volta sulla best
-# i crop delle api sono 512x512: maschere GT, metriche pixel e heatmap a questa
-# risoluzione per tutti i modelli (la mappa viene riportata a GT_SIZE)
+VAL_DIR         = f"{DATASET_DIR}/val"           # best-checkpoint selection and F1 thresholds
+TEST_DIR        = f"{DATASET_DIR}/test_heldout"  # evaluated only once on the best checkpoint
+# bee crops are 512x512: GT masks, pixel metrics and heatmaps at this
+# resolution for all models (the map is resized back to GT_SIZE)
 GT_SIZE         = (512, 512)
 
-# indici dei blocchi a stride 4, 8 e 16 (AD) e 8, 16 (mappa); backbone diversi
-# solo per l'ablation (ABL_BACKBONE, vedi ablation.py)
+# indices of the blocks at stride 4, 8 and 16 (AD) and 8, 16 (map); other backbones
+# only for the ablation (ABL_BACKBONE, see ablation.py)
 BACKBONE_LAYERS = {
     "resnet18":        ([1, 2, 3], [2, 3]),
     "wide_resnet50_2": ([1, 2, 3], [2, 3]),
@@ -90,18 +90,18 @@ BACKBONE        = ablation.backbone("resnet18")
 AD_LAYERS, MAP_LAYERS = BACKBONE_LAYERS[BACKBONE]
 BOOTSTRAP_LAYER = 0
 TEACHER_WEIGHTS = "IMAGENET1K_V1"
-IMG_SIZE        = (512, 512)    # risoluzione nativa dei crop
+IMG_SIZE        = (512, 512)    # native crop resolution
 MAP_AGGREGATION = "sum"
-MAP_SIGMA       = 16.0        # blur gaussiano della mappa (px a 512) prima dello score
-TRAIN_STEPS     = 400        # il picco è a ~250 step: training corto con coseno fino a 0
+MAP_SIGMA       = 16.0        # Gaussian blur of the map (px at 512) before the score
+TRAIN_STEPS     = 400        # the peak is at ~250 steps: short training with cosine down to 0
 BATCH_SIZE      = 32
 LR              = 0.4
 AMP             = True       # bf16 autocast in training
-EVAL_INTERVAL   = 50         # valuta ogni N step (e sempre alla fine)
+EVAL_INTERVAL   = 50         # evaluate every N steps (and always at the end)
 NUM_WORKERS     = 8
 SEED            = 1
 
-NUM_HEATMAPS    = 20         # metà sane, metà con varroa
+NUM_HEATMAPS    = 20         # half healthy, half with varroa
 OUTPUT_DIR      = REPO_ROOT / "heatmaps" / "single_bee_val" / MODEL_NAME
 CHECKPOINT_DIR  = REPO_ROOT / "checkpoints" / "single_bee_val" / MODEL_NAME
 CHECKPOINT_DIR, OUTPUT_DIR = ablation.dirs(REPO_ROOT, MODEL_NAME, CHECKPOINT_DIR, OUTPUT_DIR)
@@ -117,7 +117,7 @@ def set_seed(seed: int):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Modello e dati (usati anche da experiments/plot_heatmaps.py)
+# Model and data (also used by experiments/plot_heatmaps.py)
 # ──────────────────────────────────────────────────────────────────────
 def dataset_args(test_dir=TEST_DIR):
     return DatasetArguments(
@@ -148,7 +148,7 @@ def build_model(device):
 
 
 def model_state(model):
-    # il teacher è il backbone ImageNet: basta lo student
+    # the teacher is the ImageNet backbone: the student is enough
     return clean_state_dict(model.student.state_dict())
 
 
@@ -160,7 +160,7 @@ def load_model_state(model, state):
 # Training
 # ──────────────────────────────────────────────────────────────────────
 def train_step(model, images, optimizer, scheduler, device):
-    """Come PaSTe.train_step, ma con bf16 autocast e scheduler per step."""
+    """Like PaSTe.train_step, but with bf16 autocast and a per-step scheduler."""
     model.train()
     images = images.to(device, non_blocking=True)
     with torch.autocast("cuda", dtype=torch.bfloat16, enabled=AMP and device.type == "cuda"):
@@ -207,15 +207,15 @@ def train_paste_single_bee():
         num_workers=NUM_WORKERS, pin_memory=True,
     )
 
-    # SGD (momentum 0.9, weight decay 1e-4) sui soli parametri dello student
+    # SGD (momentum 0.9, weight decay 1e-4) on the student parameters only
     training_args = PasteTrainArgs(epochs=1, batch_size=BATCH_SIZE, lr=LR)
     training_args.init_train(model)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(training_args.optimizer, T_max=TRAIN_STEPS)
-    # "epoca" della best = step di training
+    # "epoch" of the best checkpoint = training step
     tracker = BestTracker(CHECKPOINT_DIR, script_config(globals()), selection_data="validation set")
 
     print(f"\n{'='*60}")
-    print(f"Training PaSTe single-bee | {TRAIN_STEPS} step | {len(train_loader)} batch/epoca")
+    print(f"Training PaSTe single-bee | {TRAIN_STEPS} steps | {len(train_loader)} batches/epoch")
     print(f"{'='*60}\n")
 
     batches = infinite(train_loader)
@@ -232,8 +232,8 @@ def train_paste_single_bee():
             print_metrics(results)
             tracker.update(step, results, lambda: model_state(model))
 
-    print(f"\nBest PaSTe (\"epoca\" = step di training) — {tracker.summary()}")
-    print(f"Heatmap e metriche finali: python experiments/plot_heatmaps.py single_bee {MODEL_NAME}")
+    print(f"\nBest PaSTe (\"epoch\" = training step) — {tracker.summary()}")
+    print(f"Final heatmaps and metrics: python experiments/plot_heatmaps.py single_bee {MODEL_NAME}")
 
 
 if __name__ == "__main__":

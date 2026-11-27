@@ -1,22 +1,22 @@
 """
-Metriche finali e heatmap dalla configurazione migliore salvata dal training.
+Final metrics and heatmaps from the best configuration saved by training.
 
     python experiments/plot_heatmaps.py single_bee dinomaly
     python experiments/plot_heatmaps.py single_bee dinomaly patchcore rd4ad
     python experiments/plot_heatmaps.py single_bee all
     python experiments/plot_heatmaps.py full_image rd4ad
 
-Il training (experiments/<setting>/main_<modello>*.py) salva la best in
-checkpoints/<setting>/<modello>/ (best.pth + config.json); questo script la
-ricarica e scrive in heatmaps/<setting>/<modello>/.
+Training (experiments/<setting>/main_<model>*.py) saves the best checkpoint in
+checkpoints/<setting>/<model>/ (best.pth + config.json); this script
+reloads it and writes to heatmaps/<setting>/<model>/.
 
-single_bee: stessa pipeline per tutti i modelli
+single_bee: same pipeline for all models
             (moviad.utilities.evaluation.report.evaluate_and_report):
-            metriche con AU-PRO a 512x512, heatmap normalizzate globalmente e
-            ancorate alla soglia pixel F1-ottimale, score_distribution.png e
-            results.json (con epoca e metriche di selezione della best).
-full_image: sliding window e figure dello script del modello (funzione
-            plot_heatmaps del modulo).
+            metrics with AU-PRO at 512x512, heatmaps normalised globally and
+            anchored to the pixel-F1-optimal threshold, score_distribution.png and
+            results.json (with epoch and selection metrics of the best checkpoint).
+full_image: sliding window and figures from the model's script (the module's
+            plot_heatmaps function).
 """
 
 import argparse
@@ -29,7 +29,7 @@ from torch.utils.data import DataLoader
 
 EXPERIMENTS = Path(__file__).resolve().parent
 MODULE_PATTERN = {"single_bee": "main_{}", "full_image": "main_{}_full_image"}
-# script della cartella single_bee che non sono modelli con una best da plottare
+# scripts in the single_bee folder that are not models with a best checkpoint to plot
 NOT_MODELS = {"stfpm_clad"}
 
 
@@ -46,10 +46,10 @@ def available_models(setting):
 
 
 def load_best(mod, device):
-    """Modello con la configurazione migliore e le informazioni salvate in config.json."""
+    """Model with the best configuration and the information saved in config.json."""
     from moviad.utilities.evaluation.checkpoints import load_checkpoint
 
-    if hasattr(mod, "load_best"):          # es. PaDiM full-image: rifà il fitting
+    if hasattr(mod, "load_best"):          # e.g. full-image PaDiM: redoes the fitting
         return mod.load_best(device)
     model = mod.build_model(device)
     state, info = load_checkpoint(mod.CHECKPOINT_DIR, map_location="cpu")
@@ -68,7 +68,7 @@ def plot_single_bee(mod, model, info, device, num_heatmaps):
         test_dataset, batch_size=batch_size, shuffle=False,
         num_workers=mod.NUM_WORKERS, pin_memory=True,
     )
-    # soglie F1 e normalizzazione delle heatmap dal validation set, se lo script ne ha uno
+    # F1 thresholds and heatmap normalisation from the validation set, if the script has one
     val_loader = None
     if hasattr(mod, "VAL_DIR"):
         val_loader = DataLoader(
@@ -90,9 +90,9 @@ def plot_single_bee(mod, model, info, device, num_heatmaps):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("setting", choices=list(MODULE_PATTERN))
-    parser.add_argument("models", nargs="+", help="nomi dei modelli (es. dinomaly) oppure 'all'")
+    parser.add_argument("models", nargs="+", help="model names (e.g. dinomaly) or 'all'")
     parser.add_argument("--num-heatmaps", type=int, default=None,
-                        help="solo single_bee: numero di heatmap (metà sane, metà con varroa)")
+                        help="single_bee only: number of heatmaps (half healthy, half with varroa)")
     args = parser.parse_args()
 
     sys.path.insert(0, str(EXPERIMENTS / args.setting))
@@ -111,10 +111,10 @@ def main():
         try:
             model, info = load_best(mod, device)
         except FileNotFoundError as e:
-            print(f"  salto {name}: {e}")
+            print(f"  skipping {name}: {e}")
             continue
         if info.get("best_epoch"):
-            print(f"Best: epoca {info['best_epoch']} — metriche di selezione: {info.get('metrics')}")
+            print(f"Best: epoch {info['best_epoch']} — selection metrics: {info.get('metrics')}")
 
         if args.setting == "single_bee":
             plot_single_bee(mod, model, info, device, args.num_heatmaps)

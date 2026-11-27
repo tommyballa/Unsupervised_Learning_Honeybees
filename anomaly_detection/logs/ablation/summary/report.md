@@ -1,35 +1,35 @@
-# Ablation: dimensione del training set e backbone
+# Ablation: training-set size and backbone
 
-## Protocollo
+## Protocol
 
-Le ablation riguardano otto modelli: PatchCore, CFA, Dinomaly, PaDiM, STFPM, FastFlow, PaSTe e RD4AD.
-Il dataset è quello finale (SAM3, batch 3–6) e il protocollo è lo stesso degli esperimenti principali:
+The ablations cover eight models: PatchCore, CFA, Dinomaly, PaDiM, STFPM, FastFlow, PaSTe and RD4AD.
+The dataset is the final one (SAM3, batches 3–6) and the protocol is the same as in the main experiments:
 
-- il checkpoint migliore è scelto sul validation set (322 api con varroa e 1251 sane);
-- le metriche sono calcolate una sola volta sul test held-out (957 api con varroa e 5000 sane);
-- le mappe e le maschere sono a 512×512.
+- the best checkpoint is chosen on the validation set (322 bees with varroa and 1251 healthy);
+- the metrics are computed only once on the held-out test (957 bees with varroa and 5000 healthy);
+- maps and masks are at 512×512.
 
-In ogni ablation cambia un solo fattore. Il resto del recipe di ciascun modello resta invariato: learning rate, numero di step, layer allo stesso stride, post-processing della mappa. Non è stata fatta alcuna ri-ottimizzazione e c'è un solo seed per configurazione.
+Each ablation changes a single factor. The rest of each model's recipe is unchanged: learning rate, number of steps, layers at the same stride, map post-processing. No re-optimisation was done and there is a single seed per configuration.
 
-- **Numero di api di training.** Si usano sottoinsiemi casuali di N ∈ {500, 5 000, 20 000} api sane, oltre al training completo di 102 303 api.
-  - I sottoinsiemi sono annidati (500 ⊂ 5 000 ⊂ 20 000) e ottenuti da una permutazione fissa.
-  - Per CFA il numero di patch campionate per immagine nella costruzione della memory bank cresce al diminuire di N, in modo da mantenere circa 1,6 M patch candidate al clustering.
-- **Backbone.** Con il training completo si confrontano tre backbone CNN pre-addestrati su ImageNet: WideResNet-50-2, ResNet-18 e MobileNetV2.
-  - Per MobileNetV2 si usano i blocchi `features.3/6/13`, che hanno lo stesso stride dei layer ResNet 1/2/3.
-  - FastFlow e RD4AD sono stati provati solo con ResNet-18 e WideResNet-50.
-  - Per Dinomaly si confronta il ViT-B/14 con il ViT-S/14, entrambi DINOv2 con register.
-- **Costo di inferenza.** È misurato sullo stesso calcolo della valutazione: modello in fp32, post-processing e mappa riportata a 512×512. Le grandezze misurate sono:
-  - **GFLOP per immagine**, con `torch.utils.flop_counter`. La ricerca k-NN di PatchCore (`torch.cdist`) non è vista dal contatore ed è aggiunta come 2·n·m·d.
-  - **Parametri**: tutti i tensori del modello, compresi memory bank e matrici di covarianza.
-  - **Latenza a batch 1**: mediana su GPU NVIDIA e su CPU con 4 thread.
+- **Number of training bees.** Random subsets of N ∈ {500, 5 000, 20 000} healthy bees are used, in addition to the full training set of 102 303 bees.
+  - The subsets are nested (500 ⊂ 5 000 ⊂ 20 000) and obtained from a fixed permutation.
+  - For CFA, the number of patches sampled per image when building the memory bank grows as N decreases, so as to keep about 1.6 M candidate patches for clustering.
+- **Backbone.** With the full training set, three ImageNet-pretrained CNN backbones are compared: WideResNet-50-2, ResNet-18 and MobileNetV2.
+  - For MobileNetV2 the `features.3/6/13` blocks are used, which have the same stride as ResNet layers 1/2/3.
+  - FastFlow and RD4AD were tried only with ResNet-18 and WideResNet-50.
+  - For Dinomaly, ViT-B/14 is compared with ViT-S/14, both DINOv2 with registers.
+- **Inference cost.** It is measured on the same computation as the evaluation: model in fp32, post-processing and map resized back to 512×512. The quantities measured are:
+  - **GFLOP per image**, with `torch.utils.flop_counter`. PatchCore's k-NN search (`torch.cdist`) is not seen by the counter and is added as 2·n·m·d.
+  - **Parameters**: all tensors of the model, including memory bank and covariance matrices.
+  - **Latency at batch 1**: median on an NVIDIA GPU and on CPU with 4 threads.
 
-  Le GPU erano condivise con job di altri utenti, quindi le latenze vanno lette come indicative; il confronto principale si basa sui GFLOP.
+  The GPUs were shared with other users' jobs, so the latencies should be read as indicative; the main comparison is based on GFLOP.
 
-## Risultati: numero di api di training
+## Results: number of training bees
 
-Tabella 1 – AUROC immagine / AP pixel sul test held-out al variare di N (backbone del recipe).
+Table 1 – Image AUROC / pixel AP on the held-out test as N varies (recipe backbone).
 
-| Modello | N = 500 | N = 5 000 | N = 20 000 | N = 102 303 |
+| Model | N = 500 | N = 5 000 | N = 20 000 | N = 102 303 |
 |---|---|---|---|---|
 | PatchCore | 0.987 / 0.608 | 0.997 / 0.736 | 0.998 / 0.762 | 0.999 / 0.777 |
 | CFA | 0.985 / 0.586 | 0.995 / 0.739 | 0.996 / 0.749 | 0.996 / 0.755 |
@@ -40,25 +40,26 @@ Tabella 1 – AUROC immagine / AP pixel sul test held-out al variare di N (backb
 | PaSTe | 0.963 / 0.373 | 0.966 / 0.398 | 0.972 / 0.433 | 0.965 / 0.393 |
 | RD4AD | 0.964 / 0.469 | 0.963 / 0.431 | 0.964 / 0.399 | 0.953 / 0.349 |
 
-Figura: `train_size.pdf`.
 
-I modelli basati su memoria sono quelli che risentono di più del numero di api normali disponibili: PatchCore, CFA e PaDiM modellano direttamente la distribuzione delle feature normali.
+Figure: `train_size.pdf`.
 
-- **Con 500 api** PatchCore e CFA perdono circa un punto di AUROC e circa 17 punti di AP pixel rispetto al training completo.
-- **Già con 5 000 api** recuperano quasi tutto il divario. Oltre 20 000 api il guadagno è marginale.
-- **Dinomaly è il più robusto con pochi dati:** con 500 api raggiunge ancora AUROC 0.991 e AP pixel 0.731.
+Memory-based models are the ones most affected by the number of normal bees available: PatchCore, CFA and PaDiM directly model the distribution of normal features.
 
-I modelli addestrati per discesa del gradiente (STFPM, FastFlow, PaSTe, RD4AD) hanno un numero di step fissato dal recipe. In pratica vedono qualche migliaio di immagini anche quando il training set è completo, e infatti le loro prestazioni non dipendono in modo sistematico da N: le differenze rientrano nella variabilità tra run.
+- **With 500 bees** PatchCore and CFA lose about one point of AUROC and about 17 points of pixel AP compared with full training.
+- **Already with 5 000 bees** they recover almost the whole gap. Beyond 20 000 bees the gain is marginal.
+- **Dinomaly is the most robust with little data:** with 500 bees it still reaches AUROC 0.991 and pixel AP 0.731.
 
-RD4AD è un'eccezione: peggiora al crescere di N, soprattutto nell'AP pixel, che scende da 0.469 a 0.349. È coerente con un recipe ottimizzato per il training completo che non trae beneficio dalla maggiore varietà, ma con un solo seed il risultato va preso con cautela.
+The models trained by gradient descent (STFPM, FastFlow, PaSTe, RD4AD) have a number of steps fixed by the recipe. In practice they see a few thousand images even when the training set is complete, and indeed their performance does not depend systematically on N: the differences are within run-to-run variability.
 
-Dal punto di vista applicativo, poche migliaia di api sane bastano per installare il sistema su un nuovo alveare senza perdite rilevanti.
+RD4AD is an exception: it gets worse as N grows, especially in pixel AP, which drops from 0.469 to 0.349. This is consistent with a recipe optimised for full training that does not benefit from the greater variety, but with a single seed the result should be taken with caution.
 
-## Risultati: backbone e costo di inferenza
+From an application point of view, a few thousand healthy bees are enough to install the system on a new hive without significant losses.
 
-Tabella 2 – Training completo, backbone alternativi (★ = backbone del recipe). Latenze indicative (GPU condivisa).
+## Results: backbone and inference cost
 
-| Modello | Backbone | AUROC img | AP pxl | Param. (M) | GFLOP | GPU bs1 (ms) | CPU (ms) |
+Table 2 – Full training, alternative backbones (★ = recipe backbone). Indicative latencies (shared GPU).
+
+| Model | Backbone | img AUROC | pxl AP | Params (M) | GFLOP | GPU bs1 (ms) | CPU (ms) |
 |---|---|---|---|---|---|---|---|
 | PatchCore | WRN50 ★ | 0.999 | 0.777 | 71.0 | 476 | 48 | 7590 |
 | | R18 | 0.998 | 0.735 | 14.3 | 111 | 20 | 3040 |
@@ -82,37 +83,37 @@ Tabella 2 – Training completo, backbone alternativi (★ = backbone del recipe
 | RD4AD | WRN50 ★ | 0.953 | 0.349 | 161.2 | 269 | 24 | 1000 |
 | | R18 | 0.921 | 0.266 | 27.6 | 41 | 8 | 270 |
 
-Figura: `efficiency.pdf`, che riporta AUROC immagine e AP pixel in funzione dei GFLOP, in scala logaritmica.
+Figure: `efficiency.pdf`, which plots image AUROC and pixel AP against GFLOP, on a logarithmic scale.
 
-**I backbone leggeri.** Sulla detection a livello di immagine un backbone leggero è spesso sufficiente; la localizzazione, misurata con l'AP pixel, è più sensibile alla qualità delle feature.
+**Lightweight backbones.** For image-level detection a lightweight backbone is often sufficient; localisation, measured with pixel AP, is more sensitive to feature quality.
 
-- **PatchCore** con MobileNetV2 ha lo stesso AUROC del WideResNet-50 (0.999) e un'AP pixel di poco inferiore (0.754 contro 0.777), con 13 volte meno operazioni (36 contro 476 GFLOP) e 16 volte meno parametri. È il miglior compromesso tra accuratezza e costo e il candidato naturale per un'implementazione su dispositivo edge.
-- **PaDiM** con MobileNetV2 supera addirittura il backbone del recipe, con AUROC 0.993 e solo 2,8 GFLOP.
-- **Dinomaly** con ViT-S mantiene l'AUROC ma perde 9 punti di AP pixel.
+- **PatchCore** with MobileNetV2 has the same AUROC as WideResNet-50 (0.999) and a slightly lower pixel AP (0.754 vs 0.777), with 13 times fewer operations (36 vs 476 GFLOP) and 16 times fewer parameters. It is the best trade-off between accuracy and cost and the natural candidate for deployment on an edge device.
+- **PaDiM** with MobileNetV2 even beats the recipe backbone, with AUROC 0.993 and only 2.8 GFLOP.
+- **Dinomaly** with ViT-S keeps the AUROC but loses 9 points of pixel AP.
 
-**Dove il costo è concentrato.** Nei metodi a memoria come PatchCore buona parte del costo non è nel backbone ma nella ricerca k-NN: con WideResNet-50 sono 377 dei 476 GFLOP. Ridurre la dimensione delle feature con un backbone più piccolo abbassa quindi anche il costo della ricerca.
+**Where the cost is concentrated.** In memory-based methods such as PatchCore, much of the cost is not in the backbone but in the k-NN search: with WideResNet-50 it accounts for 377 of the 476 GFLOP. Reducing the feature dimension with a smaller backbone therefore also lowers the cost of the search.
 
-**I modelli addestrati.** Il comportamento è meno regolare, perché learning rate e numero di step sono stati ottimizzati per il backbone del recipe:
+**Trained models.** The behaviour is less regular, because learning rate and number of steps were optimised for the recipe backbone:
 
-- FastFlow e RD4AD perdono molto passando a ResNet-18;
-- per PaSTe, ottimizzato su ResNet-18, sia WideResNet-50 sia MobileNetV2 peggiorano.
+- FastFlow and RD4AD lose a lot when switching to ResNet-18;
+- for PaSTe, optimised on ResNet-18, both WideResNet-50 and MobileNetV2 are worse.
 
-Due casi negativi vanno letti con questa avvertenza:
+Two negative cases should be read with this caveat in mind:
 
-- **PaSTe con MobileNetV2** (AUROC 0.795) ha il checkpoint migliore all'ultimo step, segno di un training non arrivato a convergenza con il recipe di ResNet-18.
-- **PaDiM con ResNet-18** (AUROC 0.641) dipende dalle feature di layer3 combinate con una Gaussiana condivisa. Anche scegliendo sul validation set la regolarizzazione migliore della covarianza, l'AUROC di validazione non supera 0.82. Il problema è quindi legato alle feature e non a un errore di implementazione.
+- **PaSTe with MobileNetV2** (AUROC 0.795) has its best checkpoint at the last step, a sign that training did not converge with the ResNet-18 recipe.
+- **PaDiM with ResNet-18** (AUROC 0.641) depends on the layer3 features combined with a shared Gaussian. Even when choosing the best covariance regularisation on the validation set, the validation AUROC does not exceed 0.82. The problem is therefore tied to the features and not to an implementation error.
 
-## Limiti
+## Limitations
 
-- C'è un solo seed per configurazione, quindi differenze sotto circa 0.005 di AUROC non sono significative.
-- I recipe non sono stati ri-ottimizzati per ogni N e per ogni backbone. I risultati misurano la robustezza del recipe, non il massimo raggiungibile da ciascuna combinazione.
-- Le latenze sono state misurate su GPU e CPU condivise; i GFLOP sono la misura di costo indipendente dal carico.
+- There is a single seed per configuration, so differences below about 0.005 AUROC are not significant.
+- The recipes were not re-optimised for each N and each backbone. The results measure the robustness of the recipe, not the maximum achievable by each combination.
+- Latencies were measured on shared GPUs and CPUs; GFLOP is the load-independent cost measure.
 
-## File
+## Files
 
-- `logs/ablation/summary/ablation.csv`: tutte le metriche, cioè AUROC, AP e F1 immagine e AP, AUPRO e F1 pixel, insieme alle misure di costo.
-- `logs/ablation/summary/train_size.pdf` e `efficiency.pdf`: le figure.
-- Codice:
-  - `experiments/single_bee/ablation.py`, con le variabili `ABL_TRAIN_N` e `ABL_BACKBONE`;
+- `logs/ablation/summary/ablation.csv`: all metrics, i.e. image AUROC, AP and F1 and pixel AP, AUPRO and F1, together with the cost measures.
+- `logs/ablation/summary/train_size.pdf` and `efficiency.pdf`: the figures.
+- Code:
+  - `experiments/single_bee/ablation.py`, with the variables `ABL_TRAIN_N` and `ABL_BACKBONE`;
   - `measure_efficiency.py`;
   - `summarize_ablation.py`.

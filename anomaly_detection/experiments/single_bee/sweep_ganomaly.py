@@ -1,22 +1,22 @@
 """
-Sweep di iperparametri per GANomaly single-bee (basato su main_ganomaly.py).
+Hyperparameter sweep for single-bee GANomaly (based on main_ganomaly.py).
 
-Per velocizzare, train e test sono sottoinsiemi fissi (uguali per tutte le run)
-di train_single_bee_batch3+4 e test_single_bee_batch3+4_varroa: le immagini
-vengono decodificate una sola volta, salvate in cache (uint8) e tenute su GPU,
-così un'epoca dura pochi secondi.
+For speed, train and test are fixed subsets (the same for all runs)
+of train_single_bee_batch3+4 and test_single_bee_batch3+4_varroa: the images
+are decoded only once, cached (uint8) and kept on GPU,
+so an epoch takes a few seconds.
 
-Ogni EVAL_EVERY epoche una sola inferenza sul test subset da cui si confrontano,
-senza rifare il forward:
-  - lo score immagine del paper ("latent" = ||z - z'||^2) e la distanza delle
-    feature del discriminatore fra input e ricostruzione ("dfeat");
-  - le mappe dell'errore di ricostruzione (L1 / L2), con vari sigma di blur,
-    con o senza maschera dell'ape, e gli score immagine max / media top-k.
-Metriche veloci: image-level + pixel AUROC/AP a 128x128.
+Every EVAL_EVERY epochs a single inference on the test subset, from which the
+following are compared without redoing the forward pass:
+  - the paper's image score ("latent" = ||z - z'||^2) and the distance between
+    the discriminator features of input and reconstruction ("dfeat");
+  - the reconstruction error maps (L1 / L2), with various blur sigmas,
+    with or without the bee mask, and the max / top-k mean image scores.
+Fast metrics: image-level + pixel AUROC/AP at 128x128.
 
     CUDA_VISIBLE_DEVICES=2 python experiments/single_bee/sweep_ganomaly.py --tag base128
 
-Log e risultati: logs/ganomaly_sweep/<tag>.{log,json}
+Logs and results: logs/ganomaly_sweep/<tag>.{log,json}
 """
 
 import argparse
@@ -46,15 +46,15 @@ from moviad.utilities.configurations import Split
 from moviad.utilities.evaluation.checkpoints import clean_state_dict, save_checkpoint
 
 
-SUBSET_SEED = 0             # i sottoinsiemi non dipendono dal seed del training
-SIGMAS = (0.0, 2.0, 4.0, 6.0)   # in pixel a 128x128 (scalati con la risoluzione)
-# l1/l2: blur dell'errore assoluto; sgn/chr: errore del residuo con segno smussato
-# (la tessitura si cancella, una macchia compatta resta), su RGB o sulla sola crominanza
+SUBSET_SEED = 0             # the subsets do not depend on the training seed
+SIGMAS = (0.0, 2.0, 4.0, 6.0)   # in pixels at 128x128 (scaled with the resolution)
+# l1/l2: blur of the absolute error; sgn/chr: error of the smoothed signed residual
+# (the texture cancels out, a compact blob remains), on RGB or on chrominance only
 ERRORS = ("l1", "l2", "sgn", "chr")
 FG_MODES = ("none", "ero")
-SCORES = ("max", "topk10", "topk100", "mean")   # top-k in pixel a 128x128
-# mappe per pixel in modalità patch: (errore, sigma a 128x128); per sgn/chr il sigma
-# va alla scala della varroa (~6 px a 128x128)
+SCORES = ("max", "topk10", "topk100", "mean")   # top-k in pixels at 128x128
+# per-pixel maps in patch mode: (error, sigma at 128x128); for sgn/chr the sigma
+# is at the varroa scale (~6 px at 128x128)
 PATCH_MAPS = [("l1", 0.0), ("l1", 2.0)] + [(e, s) for e in ("sgn", "chr") for s in (1.0, 1.5, 2.0, 3.0, 4.0, 6.0)]
 FG_THRESHOLD = 10 / 255
 
@@ -62,12 +62,12 @@ FG_THRESHOLD = 10 / 255
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--tag", required=True)
-    p.add_argument("--img-size", type=int, default=128, help="potenza di 2")
+    p.add_argument("--img-size", type=int, default=128, help="power of 2")
     p.add_argument("--patch", type=int, default=0,
-                   help="GANomaly su patch PxP dell'immagine a --img-size (0 = immagine intera)")
-    p.add_argument("--stride", type=int, default=0, help="passo delle patch in inferenza (default patch/2)")
-    p.add_argument("--steps", type=int, default=500, help="batch per epoca in modalità patch")
-    p.add_argument("--min-fg", type=float, default=0.5, help="frazione minima di ape in una patch")
+                   help="GANomaly on PxP patches of the image at --img-size (0 = whole image)")
+    p.add_argument("--stride", type=int, default=0, help="patch stride at inference (default patch/2)")
+    p.add_argument("--steps", type=int, default=500, help="batches per epoch in patch mode")
+    p.add_argument("--min-fg", type=float, default=0.5, help="minimum bee fraction in a patch")
     p.add_argument("--latent", type=int, default=100)
     p.add_argument("--nf", type=int, default=64)
     p.add_argument("--extra-layers", type=int, default=0)
@@ -76,17 +76,17 @@ def parse_args():
     p.add_argument("--bs", type=int, default=64)
     p.add_argument("--lr", type=float, default=2e-4)
     p.add_argument("--ema", type=float, default=0.0,
-                   help="decay della media mobile dei pesi usata in valutazione (0 = pesi correnti)")
-    p.add_argument("--cosine", action="store_true", help="lr con decadimento a coseno fino a 0")
+                   help="decay of the weight moving average used for evaluation (0 = current weights)")
+    p.add_argument("--cosine", action="store_true", help="lr with cosine decay down to 0")
     p.add_argument("--wadv", type=float, default=1.0)
     p.add_argument("--wcon", type=float, default=50.0)
     p.add_argument("--wenc", type=float, default=1.0)
     p.add_argument("--con-loss", choices=("l1", "l2"), default="l1")
     p.add_argument("--fg-weight", type=float, default=0.0,
-                   help="peso extra della ricostruzione sui pixel dell'ape (0 = loss uniforme)")
+                   help="extra reconstruction weight on bee pixels (0 = uniform loss)")
     p.add_argument("--d-reinit-max", type=float, default=5.0,
-                   help="reinizializza il discriminatore anche se la sua loss supera questo valore (saturato)")
-    p.add_argument("--aug", action="store_true", help="flip e rotazioni di 90 gradi")
+                   help="also re-initialise the discriminator if its loss exceeds this value (saturated)")
+    p.add_argument("--aug", action="store_true", help="flips and 90-degree rotations")
     p.add_argument("--train-images", type=int, default=8000)
     p.add_argument("--test-normals", type=int, default=2000)
     p.add_argument("--test-anomalies", type=int, default=1000)
@@ -96,7 +96,7 @@ def parse_args():
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Dati: sottoinsiemi fissi in cache
+# Data: fixed cached subsets
 # ──────────────────────────────────────────────────────────────────────
 class _Raw(Dataset):
     def __init__(self, image_paths, mask_paths, size):
@@ -129,8 +129,8 @@ def _cached(path, image_paths, mask_paths, size):
 
 
 def load_data(args):
-    """Train (N,3,S,S) uint8, test (M,3,S,S) uint8, maschere (M,1,S,S), label (M,)."""
-    size = (max(args.img_size, 256),) * 2    # cache a >=256, ridotta su GPU se serve
+    """Train (N,3,S,S) uint8, test (M,3,S,S) uint8, masks (M,1,S,S), labels (M,)."""
+    size = (max(args.img_size, 256),) * 2    # cache at >=256, downscaled on GPU if needed
     cache = Path(args.cache_dir)
     rng = np.random.default_rng(SUBSET_SEED)
 
@@ -152,7 +152,7 @@ def load_data(args):
 
 
 def to_input(batch_u8, size):
-    """uint8 (B,3,H,W) -> float in [-1, 1] alla risoluzione del modello."""
+    """uint8 (B,3,H,W) -> float in [-1, 1] at the model resolution."""
     x = batch_u8.float() / 255.0
     if x.shape[-1] != size:
         x = F.interpolate(x, size=(size, size), mode="bilinear", antialias=True, align_corners=False)
@@ -160,12 +160,12 @@ def to_input(batch_u8, size):
 
 
 def bee_mask(x):
-    """Maschera (B,1,H,W) dell'ape da immagini in [-1, 1] (lo sfondo è nero)."""
+    """(B,1,H,W) bee mask from images in [-1, 1] (the background is black)."""
     return ((x + 1) / 2).amax(dim=1, keepdim=True) > FG_THRESHOLD
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Valutazione
+# Evaluation
 # ──────────────────────────────────────────────────────────────────────
 def blur(m, sigma):
     if sigma <= 0:
@@ -225,7 +225,7 @@ def evaluate(model, test, masks, labels, args, device):
                         scores[(e, s, name, mode)].append(image_score(m128, mode).cpu().numpy())
 
     gt = F.adaptive_max_pool2d(masks.float(), (128, 128)).numpy().ravel() > 0.5
-    step = max(1, gt.size // 3_000_000)     # metriche pixel su un campione
+    step = max(1, gt.size // 3_000_000)     # pixel metrics on a sample
     gt = gt[::step]
     rows = [{"score": "latent", **image_metrics(labels, np.concatenate(latent))},
             {"score": "dfeat", **image_metrics(labels, np.concatenate(dfeat))}]
@@ -239,10 +239,10 @@ def evaluate(model, test, masks, labels, args, device):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Modalità patch
+# Patch mode
 # ──────────────────────────────────────────────────────────────────────
 def sample_patches(train, args):
-    """Batch di patch casuali (in [-1, 1]) che contengono abbastanza ape."""
+    """Batch of random patches (in [-1, 1]) containing enough bee."""
     n, p = 2 * args.bs, args.patch
     x = to_input(train[torch.randint(len(train), (n,), device=train.device)], args.img_size)
     oy = torch.randint(args.img_size - p + 1, (n,), device=x.device)
@@ -256,7 +256,7 @@ def sample_patches(train, args):
 
 @torch.no_grad()
 def evaluate_patches(model, test, masks, labels, args, device):
-    """Score per patch (latent, dfeat, errore medio) su griglia + errore per pixel ricomposto."""
+    """Per-patch scores (latent, dfeat, mean error) on a grid + reassembled per-pixel error."""
     model.eval()
     p, stride, size = args.patch, args.stride or args.patch // 2, args.img_size
     scale = size / 128
@@ -285,7 +285,7 @@ def evaluate_patches(model, test, masks, labels, args, device):
         valid = (bee_mask(patches).float().mean(dim=(1, 2, 3)) >= args.min_fg).reshape(b, 1, n_side, n_side)
         for g in grid_names:
             grids[g].append((torch.cat(stats[g]).reshape(b, 1, n_side, n_side) * valid).cpu())
-        # ricostruzione dell'immagine: media delle patch che coprono il pixel
+        # image reconstruction: mean of the patches covering the pixel
         fakes = torch.cat(fakes).reshape(b, -1, 3 * p * p).transpose(1, 2)
         count = F.fold(torch.ones_like(fakes), (size, size), p, stride=stride)
         diff = x - F.fold(fakes, (size, size), p, stride=stride) / count.clamp(min=1)
@@ -351,7 +351,7 @@ def main():
     train, test, masks, labels = load_data(args)
     train = train.to(device)
     print(f"[{args.tag}] train {tuple(train.shape)} | test {tuple(test.shape)} "
-          f"({int((labels == 0).sum())} sane, {int(labels.sum())} varroa) | {time.time() - t0:.0f}s", flush=True)
+          f"({int((labels == 0).sum())} healthy, {int(labels.sum())} varroa) | {time.time() - t0:.0f}s", flush=True)
 
     model = Ganomaly(
         input_size=(args.patch or args.img_size,) * 2, num_input_channels=3, n_features=args.nf,
@@ -396,7 +396,7 @@ def main():
             g_opt.step()
 
             if ema is not None:
-                # nelle prime iterazioni la media segue i pesi correnti (warmup del decay)
+                # in the first iterations the average follows the current weights (decay warmup)
                 seen = (epoch - 1) * steps + step + 1
                 decay = min(args.ema, (1 + seen) / (10 + seen))
                 for p_ema, p_cur in zip(ema.parameters(), model.parameters()):
@@ -409,9 +409,9 @@ def main():
             d_opt.zero_grad(set_to_none=True)
             d_loss.backward()
             d_opt.step()
-            # discriminatore collassato (loss ~0) o saturato (BCE al massimo, gradiente
-            # nullo): si reinizializza insieme al suo optimizer (i momenti di Adam dei
-            # vecchi pesi lo rimandano subito in saturazione)
+            # discriminator collapsed (loss ~0) or saturated (BCE at maximum, zero
+            # gradient): it is re-initialised together with its optimizer (Adam's moments from the
+            # old weights would push it straight back into saturation)
             if d_loss.item() < 1e-5 or d_loss.item() > args.d_reinit_max:
                 model.discriminator.apply(Ganomaly.weights_init)
                 d_opt = Adam(model.discriminator.parameters(), lr=args.lr, betas=(mg.BETA1, mg.BETA2))
@@ -440,7 +440,7 @@ def main():
             with open(log_dir / f"{args.tag}.json", "w") as f:
                 json.dump({"config": config, "best": best, "history": history}, f, indent=1)
 
-    print(f"\n[{args.tag}] BEST img_auc — epoca {best['epoch']}: {describe(best)}")
+    print(f"\n[{args.tag}] BEST img_auc — epoch {best['epoch']}: {describe(best)}")
 
 
 if __name__ == "__main__":

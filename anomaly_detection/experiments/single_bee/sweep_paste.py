@@ -1,17 +1,17 @@
 """
-Sweep di iperparametri per PaSTe single-bee (basato su main_paste.py).
+Hyperparameter sweep for single-bee PaSTe (based on main_paste.py).
 
-Ogni run addestra lo student e ogni --eval-every epoche calcola sul test set
-le mappe teacher/student PER LAYER (alla loro risoluzione nativa). Sulle stesse
-mappe vengono poi valutate varianti di post-processing senza riaddestrare:
-    layer    sottoinsieme di ad_layers usato per la mappa
-    agg      sum | prod | nsum (somma di mappe normalizzate con media/std
-             globali per layer, stimate su immagini di TRAIN) | psum (come
-             nsum ma con media/std per posizione)
-    sigma    blur gaussiano (in pixel a 128x128)
-    score    max | topk<N> (media degli N pixel più alti, a 128x128)
-Le metriche sono img AUROC / img AP e pixel AP a 128x128 (calcolata su GPU su
-tutti i pixel del test set).
+Each run trains the student and every --eval-every epochs computes on the test set
+the teacher/student maps PER LAYER (at their native resolution). Post-processing
+variants are then evaluated on the same maps without retraining:
+    layer    subset of ad_layers used for the map
+    agg      sum | prod | nsum (sum of maps normalised with global per-layer
+             mean/std, estimated on TRAIN images) | psum (like
+             nsum but with per-position mean/std)
+    sigma    Gaussian blur (in pixels at 128x128)
+    score    max | topk<N> (mean of the N highest pixels, at 128x128)
+The metrics are img AUROC / img AP and pixel AP at 128x128 (computed on GPU over
+all test-set pixels).
 
     CUDA_VISIBLE_DEVICES=1 python experiments/single_bee/sweep_paste.py --tag base --epochs 10
 """
@@ -48,23 +48,23 @@ def parse_args():
     p.add_argument("--weights", default="IMAGENET1K_V1")
     p.add_argument("--img-size", type=int, default=512)
     p.add_argument("--ad-layers", default="1,2,3")
-    p.add_argument("--bootstrap", type=int, default=0, help="-1 = nessun bootstrap (STFPM)")
-    p.add_argument("--epochs", type=float, default=10, help="anche frazionarie")
-    p.add_argument("--eval-every", type=int, default=1, help="epoche tra due valutazioni (se --eval-steps è 0)")
-    p.add_argument("--eval-steps", type=int, default=0, help="valuta ogni N step (e sempre alla fine)")
+    p.add_argument("--bootstrap", type=int, default=0, help="-1 = no bootstrap (STFPM)")
+    p.add_argument("--epochs", type=float, default=10, help="fractional values allowed")
+    p.add_argument("--eval-every", type=int, default=1, help="epochs between two evaluations (if --eval-steps is 0)")
+    p.add_argument("--eval-steps", type=int, default=0, help="evaluate every N steps (and always at the end)")
     p.add_argument("--bs", type=int, default=32)
     p.add_argument("--opt", default="sgd", help="sgd | adam")
     p.add_argument("--lr", type=float, default=0.04)
     p.add_argument("--wd", type=float, default=1e-4)
     p.add_argument("--sched", default="cos", help="cos | const")
-    p.add_argument("--layer-weights", default="", help="pesi della loss per layer, es. 1,1,2")
+    p.add_argument("--layer-weights", default="", help="per-layer loss weights, e.g. 1,1,2")
     p.add_argument("--aug", default="", help="flip | rot (flip + rot90)")
-    p.add_argument("--ema", type=float, default=0.0, help="decay della EMA dei pesi dello student (0 = no)")
-    p.add_argument("--fg-loss", action="store_true", help="loss solo sulle celle dell'ape (sfondo nero escluso)")
-    p.add_argument("--fg-map", action="store_true", help="mappa azzerata fuori dall'ape")
+    p.add_argument("--ema", type=float, default=0.0, help="decay of the student weight EMA (0 = no)")
+    p.add_argument("--fg-loss", action="store_true", help="loss only on bee cells (black background excluded)")
+    p.add_argument("--fg-map", action="store_true", help="map zeroed outside the bee")
     p.add_argument("--amp", type=int, default=1)
     p.add_argument("--max-train-batches", type=int, default=0)
-    p.add_argument("--n-stats", type=int, default=1024, help="immagini di train per le statistiche nsum/psum")
+    p.add_argument("--n-stats", type=int, default=1024, help="training images for the nsum/psum statistics")
     p.add_argument("--seed", type=int, default=1)
     return p.parse_args()
 
@@ -82,13 +82,13 @@ def augment(x, mode):
     return x
 
 
-FG_THRESHOLD = 10 / 255   # come main_cfa / main_patchcore
+FG_THRESHOLD = 10 / 255   # as in main_cfa / main_patchcore
 FG_CLOSING = 15
 FG_DILATION = 8
 
 
 def bee_foreground(images):
-    """Maschera (B,1,H,W) dell'ape da immagini normalizzate ImageNet (lo sfondo dei crop è nero)."""
+    """(B,1,H,W) bee mask from ImageNet-normalised images (the crop background is black)."""
     mean = torch.tensor(mp.IMAGENET_MEAN, device=images.device).view(1, 3, 1, 1)
     std = torch.tensor(mp.IMAGENET_STD, device=images.device).view(1, 3, 1, 1)
     mask = ((images * std + mean).amax(dim=1, keepdim=True) > FG_THRESHOLD).float()
@@ -98,13 +98,13 @@ def bee_foreground(images):
 
 
 def cell_foreground(fg, size):
-    """Maschera alla risoluzione di un layer: cella dell'ape se almeno metà dei suoi pixel lo sono."""
+    """Mask at a layer's resolution: a cell is bee if at least half of its pixels are."""
     return (F.adaptive_avg_pool2d(fg, size) >= 0.5).float()
 
 
 @torch.no_grad()
 def layer_maps(model, x, amp, fg_map=False):
-    """Mappe (B,1,h,w) di ||t/|t| - s/|s|||^2 per ogni ad_layer."""
+    """Maps (B,1,h,w) of ||t/|t| - s/|s|||^2 for each ad_layer."""
     with torch.autocast("cuda", dtype=torch.bfloat16, enabled=bool(amp)):
         t_feat, bootstrap = model.teacher(x)
         s_feat, _ = model.student(x if model.student_bootstrap_layer is None else bootstrap)
@@ -124,7 +124,7 @@ def layer_maps(model, x, amp, fg_map=False):
 def infer(model, loader, device, amp, with_labels=True, fg_map=False):
     model.eval()
     per_layer, labels, masks = None, [], []
-    for batch in tqdm(loader, desc="Inferenza", leave=False):
+    for batch in tqdm(loader, desc="Inference", leave=False):
         images = batch[0] if isinstance(batch, (list, tuple)) else batch
         maps = [m.half().cpu() for m in layer_maps(model, images.to(device, non_blocking=True), amp, fg_map)]
         per_layer = [[m] for m in maps] if per_layer is None else [a + [m] for a, m in zip(per_layer, maps)]
@@ -146,7 +146,7 @@ def blur(m, sigma):
 
 
 def gpu_ap(scores, gt):
-    """Average precision (come sklearn, ignorando i pari merito) su GPU."""
+    """Average precision (like sklearn, ignoring ties) on GPU."""
     order = torch.argsort(scores, descending=True)
     g = gt[order].float()
     tp = torch.cumsum(g, 0)
@@ -255,7 +255,7 @@ def main():
 
     config = vars(args)
     history = []
-    print(f"[{args.tag}] {config}\n{steps} step/epoca, {total_steps} step totali", flush=True)
+    print(f"[{args.tag}] {config}\n{steps} steps/epoch, {total_steps} total steps", flush=True)
 
     def batches():
         while True:
@@ -295,7 +295,7 @@ def main():
             continue
         epoch = round(step / steps, 3)
         mean_loss = tot / n
-        print(f"[{args.tag}] step {step}/{total_steps} (epoca {epoch}) loss {mean_loss:.3f} "
+        print(f"[{args.tag}] step {step}/{total_steps} (epoch {epoch}) loss {mean_loss:.3f} "
               f"lr {scheduler.get_last_lr()[0]:.2e} ({time.time() - t0:.0f}s)", flush=True)
         tot, n = 0.0, 0
         t0 = time.time()
@@ -312,7 +312,7 @@ def main():
             model.student = train_student
         for key in ("img_auc", "pxl_ap"):
             rows.sort(key=lambda r: -r[key])
-            print(f"  top varianti ({key}):")
+            print(f"  top variants ({key}):")
             for r in rows[:5]:
                 print(f"    layers={r['layers']} agg={r['agg']} sigma={r['sigma']} score={r['score']}: "
                       f"auc={r['img_auc']:.4f} ap={r['img_ap']:.4f} pxl_ap={r['pxl_ap']:.4f}")

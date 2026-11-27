@@ -1,6 +1,6 @@
 #!/bin/bash
-# uso: queue.sh <file con una run per riga: tag args...> (rilegge il file dopo ogni run)
-cd /home/tommaso_ballarin/moviad_acquario/tesi_v2
+# usage: queue.sh <file with one run per line: tag args...> (re-reads the file after each run)
+cd "$(dirname "$0")/../.."   # anomaly_detection/
 while true; do
   line=$(while read -r tag args; do [ -z "$tag" ] && continue; [[ "$tag" == \#* ]] && continue; [ -f logs/paste_sweep/$tag.done ] || [ -f logs/paste_sweep/$tag.running ] || { echo "$tag $args"; break; }; done < "$1")
   [ -z "$line" ] && break

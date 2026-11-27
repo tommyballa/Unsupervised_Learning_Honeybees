@@ -1,6 +1,6 @@
 #!/bin/bash
 # Coda GPU1 divisa: aspetta la fine di main_cfa.py (PID passato) e ne fa il plot.
-cd /home/tommaso_ballarin/moviad_acquario/tesi_v2
+cd "$(dirname "$0")/../.."   # anomaly_detection/
 while kill -0 "$1" 2>/dev/null; do sleep 30; done
 if tr '\r' '\n' < logs/val/cfa_main.log | grep -aq '^Best CFA'; then
   CUDA_VISIBLE_DEVICES=1 .venv/bin/python -u experiments/plot_heatmaps.py single_bee cfa > logs/val/cfa_plot.log 2>&1 \

@@ -1,17 +1,17 @@
 """
-Divide il test set del dataset finale SAM3 in validation e test held-out.
+Splits the test set of the final SAM3 dataset into validation and held-out test.
 
-La selezione della best epoca/step (e la soglia dell'F1) si fa sul validation
-set; il test held-out si valuta una sola volta sul checkpoint scelto.
+The best epoch/step (and the F1 threshold) is selected on the validation
+set; the held-out test is evaluated only once on the chosen checkpoint.
 
-    <DATASET_DIR>/val/            VAL_ANOMALOUS_FRACTION delle anomale + VAL_NORMALS sane
-    <DATASET_DIR>/test_heldout/   le altre anomale + le stesse 5000 sane del test
-                                  ridotto usato finora (VarroaDataset, seed 0)
+    <DATASET_DIR>/val/            VAL_ANOMALOUS_FRACTION of the anomalous + VAL_NORMALS healthy
+    <DATASET_DIR>/test_heldout/   the other anomalous + the same 5000 healthy of the reduced
+                                  test used so far (VarroaDataset, seed 0)
 
-Le anomale sono divise stratificando per cluster e numero di varroa; le sane
-di validation sono prese (stratificate per cluster) tra quelle fuori dal test
-ridotto. Stessa struttura di test/ (labels.csv, normal/, anomalous/, masks/),
-file come hardlink. Con lo stesso seed il risultato è identico.
+The anomalous bees are split stratifying by cluster and number of varroa; the
+validation healthy bees are taken (stratified by cluster) from those outside the
+reduced test. Same structure as test/ (labels.csv, normal/, anomalous/, masks/),
+files as hardlinks. With the same seed the result is identical.
 
     python experiments/single_bee/make_val_split.py [--dry-run]
 """
@@ -26,15 +26,15 @@ import pandas as pd
 
 DATASET_DIR = Path(DATA_ROOT + "/processed/single_bee3+4+5+6_SAM3_varroa_split")
 VAL_ANOMALOUS_FRACTION = 0.25
-VAL_NORMALS = 1250            # 20% di anomale come nel test ridotto
+VAL_NORMALS = 1250            # 20% anomalous as in the reduced test
 SEED = 0
-# devono coincidere con VarroaDataset per ritrovare le stesse 5000 sane del test
+# must match VarroaDataset to recover the same 5000 healthy bees of the test
 MAX_TEST_NORMALS = 5000
 TEST_SUBSAMPLE_SEED = 0
 
 
 def stratified_take(df, keys, fraction, rng):
-    """Indici di circa `fraction` righe per ogni gruppo (almeno 1 se il gruppo ne ha 2+)."""
+    """Indices of about `fraction` rows per group (at least 1 if the group has 2+)."""
     taken = []
     for _, g in df.groupby(keys):
         n = int(round(len(g) * fraction))
@@ -45,7 +45,7 @@ def stratified_take(df, keys, fraction, rng):
 
 
 def write_split(df, src_dir, out_dir, dry_run):
-    print(f"{out_dir.name}: {len(df)} ({(df.label == 0).sum()} sane, {(df.label == 1).sum()} con varroa)")
+    print(f"{out_dir.name}: {len(df)} ({(df.label == 0).sum()} healthy, {(df.label == 1).sum()} with varroa)")
     print(pd.crosstab(df.cluster, [df.label, df.num_varroa]).to_string(), "\n")
     if dry_run:
         return
@@ -67,13 +67,13 @@ def write_split(df, src_dir, out_dir, dry_run):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dry-run", action="store_true", help="solo i conteggi, non scrive nulla")
+    parser.add_argument("--dry-run", action="store_true", help="counts only, writes nothing")
     args = parser.parse_args()
 
     src = DATASET_DIR / "test"
     df = pd.read_csv(src / "labels.csv")
 
-    # le 5000 sane del test ridotto, con la stessa estrazione di VarroaDataset
+    # the 5000 healthy bees of the reduced test, with the same sampling as VarroaDataset
     normal_idx = df.index[df.label == 0]
     rng = np.random.default_rng(TEST_SUBSAMPLE_SEED)
     dropped = rng.choice(normal_idx, size=len(normal_idx) - MAX_TEST_NORMALS, replace=False)

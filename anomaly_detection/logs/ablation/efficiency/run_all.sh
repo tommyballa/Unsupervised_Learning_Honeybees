@@ -1,6 +1,6 @@
 #!/bin/bash
-# Misure di efficienza di tutte le configurazioni a N completo, in sequenza su GPU $GPU
-cd /home/tommaso_ballarin/moviad_acquario/tesi_v2
+# Efficiency measurements of all configurations at full N, run sequentially on GPU $GPU
+cd "$(dirname "$0")/../../.."   # anomaly_detection/
 M="env CUDA_VISIBLE_DEVICES=$GPU .venv/bin/python -u experiments/single_bee/measure_efficiency.py --cpu --cpu-iters 5"
 L=logs/ablation/efficiency/run_all.log
 for m in patchcore cfa dinomaly padim stfpm fastflow paste rd4ad; do echo "== $m default" >> $L; $M $m >> $L 2>&1; done

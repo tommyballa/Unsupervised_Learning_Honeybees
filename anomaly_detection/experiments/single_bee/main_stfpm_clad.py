@@ -44,8 +44,8 @@ def set_seed(seed):
 
 def get_test():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", type=str, required=True, help="Es. FT_stfpm, MT_stfpm, replay_stfpm", choices=["FT_stfpm", "MT_stfpm", "replay_stfpm"])
-    parser.add_argument("--backbone", type=str, default="wide_resnet50_2", help="Es. wide_resnet50_2", choices=BACKBONES)
+    parser.add_argument("--model", type=str, required=True, help="E.g. FT_stfpm, MT_stfpm, replay_stfpm", choices=["FT_stfpm", "MT_stfpm", "replay_stfpm"])
+    parser.add_argument("--backbone", type=str, default="wide_resnet50_2", help="E.g. wide_resnet50_2", choices=BACKBONES)
     parser.add_argument("--epochs", type=int, required=True)
     parser.add_argument("--batch_size", type=int, required=True)
     parser.add_argument("--device", type=int, required=False)
@@ -184,13 +184,13 @@ def main():
         "image_transform_list": None,
     }
 
-    # Continual learning con video folder come task incrementali
+    # Continual learning with video folders as incremental tasks
     continual_dataset = ContinualDataset(
         dataset_arguments=DatasetArguments(**dataset_args),
         dataset_class=VarroaDataset,
-        # Usa i video folder del train come task CL
-        # Per singola task iniziale puoi passare categories=["varroa"]
-        # Per CL incrementale, lascia None per usare tutti i video folder
+        # Uses the training video folders as CL tasks
+        # For a single initial task you can pass categories=["varroa"]
+        # For incremental CL, leave None to use all video folders
     )
 
     if backbone == "mcunet-in3":

@@ -1,21 +1,21 @@
 """
-StructCore - Anomaly detection su singole api (single bee crops).
+StructCore - Anomaly detection on single bees (single bee crops).
 
-Addestramento: come PatchCore (feature wide_resnet50_2 layer1 + layer2, 10%
-               delle patch di ogni immagine, coreset greedy), più la
-               calibrazione del descrittore strutturale (dispersione, media
-               del top-1%, variazione totale della mappa) sulle api sane.
-               Nessuna epoca da scegliere: memory bank e calibrazione vengono
-               salvate in checkpoints/single_bee/structcore/ (best.pth +
+Training:      as PatchCore (wide_resnet50_2 features layer1 + layer2, 10%
+               of the patches of each image, greedy coreset), plus the
+               calibration of the structural descriptor (dispersion, mean
+               of the top-1%, total variation of the map) on healthy bees.
+               No epoch to choose: memory bank and calibration are
+               saved in checkpoints/single_bee/structcore/ (best.pth +
                config.json).
-Valutazione:   mappa = distanza dal vicino più prossimo nella memory bank,
-               score immagine = distanza di Mahalanobis diagonale del
-               descrittore strutturale (calcolato su tutta la mappa).
-Heatmap e metriche finali (AUROC, AvgPrec, F1, AUPRO):
+Evaluation:    map = distance from the nearest neighbour in the memory bank,
+               image score = diagonal Mahalanobis distance of the
+               structural descriptor (computed over the whole map).
+Final heatmaps and metrics (AUROC, AvgPrec, F1, AUPRO):
     python experiments/plot_heatmaps.py single_bee structcore
 
-Il training usa StructCoreCL (un solo task) per il sottocampionamento al 10%
-delle patch, necessario per non esaurire la memoria.
+Training uses StructCoreCL (a single task) to subsample 10%
+of the patches, which is needed to avoid running out of memory.
 """
 
 from moviad.datasets.varroa.paths import DATA_ROOT
@@ -38,13 +38,13 @@ from moviad.utilities.evaluation.report import IMAGENET_MEAN, IMAGENET_STD
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Configurazione
+# Configuration
 # ──────────────────────────────────────────────────────────────────────
 MODEL_NAME   = "structcore"
 REPO_ROOT    = Path(__file__).resolve().parents[2]
 TRAIN_DIR    = DATA_ROOT + "/processed/train_single_bee_batch3+4/cleaned_bees"
-# i crop delle api sono 512x512: maschere GT, metriche pixel e heatmap a questa
-# risoluzione per tutti i modelli (la mappa viene riportata a GT_SIZE)
+# bee crops are 512x512: GT masks, pixel metrics and heatmaps at this
+# resolution for all models (the map is resized back to GT_SIZE)
 GT_SIZE      = (512, 512)
 
 BACKBONE     = "wide_resnet50_2"
@@ -56,7 +56,7 @@ TEST_BATCH_SIZE = 16
 NUM_WORKERS  = 8
 SEED         = 1
 
-NUM_HEATMAPS = 20           # metà sane, metà con varroa
+NUM_HEATMAPS = 20           # half healthy, half with varroa
 OUTPUT_DIR   = REPO_ROOT / "heatmaps" / "single_bee" / MODEL_NAME
 CHECKPOINT_DIR = REPO_ROOT / "checkpoints" / "single_bee" / MODEL_NAME
 
@@ -71,7 +71,7 @@ def set_seed(seed: int):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Modello e dati (usati anche da experiments/plot_heatmaps.py)
+# Model and data (also used by experiments/plot_heatmaps.py)
 # ──────────────────────────────────────────────────────────────────────
 def dataset_args():
     return DatasetArguments(
@@ -122,16 +122,16 @@ def train_structcore_single_bee():
     structcore = build_model(device)
     train_dataset = VarroaDataset(dataset_args(), "varroa", Split.TRAIN)
 
-    # memory bank + calibrazione del descrittore (un solo task)
+    # memory bank + descriptor calibration (a single task)
     training_args = TrainingArgs(batch_size=BATCH_SIZE, epochs=1)
     structcore.train()
     structcore.start_task(0, train_dataset, training_args)
     structcore.train_task(0, train_dataset, None, metrics=[], device=device, train_args=training_args)
 
     save_checkpoint(CHECKPOINT_DIR, model_state(structcore), script_config(globals()),
-                    best_epoch=None, note="memory bank e calibrazione in un solo passaggio")
-    print(f"\nMemory bank e calibrazione StructCore salvate in {CHECKPOINT_DIR}")
-    print(f"Heatmap e metriche finali: python experiments/plot_heatmaps.py single_bee {MODEL_NAME}")
+                    best_epoch=None, note="memory bank and calibration in a single pass")
+    print(f"\nStructCore memory bank and calibration saved to {CHECKPOINT_DIR}")
+    print(f"Final heatmaps and metrics: python experiments/plot_heatmaps.py single_bee {MODEL_NAME}")
 
 
 if __name__ == "__main__":

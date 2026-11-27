@@ -1,20 +1,20 @@
 """
-Sweep di iperparametri per CFA single-bee (basato su main_cfa.py).
+Hyperparameter sweep for single-bee CFA (based on main_cfa.py).
 
-Ogni run costruisce la memory bank (riusata dalle run con la stessa
-configurazione), addestra per poche centinaia di step, valuta ogni
---eval-every step e salva la best in checkpoints/single_bee/cfa_sweep/<tag>/.
-Le metriche sono quelle veloci (image-level + pixel AUROC/AP a 128x128); con
---variants a ogni valutazione vengono stampate anche le metriche di varianti
-di post-processing calcolate sulle stesse mappe di distanza (sigma del blur,
-score = max / media top-k), per sceglierlo senza riaddestrare.
-I default sono il CFA del paper; la configurazione di main_cfa.py è:
+Each run builds the memory bank (reused by runs with the same
+configuration), trains for a few hundred steps, evaluates every
+--eval-every steps and saves the best checkpoint in checkpoints/single_bee/cfa_sweep/<tag>/.
+The metrics are the fast ones (image-level + pixel AUROC/AP at 128x128); with
+--variants, each evaluation also prints the metrics of post-processing
+variants computed on the same distance maps (blur sigma,
+score = max / top-k mean), to choose it without retraining.
+The defaults are the paper's CFA; the main_cfa.py configuration is:
 
     CUDA_VISIBLE_DEVICES=2 python experiments/single_bee/sweep_cfa.py --tag c_l23_768 \
         --bank kmeans --fg --bank-size 32768 --K 1 --layers 2,3 --img-size 768 \
         --lr 1e-5 --epochs 0.36 --eval-every 87 --eval-zero
 
-Riassunto delle run: logs/cfa_sweep/summary.py
+Summary of the runs: logs/cfa_sweep/summary.py
 """
 
 import argparse
@@ -50,27 +50,27 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--tag", required=True)
     p.add_argument("--img-size", type=int, default=384)
-    p.add_argument("--layers", default="1,2", help="layer del backbone, es. 1,2 oppure 1,2,3")
+    p.add_argument("--layers", default="1,2", help="backbone layers, e.g. 1,2 or 1,2,3")
     p.add_argument("--gamma-c", type=int, default=4)
     p.add_argument("--gamma-d", type=int, default=2)
     p.add_argument("--K", type=int, default=5)
     p.add_argument("--J", type=int, default=3)
-    p.add_argument("--bank", default="mean", help="mean (media per posizione, paper) | kmeans (patch campionate)")
-    p.add_argument("--ppi", type=int, default=64, help="patch campionate per immagine con --bank kmeans")
-    p.add_argument("--bank-size", type=int, default=0, help="centroidi con --bank kmeans (0 = patch per immagine / gamma_c)")
-    p.add_argument("--fg", action="store_true", help="bank, loss e mappa solo sulle patch dell'ape (non sullo sfondo nero)")
+    p.add_argument("--bank", default="mean", help="mean (per-position mean, paper) | kmeans (sampled patches)")
+    p.add_argument("--ppi", type=int, default=64, help="patches sampled per image with --bank kmeans")
+    p.add_argument("--bank-size", type=int, default=0, help="centroids with --bank kmeans (0 = patches per image / gamma_c)")
+    p.add_argument("--fg", action="store_true", help="bank, loss and map only on bee patches (not on the black background)")
     p.add_argument("--epochs", type=float, default=2)
     p.add_argument("--bs", type=int, default=16)
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--wd", type=float, default=5e-4)
-    p.add_argument("--sched", default="const", help="const | cos (warmup 2%% + coseno)")
-    p.add_argument("--aug", default="none", help="none | flip | flip_rot (flip + rotazioni di 90°)")
-    p.add_argument("--eval-every", type=int, default=0, help="step tra le valutazioni (0 = ogni epoca)")
-    p.add_argument("--variants", action="store_true", help="a ogni valutazione anche la tabella delle varianti di post-processing")
-    p.add_argument("--eval-zero", action="store_true", help="valuta anche prima del training (descriptor casuale)")
-    # post-processing della mappa usata per la selezione della best (sigma e top-k in pixel a img-size)
+    p.add_argument("--sched", default="const", help="const | cos (warmup 2%% + cosine)")
+    p.add_argument("--aug", default="none", help="none | flip | flip_rot (flip + 90° rotations)")
+    p.add_argument("--eval-every", type=int, default=0, help="steps between evaluations (0 = every epoch)")
+    p.add_argument("--variants", action="store_true", help="also print the post-processing variant table at each evaluation")
+    p.add_argument("--eval-zero", action="store_true", help="also evaluate before training (random descriptor)")
+    # post-processing of the map used to select the best checkpoint (sigma and top-k in pixels at img-size)
     p.add_argument("--sigma", type=float, default=4.0)
-    p.add_argument("--score", default="max", help="max | topk<N> (media dei N pixel più alti)")
+    p.add_argument("--score", default="max", help="max | topk<N> (mean of the N highest pixels)")
     p.add_argument("--seed", type=int, default=1)
     return p.parse_args()
 
@@ -90,10 +90,10 @@ def image_score(m, mode):
 
 @torch.no_grad()
 def infer(model, loader, device):
-    """Mappe di distanza (CPU, risoluzione delle feature), label e maschere GT a 128x128."""
+    """Distance maps (CPU, feature resolution), labels and GT masks at 128x128."""
     model.eval()
     maps, labels, masks = [], [], []
-    for images, y, m, _ in tqdm(loader, desc="Inferenza", leave=False):
+    for images, y, m, _ in tqdm(loader, desc="Inference", leave=False):
         x = images.to(device, non_blocking=True)
         maps.append(model.distance_map(model.describe(x), model.patch_foreground(x)).cpu())
         labels.append(np.asarray(y).reshape(-1))
@@ -102,7 +102,7 @@ def infer(model, loader, device):
 
 
 def evaluate(dist_maps, size, sigma, device, modes=("max",)):
-    """Mappe a 128x128 e score (per ogni modo) per una variante di post-processing."""
+    """Maps at 128x128 and scores (for each mode) for one post-processing variant."""
     maps, scores = [], {m: [] for m in modes}
     for i in range(0, dist_maps.shape[0], 256):
         mp = F.interpolate(dist_maps[i:i + 256].to(device), size=size, mode="bilinear", align_corners=False)
@@ -114,7 +114,7 @@ def evaluate(dist_maps, size, sigma, device, modes=("max",)):
 
 
 def fast_metrics(maps128, scores, labels, masks128):
-    """Metriche image-level + pixel AUROC/AP a 128x128 (sottocampionate a ~4M pixel)."""
+    """Image-level metrics + pixel AUROC/AP at 128x128 (subsampled to ~4M pixels)."""
     step = max(1, masks128.size // 4_000_000)
     gt, pr = masks128.ravel()[::step], maps128.ravel()[::step]
     prec, rec, _ = precision_recall_curve(labels, scores)
@@ -124,7 +124,7 @@ def fast_metrics(maps128, scores, labels, masks128):
 
 
 def variant_table(dist_maps, labels, masks128, size, device):
-    """AUROC / AP image e AP pixel (a 128) per diverse varianti di post-processing."""
+    """Image AUROC / AP and pixel AP (at 128) for several post-processing variants."""
     step = max(1, masks128.size // 2_000_000)
     gt = masks128.ravel()[::step]
     rows = []
@@ -193,10 +193,10 @@ def main():
     config = {**vars(args), "img_size": list(size)}
     tracker = BestTracker(ckpt_dir, config)
     history = []
-    print(f"[{args.tag}] {config}\n{len(train_loader)} step/epoca, {total} step totali, eval ogni {eval_every}")
+    print(f"[{args.tag}] {config}\n{len(train_loader)} steps/epoch, {total} total steps, eval every {eval_every}")
 
-    # la memory bank dipende solo da questi argomenti (e dal descriptor iniziale, salvato con lei):
-    # le run con la stessa configurazione la riusano
+    # the memory bank depends only on these arguments (and on the initial descriptor, saved with it):
+    # runs with the same configuration reuse it
     key = "_".join(str(v) for v in (args.img_size, args.layers.replace(",", ""), args.gamma_c, args.gamma_d,
                                     args.bank, args.ppi, args.bank_size, int(args.fg), args.seed))
     cache = ckpt_dir.parent / "_bank_cache" / f"{key}.pth"
@@ -206,7 +206,7 @@ def main():
         state = torch.load(cache, map_location=device)
         model.Descriptor.load_state_dict(state["descriptor"])
         model.memory_bank = torch.nn.Parameter(state["memory_bank"], requires_grad=False)
-        model.describe(next(iter(train_loader))[:1].to(device))  # imposta model.scale
+        model.describe(next(iter(train_loader))[:1].to(device))  # sets model.scale
     else:
         model.memory_bank = torch.nn.Parameter(model.initialize_memory_bank(train_loader), requires_grad=False)
         cache.parent.mkdir(parents=True, exist_ok=True)
@@ -227,7 +227,7 @@ def main():
         if args.variants:
             rows = variant_table(dist_maps, labels, masks128, size, device)
             rows.sort(key=lambda r: -r["img_auc"])
-            print("  top varianti (img_auc):")
+            print("  top variants (img_auc):")
             for r in rows[:5]:
                 print(f"    sigma={r['sigma']} score={r['score']}: "
                       f"auc={r['img_auc']:.4f} ap={r['img_ap']:.4f} pxl_ap128={r['pxl_ap128']:.4f}")

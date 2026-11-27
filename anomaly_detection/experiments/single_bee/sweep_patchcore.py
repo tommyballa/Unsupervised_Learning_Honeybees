@@ -1,20 +1,20 @@
 """
-Sweep di iperparametri per PatchCore single-bee (basato su main_patchcore.py).
+Hyperparameter sweep for single-bee PatchCore (based on main_patchcore.py).
 
-Ogni run costruisce la memory bank con la configurazione data (risoluzione,
-layer, patch candidate, dimensione) e la salva in
-checkpoints/single_bee/patchcore_sweep/<tag>/ (riusata se esiste già), poi
-calcola una sola volta sul test set le distanze dal vicino più prossimo sulla
-griglia delle feature e da quelle confronta, senza rifare l'inferenza:
-  - i prefissi della memory bank (--bank-sizes): il coreset greedy è annidato,
-    i primi k elementi sono il coreset di dimensione k;
-  - il sigma del blur della mappa e lo score immagine (max / media top-k pixel
-    / "rw5" = media ripesata delle 5 patch peggiori, lo score di main_patchcore).
-Le metriche sono quelle veloci (image-level + pixel AUROC/AP a 128x128).
+Each run builds the memory bank with the given configuration (resolution,
+layers, candidate patches, size) and saves it in
+checkpoints/single_bee/patchcore_sweep/<tag>/ (reused if it already exists), then
+computes once on the test set the nearest-neighbour distances on the
+feature grid and from those compares, without redoing inference:
+  - the memory bank prefixes (--bank-sizes): the greedy coreset is nested,
+    the first k elements are the coreset of size k;
+  - the map blur sigma and the image score (max / top-k pixel mean
+    / "rw5" = reweighted mean of the 5 worst patches, the main_patchcore score).
+The metrics are the fast ones (image-level + pixel AUROC/AP at 128x128).
 
     CUDA_VISIBLE_DEVICES=1 python experiments/single_bee/sweep_patchcore.py --tag l123_512
 
-Log e risultati: logs/patchcore_sweep/<tag>.{log,json}
+Logs and results: logs/patchcore_sweep/<tag>.{log,json}
 """
 
 import argparse
@@ -42,7 +42,7 @@ from moviad.utilities.evaluation.checkpoints import load_checkpoint, save_checkp
 
 SIGMAS = (0.0, 4.0, 8.0, 12.0, 16.0, 24.0)
 SCORES = ("max", "topk10", "topk100", "topk1000")
-EVAL_SIZE = (512, 512)      # le mappe si valutano alla risoluzione dei crop
+EVAL_SIZE = (512, 512)      # maps are evaluated at the crop resolution
 
 
 def parse_args():
@@ -51,13 +51,13 @@ def parse_args():
     p.add_argument("--img-size", type=int, default=512)
     p.add_argument("--backbone", default=mp.BACKBONE)
     p.add_argument("--layers", default="1,2,3",
-                   help="layer del backbone: 2,3 (layerN di wide_resnet50_2) oppure i nomi, es. features.6,features.13")
+                   help="backbone layers: 2,3 (wide_resnet50_2 layerN) or the names, e.g. features.6,features.13")
     p.add_argument("--train-images", type=int, default=0,
-                   help="sottoinsieme casuale del training set per una run veloce (0 = tutte)")
+                   help="random subset of the training set for a quick run (0 = all)")
     p.add_argument("--bank-size", type=int, default=30000)
-    p.add_argument("--bank-sizes", default="", help="prefissi della bank da valutare, es. 10000,30000 (default: solo --bank-size)")
-    p.add_argument("--max-patches", type=int, default=4_000_000, help="patch candidate al coreset")
-    p.add_argument("--no-fg", action="store_true", help="niente maschera dell'ape (campionamento, score e mappa)")
+    p.add_argument("--bank-sizes", default="", help="bank prefixes to evaluate, e.g. 10000,30000 (default: only --bank-size)")
+    p.add_argument("--max-patches", type=int, default=4_000_000, help="candidate patches for the coreset")
+    p.add_argument("--no-fg", action="store_true", help="no bee mask (sampling, score and map)")
     p.add_argument("--bs", type=int, default=32)
     p.add_argument("--test-bs", type=int, default=16)
     p.add_argument("--seed", type=int, default=1)
@@ -79,14 +79,14 @@ def image_score(m, mode):
 
 @torch.no_grad()
 def infer(patchcore, loader, bank_sizes, use_fg):
-    """Distanze NN sulla griglia per ogni prefisso della bank, score rw5, maschere."""
+    """NN distances on the grid for each bank prefix, rw5 score, masks."""
     model = patchcore.vad_model
     device = model.device
     bank = model.memory_bank[0].to(device)
     grids = {k: [] for k in bank_sizes}
     rw5 = {k: [] for k in bank_sizes}
     fgs, labels, masks = [], [], []
-    for images, y, m, _ in tqdm(loader, desc="Inferenza", leave=False):
+    for images, y, m, _ in tqdm(loader, desc="Inference", leave=False):
         images = images.to(device, non_blocking=True)
         embedding, b, h, w = model.extract_embedding(images)
         pixel_fg = mp.bee_foreground(images) if use_fg else torch.ones_like(images[:, :1])
@@ -105,7 +105,7 @@ def infer(patchcore, loader, bank_sizes, use_fg):
 
 
 def evaluate(grid, fg, sigma, device, modes):
-    """Mappe a 128x128 e score (per ogni modo) per una variante di post-processing."""
+    """Maps at 128x128 and scores (for each mode) for one post-processing variant."""
     maps, scores = [], {m: [] for m in modes}
     for i in range(0, grid.shape[0], 128):
         mp_ = F.interpolate(grid[i:i + 128].to(device).float(), size=EVAL_SIZE, mode="bilinear", align_corners=False)
@@ -148,7 +148,7 @@ def main():
     try:
         state, _ = load_checkpoint(ckpt_dir)
         mp.load_model_state(patchcore, state)
-        print(f"[{args.tag}] memory bank riusata da {ckpt_dir}")
+        print(f"[{args.tag}] memory bank reused from {ckpt_dir}")
     except FileNotFoundError:
         train_ds = VarroaDataset(mp.dataset_args(), "varroa", Split.TRAIN)
         if args.train_images and args.train_images < len(train_ds):
@@ -168,7 +168,7 @@ def main():
     t0 = time.time()
     patchcore.eval()
     grids, rw5, fg, labels, masks128 = infer(patchcore, test_loader, bank_sizes, not args.no_fg)
-    print(f"[{args.tag}] inferenza {time.time() - t0:.0f}s", flush=True)
+    print(f"[{args.tag}] inference {time.time() - t0:.0f}s", flush=True)
 
     step = max(1, masks128.size // 4_000_000)
     gt = masks128.ravel()[::step]

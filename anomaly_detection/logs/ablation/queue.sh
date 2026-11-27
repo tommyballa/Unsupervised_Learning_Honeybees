@@ -1,11 +1,11 @@
 #!/bin/bash
-# Ablation single-bee (numero di api di train, backbone): vedi experiments/single_bee/ablation.py.
-# Uscite in checkpoints|heatmaps/ablation/<modello>/<tag>, log in logs/ablation/.
-# Più corsie (anche su GPU diverse) pescano dalla stessa lista di job: ogni job
-# viene preso da una sola corsia (lock in logs/ablation/locks/).
-# Uso: GPU=<idx> bash logs/ablation/queue.sh logs/ablation/jobs.txt
-#   una riga per job: <modello>:n<N> (ABL_TRAIN_N=N) | <modello>:<backbone> (ABL_BACKBONE)
-cd /home/tommaso_ballarin/moviad_acquario/tesi_v2
+# Single-bee ablation (number of training bees, backbone): see experiments/single_bee/ablation.py.
+# Outputs in checkpoints|heatmaps/ablation/<model>/<tag>, logs in logs/ablation/.
+# Several lanes (even on different GPUs) draw from the same job list: each job
+# is taken by a single lane (locks in logs/ablation/locks/).
+# Usage: GPU=<idx> bash logs/ablation/queue.sh logs/ablation/jobs.txt
+#   one line per job: <model>:n<N> (ABL_TRAIN_N=N) | <model>:<backbone> (ABL_BACKBONE)
+cd "$(dirname "$0")/../.."   # anomaly_detection/
 PY=.venv/bin/python
 mkdir -p logs/ablation/locks
 for job in $(grep -v '^#' "$1"); do
