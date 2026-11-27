@@ -1,6 +1,6 @@
-# Fase 'fase2': 59291 api con classe ['Ape Incompleta', 'Crop Utilizzabile'] nello snapshot 'Prova1'
-# di al_config.yaml. Scritta da scripts/new_stage.py; etichette e modelli sono separati.
-# Aggiunte 22436 api di 'test_b34_novarroa' filtrate con il modello v002 della fase precedente.
+# Stage 'fase2': 59291 bees with class ['Ape Incompleta', 'Crop Utilizzabile'] in snapshot 'Prova1'
+# of al_config.yaml. Written by scripts/new_stage.py; labels and models are kept separate.
+# Added 22436 bees of 'test_b34_novarroa' filtered with model v002 of the previous phase.
 
 seed: 42
 paths:

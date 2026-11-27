@@ -1,4 +1,4 @@
-"""Simulazione dell'hub con un oracolo e curve di apprendimento."""
+"""Simulation of the hub with an oracle, and learning curves."""
 from __future__ import annotations
 
 import copy
@@ -28,14 +28,14 @@ def make_synthetic(
     noise: float = 1.0,
     seed: int = 0,
 ) -> tuple[np.ndarray, list[str]]:
-    """Gaussiane in alta dimensione normalizzate L2, con classi sbilanciate.
+    """L2-normalised high-dimensional Gaussians, with imbalanced classes.
 
-    La classe ``i`` ha una frazione di esempi proporzionale a ``imbalance**i``.
+    Class ``i`` has a fraction of examples proportional to ``imbalance**i``.
     """
     rng = np.random.default_rng(seed)
     weights = imbalance ** np.arange(n_classes)
     counts = np.maximum(1, np.round(n * weights / weights.sum()).astype(int))
-    counts[0] += n - counts.sum()  # l'arrotondamento finisce nella classe più numerosa
+    counts[0] += n - counts.sum()  # the rounding remainder goes to the largest class
     centers = rng.normal(size=(n_classes, dim))
     centers /= np.linalg.norm(centers, axis=1, keepdims=True)
     X = np.concatenate(
@@ -49,7 +49,7 @@ def make_synthetic(
 
 
 # --------------------------------------------------------------------------- #
-# Varianti
+# Variants
 # --------------------------------------------------------------------------- #
 
 @dataclass(frozen=True)
@@ -61,39 +61,39 @@ class Variant:
 
 VARIANTS: dict[str, Variant] = {
     "baseline": Variant("baseline", "Baseline: query random, kNN"),
-    "v1": Variant("v1", "V1: incertezza kNN"),
-    "v2": Variant("v2", "V2: incertezza + diversità, label propagation"),
+    "v1": Variant("v1", "V1: kNN uncertainty"),
+    "v2": Variant("v2", "V2: uncertainty + diversity, label propagation"),
     "v3": Variant("v3", "V3: extractor contrastive, pseudo-label + consistency", implemented=False),
 }
 METRICS = ("accuracy", "macro_f1", "nmi", "ari")
 
 
 def variant_config(cfg: ALConfig, variant: str) -> ALConfig:
-    """Config della variante: stesso extractor congelato, cambia solo come si scelgono e si usano le etichette."""
+    """Config of the variant: same frozen extractor, only how labels are chosen and used changes."""
     out = copy.deepcopy(cfg)
-    if variant == "baseline":      # query random, nessuna semi-supervisione
+    if variant == "baseline":      # random query, no semi-supervision
         out.query.random_fraction = 1.0
         out.propagation.enabled = False
-    elif variant == "v1":          # top-N per incertezza kNN, senza diversità, novelty né propagazione
+    elif variant == "v1":          # top-N by kNN uncertainty, no diversity, novelty or propagation
         out.query.candidate_multiplier = 1
         out.query.novelty_fraction = 0.0
         out.query.uncertainty_source = "knn"
         out.propagation.enabled = False
-    elif variant == "v2":          # come l'hub: incertezza + diversità, con label propagation
+    elif variant == "v2":          # like the hub: uncertainty + diversity, with label propagation
         out.query.uncertainty_source = "propagation"
         out.propagation.enabled = True
     elif variant == "v3":
         raise NotImplementedError(
-            "V3 (extractor contrastive + pseudo-label + consistency, re-train ogni N) è predisposta "
-            "ma non implementata: serve un FeatureExtractorTrainer reale, vedi bee_al/retrain.py"
+            "V3 (contrastive extractor + pseudo-label + consistency, re-train every N) is scaffolded "
+            "but not implemented: it needs a real FeatureExtractorTrainer, see bee_al/retrain.py"
         )
     else:
-        raise ValueError(f"Variante sconosciuta: {variant}")
+        raise ValueError(f"Unknown variant: {variant}")
     return out
 
 
 # --------------------------------------------------------------------------- #
-# Simulazione
+# Simulation
 # --------------------------------------------------------------------------- #
 
 def run_single(
@@ -104,10 +104,10 @@ def run_single(
     seed: int,
     spreader: Optional[LabelSpreader] = None,
 ) -> list[dict[str, Any]]:
-    """Simula l'hub con un oracolo che risponde al posto dell'annotatore.
+    """Simulate the hub with an oracle answering in place of the annotator.
 
-    ``oracle[i]`` è l'etichetta di ``X[i]``: qualsiasi insieme di etichette va bene.
-    Restituisce un punto della curva per round: metriche in funzione del numero di etichette.
+    ``oracle[i]`` is the label of ``X[i]``: any set of labels works.
+    Returns one curve point per round: metrics as a function of the number of labels.
     """
     vcfg = variant_config(cfg, variant)
     n = len(X)
@@ -128,7 +128,7 @@ def run_single(
         labeled = bank.labeled_indices()
         if len(labeled):
             predicted = final.labels
-            rest = np.setdiff1d(np.arange(n), labeled)  # i cluster si valutano sulle api non etichettate
+            rest = np.setdiff1d(np.arange(n), labeled)  # clusters are evaluated on the unlabelled bees
             row = {"variant": variant, "seed": seed, "n_labels": int(len(labeled)), "n_classes": len(bank.classes)}
             row.update(classification_metrics(val_true, [predicted[i] for i in val_idx]))
             row.update(clustering_metrics([oracle[i] for i in rest], [predicted[i] for i in rest]))
@@ -152,7 +152,7 @@ def run_single(
 
 
 def labels_to_threshold(rows: Sequence[dict[str, Any]], metric: str, threshold: float) -> Optional[int]:
-    """Numero minimo di etichette con cui la curva raggiunge la soglia (``None`` se mai)."""
+    """Minimum number of labels at which the curve reaches the threshold (``None`` if never)."""
     for row in sorted(rows, key=lambda r: r["n_labels"]):
         if row[metric] is not None and row[metric] >= threshold:
             return int(row["n_labels"])
@@ -167,10 +167,10 @@ def run_simulation(
     seeds: Optional[Sequence[int]] = None,
     log: Callable[[str], None] = lambda s: None,
 ) -> dict[str, Any]:
-    """Tutte le varianti su più seed. Restituisce ``{"rows": [...], "summary": {...}}``."""
+    """All variants over several seeds. Returns ``{"rows": [...], "summary": {...}}``."""
     seeds = list(cfg.simulation.seeds if seeds is None else seeds)
     sim = cfg.simulation
-    spreader: Optional[LabelSpreader] = None  # il grafo dipende solo dagli embedding: uno per tutti i run
+    spreader: Optional[LabelSpreader] = None  # the graph depends only on the embeddings: one for all runs
     rows: list[dict[str, Any]] = []
     summary: dict[str, Any] = {
         "threshold_metric": sim.threshold_metric, "threshold": sim.threshold,
@@ -180,7 +180,7 @@ def run_simulation(
     for name in variants:
         variant = VARIANTS[name]
         if not variant.implemented:
-            log(f"{name}: predisposta ma non implementata, saltata")
+            log(f"{name}: scaffolded but not implemented, skipped")
             summary["variants"][name] = {"title": variant.title, "implemented": False}
             continue
         vcfg = variant_config(cfg, name)
@@ -213,14 +213,14 @@ def run_simulation(
             },
         }
         last = curve[-1]
-        log(f"{name}: {sim.threshold_metric} finale {last[sim.threshold_metric + '_mean']:.3f} "
-            f"con {last['n_labels']} etichette; soglia {sim.threshold} raggiunta in {len(hit)}/{len(seeds)} seed"
-            + (f" con {np.mean(hit):.0f} ± {np.std(hit):.0f} etichette" if hit else ""))
+        log(f"{name}: final {sim.threshold_metric} {last[sim.threshold_metric + '_mean']:.3f} "
+            f"with {last['n_labels']} labels; threshold {sim.threshold} reached in {len(hit)}/{len(seeds)} seeds"
+            + (f" with {np.mean(hit):.0f} ± {np.std(hit):.0f} labels" if hit else ""))
     return {"rows": rows, "summary": summary}
 
 
 def oracle_subset(ids: Sequence[str], X: np.ndarray, labels: dict[str, str]) -> tuple[np.ndarray, list[str]]:
-    """Restringe gli embedding alle api che l'oracolo sa etichettare."""
+    """Restrict the embeddings to the bees the oracle can label."""
     keep = [i for i, image_id in enumerate(ids) if image_id in labels]
     return X[keep], [labels[ids[i]] for i in keep]
 
@@ -229,17 +229,17 @@ def oracle_subset(ids: Sequence[str], X: np.ndarray, labels: dict[str, str]) -> 
 # Output
 # --------------------------------------------------------------------------- #
 
-# Prime tre tinte della palette categorica: validate anche per daltonismo su tutte le coppie.
+# First three hues of the categorical palette: also validated for colour blindness on every pair.
 _SERIES_COLORS = {"baseline": "#2a78d6", "v1": "#eb6834", "v2": "#1baf7a"}
 _SURFACE, _INK, _INK_MUTED, _GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e4e3df"
 _METRIC_TITLES = {
     "accuracy": "Accuracy (validation set)", "macro_f1": "Macro-F1 (validation set)",
-    "nmi": "NMI dei cluster", "ari": "ARI dei cluster",
+    "nmi": "Cluster NMI", "ari": "Cluster ARI",
 }
 
 
 def plot_learning_curves(summary: dict[str, Any], path: Union[str, Path]) -> None:
-    """Curve di apprendimento: un pannello per metrica, media ± deviazione standard sui seed."""
+    """Learning curves: one panel per metric, mean ± standard deviation over the seeds."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -260,7 +260,7 @@ def plot_learning_curves(summary: dict[str, Any], path: Union[str, Path]) -> Non
                     label=data["title"])
         if metric == summary["threshold_metric"]:
             ax.axhline(summary["threshold"], color=_INK_MUTED, linewidth=1)
-            ax.annotate(f"soglia {summary['threshold']:g}", xy=(0.995, summary["threshold"]),
+            ax.annotate(f"threshold {summary['threshold']:g}", xy=(0.995, summary["threshold"]),
                         xycoords=("axes fraction", "data"), xytext=(0, 3), textcoords="offset points",
                         ha="right", va="bottom", fontsize=8, color=_INK_MUTED)
         ax.set_title(_METRIC_TITLES[metric], loc="left", fontsize=11, color=_INK)
@@ -272,12 +272,12 @@ def plot_learning_curves(summary: dict[str, Any], path: Union[str, Path]) -> Non
         ax.spines["bottom"].set_color(_GRID)
         ax.tick_params(colors=_INK_MUTED, labelsize=9, length=0)
     for ax in axes[1]:
-        ax.set_xlabel("Numero di etichette", fontsize=10, color=_INK_MUTED)
+        ax.set_xlabel("Number of labels", fontsize=10, color=_INK_MUTED)
     handles, labels = axes[0, 0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="lower center", ncol=len(labels), frameon=False, fontsize=10, labelcolor=_INK)
     fig.suptitle(
-        f"Curve di apprendimento: media ± dev. std. su {len(summary['seeds'])} seed "
-        f"({summary['n_samples']} api, {summary['n_classes']} classi)",
+        f"Learning curves: mean ± std. dev. over {len(summary['seeds'])} seeds "
+        f"({summary['n_samples']} bees, {summary['n_classes']} classes)",
         x=0.01, ha="left", fontsize=12, color=_INK,
     )
     fig.tight_layout(rect=(0, 0.05, 1, 0.96))
@@ -286,7 +286,7 @@ def plot_learning_curves(summary: dict[str, Any], path: Union[str, Path]) -> Non
 
 
 def save_results(result: dict[str, Any], out_dir: Union[str, Path], plot: bool = True) -> dict[str, Path]:
-    """Scrive ``results.csv`` (un punto per variante/seed/round), ``summary.json`` e il grafico PNG."""
+    """Write ``results.csv`` (one point per variant/seed/round), ``summary.json`` and the PNG plot."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     paths = {"csv": out / "results.csv", "json": out / "summary.json"}

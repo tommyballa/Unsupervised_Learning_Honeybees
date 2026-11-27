@@ -1,15 +1,15 @@
-"""Prepara la fase successiva della pipeline partendo da uno snapshot.
+"""Prepare the next phase of the pipeline starting from a snapshot.
 
-La fase 1 separa, per esempio, le api segmentate bene da quelle segmentate male. La fase 2
-lavora solo sulle api che la fase 1 ha tenuto: questo script le elenca e scrive una config
-nuova, con etichette e modelli in cartelle proprie, così le due fasi non si mescolano.
+Phase 1 separates, for example, well-segmented bees from badly segmented ones. Phase 2
+works only on the bees that phase 1 kept: this script lists them and writes a new
+config, with labels and models in their own folders, so the two phases do not mix.
 
-Uso:
+Usage:
     python scripts/new_stage.py --snapshot fase1_finale --keep "Segmentata Bene" --name fase2
-    BEE_AL_CONFIG=config/al_fase2.yaml ../venv/bin/python -u app.py      # da active_learning_tool/
+    BEE_AL_CONFIG=config/al_fase2.yaml ../venv/bin/python -u app.py      # from active_learning_tool/
 
-Entrano nella fase nuova le api dello snapshot con classe finale in --keep, etichettate a mano
-o assegnate dal modello (con --min-confidence si scartano le assegnazioni poco sicure).
+The new phase gets the snapshot bees whose final class is in --keep, whether labelled by hand
+or assigned by the model (--min-confidence discards low-confidence assignments).
 """
 import argparse
 import json
@@ -28,12 +28,12 @@ from bee_al.snapshot import read_csv, snapshot_path  # noqa: E402
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--snapshot", required=True, help="snapshot della fase corrente da cui partire")
-    ap.add_argument("--keep", required=True, nargs="+", help="classi da portare nella fase nuova")
-    ap.add_argument("--name", required=True, help="nome della fase nuova (lettere, cifre, '_', '-')")
-    ap.add_argument("--min-confidence", type=float, default=0.0, help="confidenza minima per le api assegnate dal modello")
-    ap.add_argument("--config", default=None, help="config della fase corrente (default config/al_config.yaml)")
-    ap.add_argument("--out-config", default=None, help="config da scrivere (default config/al_<name>.yaml)")
+    ap.add_argument("--snapshot", required=True, help="snapshot of the current phase to start from")
+    ap.add_argument("--keep", required=True, nargs="+", help="classes to carry into the new phase")
+    ap.add_argument("--name", required=True, help="name of the new phase (letters, digits, '_', '-')")
+    ap.add_argument("--min-confidence", type=float, default=0.0, help="minimum confidence for bees assigned by the model")
+    ap.add_argument("--config", default=None, help="config of the current phase (default config/al_config.yaml)")
+    ap.add_argument("--out-config", default=None, help="config to write (default config/al_<name>.yaml)")
     args = ap.parse_args()
 
     if not args.name.replace("_", "").replace("-", "").isalnum():
@@ -45,7 +45,7 @@ def main() -> None:
     except ValueError as e:
         sys.exit(str(e))
     if not (folder / "predictions.csv").exists():
-        sys.exit(f"Snapshot '{args.snapshot}' non trovato in {folder.parent}")
+        sys.exit(f"Snapshot '{args.snapshot}' not found in {folder.parent}")
 
     normalize = class_normalizer(cfg)
     keep = {normalize(c) for c in args.keep}
@@ -57,7 +57,7 @@ def main() -> None:
     chosen = [r for r in rows if r["final_label"] in keep and r["status"] in ("labeled", "predicted")
               and (r["source"] == "human" or float(r["confidence"]) >= args.min_confidence)]
     if not chosen:
-        sys.exit("Nessuna ape supera i criteri: niente da portare nella fase nuova")
+        sys.exit("No bee meets the criteria: nothing to carry into the new phase")
 
     out_config = Path(args.out_config) if args.out_config else REPO_ROOT / "config" / f"al_{args.name}.yaml"
     results = cfg.results_dir.parent / f"results_{args.name}"
@@ -75,18 +75,18 @@ def main() -> None:
                          subset_file=str(subset), embeddings_dir=str(cfg.embeddings_dir))
     data["paths"]["dataset_dirs"] = {k: str(cfg.resolve(v)) for k, v in cfg.paths.dataset_dirs.items()}
     data["paths"]["dataset_dir"] = str(cfg.resolve(cfg.paths.dataset_dir))
-    data["labels"] = {"classes": [], "label_aliases": {}, "reject_classes": []}   # la fase nuova ha classi sue
+    data["labels"] = {"classes": [], "label_aliases": {}, "reject_classes": []}   # the new phase has its own classes
     data["stage"] = {"name": args.name, "title": f"Phase '{args.name}'",
                      "description": f"Only the bees of {sorted(keep)} from '{args.snapshot}'."}
-    header = (f"# Fase '{args.name}': {len(chosen)} api con classe {sorted(keep)} nello snapshot '{args.snapshot}'\n"
-              f"# di {config_path.name}. Scritta da scripts/new_stage.py; etichette e modelli sono separati.\n\n")
+    header = (f"# Stage '{args.name}': {len(chosen)} bees with class {sorted(keep)} in snapshot '{args.snapshot}'\n"
+              f"# of {config_path.name}. Written by scripts/new_stage.py; labels and models are kept separate.\n\n")
     out_config.write_text(header + yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
 
     human = sum(r["source"] == "human" for r in chosen)
-    print(f"Fase '{args.name}': {len(chosen)} api su {len(rows)} ({human} etichettate a mano, {len(chosen) - human} assegnate dal modello)")
-    print(f"  elenco delle api: {subset}")
+    print(f"Stage '{args.name}': {len(chosen)} bees out of {len(rows)} ({human} labelled by hand, {len(chosen) - human} assigned by the model)")
+    print(f"  bee list:         {subset}")
     print(f"  config:           {out_config}")
-    print("Per usarla, avvia l'hub così (da active_learning_tool/):")
+    print("To use it, start the hub like this (from active_learning_tool/):")
     print(f"  BEE_AL_CONFIG={out_config} ../venv/bin/python -u app.py")
 
 

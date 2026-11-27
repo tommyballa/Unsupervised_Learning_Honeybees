@@ -47,7 +47,7 @@ def test_variants_differ_only_in_query_and_semi_supervision(sim_cfg):
     assert base.query.random_fraction == 1.0 and not base.propagation.enabled
     assert v1.query.uncertainty_source == "knn" and not v1.propagation.enabled
     assert v2.propagation.enabled and v2.query.candidate_multiplier == sim_cfg.query.candidate_multiplier
-    assert sim_cfg.query.random_fraction == pytest.approx(0.1)  # la config di partenza non viene toccata
+    assert sim_cfg.query.random_fraction == pytest.approx(0.1)  # the starting config is not touched
     with pytest.raises(NotImplementedError):
         variant_config(sim_cfg, "v3")
 
@@ -59,7 +59,7 @@ def test_single_run_produces_a_learning_curve(sim_cfg, data):
     for r in rows:
         assert all(0.0 <= r[m] <= 1.0 for m in ("accuracy", "macro_f1", "nmi"))
     assert rows[-1]["accuracy"] > 0.85 and rows[-1]["accuracy"] >= rows[0]["accuracy"]
-    assert rows == run_single(X, y, "v2", sim_cfg, seed=0)       # riproducibile
+    assert rows == run_single(X, y, "v2", sim_cfg, seed=0)       # reproducible
     assert rows != run_single(X, y, "v2", sim_cfg, seed=1)
 
 
@@ -70,7 +70,7 @@ def test_full_simulation_outputs(sim_cfg, data, tmp_path):
     summary = result["summary"]
     assert set(summary["variants"]) == {"baseline", "v1", "v2", "v3"}
     assert summary["variants"]["v3"]["implemented"] is False and any("v3" in line for line in logs)
-    assert len(result["rows"]) == 3 * 2 * 6                       # varianti × seed × round
+    assert len(result["rows"]) == 3 * 2 * 6                       # variants × seeds × rounds
 
     for name in ("baseline", "v1", "v2"):
         v = summary["variants"][name]
@@ -93,13 +93,13 @@ def test_labels_to_threshold():
 
 def test_any_label_set_works_as_oracle(sim_cfg, data):
     X, y = data
-    # oracolo qualunque: nomi liberi, una classe con pochissimi esempi, copertura parziale delle api
+    # arbitrary oracle: free-form names, a class with very few examples, partial coverage of the bees
     ids = [f"bee_{i}.png" for i in range(len(X))]
-    labels = {ids[i]: ("Rara" if i < 3 else f"etichetta libera {y[i][-1]}") for i in range(0, len(X), 2)}
+    labels = {ids[i]: ("Rare" if i < 3 else f"free label {y[i][-1]}") for i in range(0, len(X), 2)}
     Xo, yo = oracle_subset(ids, X, labels)
-    assert len(Xo) == len(yo) == 200 and "Rara" in yo
+    assert len(Xo) == len(yo) == 200 and "Rare" in yo
     rows = run_single(Xo, yo, "v2", sim_cfg, seed=0)
     assert rows and rows[-1]["n_labels"] == 60
 
-    one_class = run_single(Xo, ["Solo"] * 200, "v1", sim_cfg, seed=0)  # anche con una sola classe
+    one_class = run_single(Xo, ["Only"] * 200, "v1", sim_cfg, seed=0)  # even with a single class
     assert one_class[-1]["accuracy"] == 1.0 and one_class[-1]["n_classes"] == 1

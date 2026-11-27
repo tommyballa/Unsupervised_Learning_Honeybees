@@ -1,6 +1,6 @@
-# Fase 'fase2_phone': fase 2 solo sulle 4689 api pulite delle 22 foto del telefono (batch_6/favi_phone_camera),
-# senza il filtro della fase 1 (che ne lasciava 3627 non assegnate). Etichette da zero, stesse classi di
-# al_fase2_sam3.yaml, embedding DINOv2 originali. Hub separato: BEE_AL_PORT=8003.
+# Stage 'fase2_phone': phase 2 only on the 4689 cleaned bees of the 22 phone photos (batch_6/favi_phone_camera),
+# without the phase-1 filter (which left 3627 of them unassigned). Labels from scratch, same classes as
+# al_fase2_sam3.yaml, original DINOv2 embeddings. Separate hub: BEE_AL_PORT=8003.
 
 seed: 42
 paths:
@@ -11,8 +11,8 @@ paths:
   embeddings_dir: ${BEE_AL_WORKDIR}/embeddings_phone
   models_dir: ${BEE_AL_WORKDIR}/models_fase2_phone
 labels:
-  # Profilo demografico: Giovane, Adulte, Fuco. Malata: api malate in generale.
-  # Non Classificabile: non si giudica per segmentazione o posa (classe di scarto, fuori dalle quote).
+  # Demographic profile: Giovane (young), Adulte (adult), Fuco (drone). Malata: diseased bees in general.
+  # Non Classificabile: cannot be judged because of segmentation or pose (reject class, outside the shares).
   classes: [Giovane, Adulte, Fuco, Malata, Non Classificabile]
   label_aliases: {Non Classificabille: Non Classificabile}
   reject_classes: [Non Classificabile]

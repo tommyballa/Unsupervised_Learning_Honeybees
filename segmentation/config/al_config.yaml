@@ -1,53 +1,53 @@
-# Configurazione unica di active learning + semi-supervised (letta da bee_al/config.py).
-# I percorsi relativi sono risolti rispetto alla root del repo.
+# Single active-learning + semi-supervised configuration (read by bee_al/config.py).
+# Relative paths are resolved against the repo root.
 
 seed: 42
 
 paths:
-  # Cartelle delle api, {nome: cartella}. L'image_id di ogni ape è "<nome>__<file>",
-  # perché i nomi dei file (bee_00000_...) si ripetono da una cartella all'altra.
-  # Dal 2026-10-14 tutte le foto di batch 3-6 (train, val e test dello split SAM3 insieme), api
-  # estratte a 2048 px con yolo26s_batch3+4+5+6_SAM3_img1376 e pulite con dataset_cleaning.py v4
-  # (filtro short, testa in alto). La run precedente (batch3+4, fasi 1 e 2) è archiviata in
-  # ${BEE_AL_WORKDIR}/archivio_<data>_<ora>.
+  # Bee folders, {name: folder}. The image_id of each bee is "<name>__<file>",
+  # because file names (bee_00000_...) repeat from one folder to another.
+  # Since 2026-10-14: all photos of batches 3-6 (train, val and test of the SAM3 split together), bees
+  # extracted at 2048 px with yolo26s_batch3+4+5+6_SAM3_img1376 and cleaned with dataset_cleaning.py v4
+  # (short filter, head up). The previous run (batch3+4, phases 1 and 2) is archived in
+  # ${BEE_AL_WORKDIR}/archivio_<date>_<time>.
   dataset_dirs:
     sam3_b3456: ${BEES_DATA_ROOT}/processed/single_bee3+4+5+6_SAM3/cleaned_bees
-  # Etichette, embedding e modelli stanno su /mnt/disk1: il disco di sistema è quasi pieno.
+  # Labels, embeddings and models live on /mnt/disk1: the system disk is almost full.
   results_dir: ${BEE_AL_WORKDIR}/results_sam3_b3456   # al_labels.csv, validation_set.json, al_rounds.jsonl
-  embeddings_dir: ${BEE_AL_WORKDIR}/embeddings_sam3_b3456   # embedding dell'extractor congelato (v000)
-  models_dir: ${BEE_AL_WORKDIR}/models_sam3_b3456     # vNNN/ prodotti dai re-train
-  subset_file: ""        # JSON {"image_ids": [...]}: se indicato l'hub lavora solo su quelle api (fasi successive)
+  embeddings_dir: ${BEE_AL_WORKDIR}/embeddings_sam3_b3456   # embeddings of the frozen extractor (v000)
+  models_dir: ${BEE_AL_WORKDIR}/models_sam3_b3456     # vNNN/ produced by the re-trains
+  subset_file: ""        # JSON {"image_ids": [...]}: if set, the hub works only on those bees (later phases)
 
 stage:
-  # Fase della pipeline: l'hub la mostra in cima a ogni pagina, così chi etichetta sa cosa sta facendo.
+  # Pipeline phase: the hub shows it at the top of every page, so the annotator knows what they are doing.
   name: fase1
   title: "Phase 1 of 2 - segmentation quality"
   description: "Say whether each bee is well segmented or badly segmented. Age, health and anomalies come in phase 2."
 
 export:
-  # Pulsante "Save configuration & export clusters" in /al-status: a fase finita scrive qui i cluster,
-  # una sottocartella per esportazione, con una cartella di immagini per classe.
+  # "Save configuration & export clusters" button in /al-status: once the phase is finished it writes the clusters here,
+  # one subfolder per export, with one image folder per class.
   clusters_dir: ${BEES_DATA_ROOT}/processed/single_bee3+4+5+6_SAM3_clusters
   mode: copy             # copy | hardlink | symlink
 
 labels:
-  # Le classi NON sono definite qui: nascono dalle etichette inserite nell'hub.
-  # Fase 1 della pipeline: separare le api segmentate bene da quelle segmentate male. Le due classi
-  # qui sotto sono solo suggerimenti (quick label e colori della griglia): se ne possono usare altre.
-  # La fase 2 (profilo demografico, anomaly detection) si prepara con scripts/new_stage.py.
-  classes: ["Segmentata Bene", "Segmentata Male"]   # solo suggerimenti, mostrati come quick label
-  label_aliases: {}      # es. {"Bad Seg": "Bad_Seg"}: applicati in lettura, lo storico non cambia
-  # Classi di scarto: crop che non si possono giudicare. Restano nel kNN (così il modello impara a
-  # riconoscerle) ma sono escluse dai cluster finali e dal denominatore delle prevalenze; nello
-  # snapshot hanno stato "rejected" e nell'audit uno strato per classe, per stimare quante api
-  # valide vengono scartate per errore.
-  # Esempio: ["Blurry", "Bad Seg", "Multiple Bees", "No Bee"]
-  # Regola per gli annotatori: se il difetto impedisce di giudicare il fenotipo è scarto;
-  # se il fenotipo si riconosce comunque si etichetta il fenotipo.
+  # Classes are NOT defined here: they come from the labels entered in the hub.
+  # Phase 1 of the pipeline: separate well-segmented bees from badly segmented ones. The two classes
+  # below are only suggestions (quick labels and grid colours): others can be used.
+  # Phase 2 (demographic profile, anomaly detection) is prepared with scripts/new_stage.py.
+  classes: ["Segmentata Bene", "Segmentata Male"]   # suggestions only, shown as quick labels
+  label_aliases: {}      # e.g. {"Bad Seg": "Bad_Seg"}: applied on read, the history does not change
+  # Reject classes: crops that cannot be judged. They stay in the kNN (so the model learns to
+  # recognise them) but are excluded from the final clusters and from the prevalence denominator; in the
+  # snapshot they have state "rejected" and in the audit one stratum per class, to estimate how many valid
+  # bees are rejected by mistake.
+  # Example: ["Blurry", "Bad Seg", "Multiple Bees", "No Bee"]
+  # Rule for annotators: if the defect prevents judging the phenotype, it is a reject;
+  # if the phenotype can still be recognised, label the phenotype.
   reject_classes: []
 
 extractor:
-  model: dinov2_vits14   # oppure dinov2_vitb14
+  model: dinov2_vits14   # or dinov2_vitb14
   image_size: 224
   batch_size: 128
   num_workers: 4
@@ -56,10 +56,10 @@ extractor:
 
 knn:
   k: 10
-  temperature: 0.07      # peso del vicino = exp(similarità / temperature)
+  temperature: 0.07      # neighbour weight = exp(similarity / temperature)
   backend: auto          # auto | faiss | sklearn | numpy
-  # Le api più lontane da ogni esempio etichettato (questa frazione delle non etichettate)
-  # non vengono forzate in una classe: formano il gruppo "non assegnate". 0 = disattivato.
+  # The bees farthest from every labelled example (this fraction of the unlabelled ones)
+  # are not forced into a class: they form the "unassigned" group. 0 = disabled.
   unassigned_fraction: 0.05
 
 propagation:
@@ -74,39 +74,39 @@ query:
   cold_start_threshold: 50
   uncertainty: margin              # margin | entropy | least_confidence
   uncertainty_source: propagation  # knn | propagation
-  candidate_multiplier: 10         # top-M più incerte, M = candidate_multiplier × batch
+  candidate_multiplier: 10         # top-M most uncertain, M = candidate_multiplier × batch
   random_fraction: 0.1
-  novelty_fraction: 0.2            # quota del batch per le api più lontane da ogni etichetta (regime normale)
+  novelty_fraction: 0.2            # share of the batch for the bees farthest from every label (normal regime)
 
 validation:
   size: 100
   seed: 123
 
 hub:
-  show_suggestion: false      # suggerimento kNN nascosto per evitare l'effetto ancora
-  assignment_timeout_s: 900   # dopo quanto un'immagine assegnata e non etichettata torna libera
+  show_suggestion: false      # kNN suggestion hidden to avoid the anchoring effect
+  assignment_timeout_s: 900   # after how long an assigned but unlabelled image becomes free again
 
 retrain:
-  # Il pulsante "Start re-train" in /al-status funziona sempre.
-  # enabled: true fa partire i job anche da soli, secondo la policy qui sotto.
+  # The "Start re-train" button in /al-status always works.
+  # enabled: true also starts jobs by themselves, following the policy below.
   enabled: false
   policy: label_count     # label_count | plateau | either
-  initial_labels: 50      # primo job dopo N nuove etichette...
-  growth_factor: 2.0      # ...poi N cresce: 50, 100, 200, 400, ...
-  plateau_rounds: 3       # K round senza miglioramento della metrica di validazione
+  initial_labels: 50      # first job after N new labels...
+  growth_factor: 2.0      # ...then N grows: 50, 100, 200, 400, ...
+  plateau_rounds: 3       # K rounds without improvement of the validation metric
   metric: macro_f1        # macro_f1 | accuracy
   min_delta: 0.0
 
-  # --- trainer contrastive (fine-tuning dell'extractor) ---
+  # --- contrastive trainer (fine-tuning of the extractor) ---
   trainer: contrastive    # contrastive | stub
-  python: venv/bin/python # interprete con torch: il training gira in un processo separato dall'hub
-  min_labels: 20          # sotto questa soglia (o con meno di 2 classi) il re-train non parte
-  require_improvement: true     # se la metrica di validazione peggiora, la versione nuova viene scartata
-  pseudo_label_threshold: 0.95  # confidenza minima per usare la predizione di un'ape come pseudo-label (> 1 = nessuna)
-  unfreeze_blocks: 2      # ultimi blocchi del ViT da addestrare (0 = tutti)
+  python: venv/bin/python # interpreter with torch: training runs in a process separate from the hub
+  min_labels: 20          # below this threshold (or with fewer than 2 classes) the re-train does not start
+  require_improvement: true     # if the validation metric gets worse, the new version is rejected
+  pseudo_label_threshold: 0.95  # minimum confidence to use a bee's prediction as a pseudo-label (> 1 = none)
+  unfreeze_blocks: 2      # last ViT blocks to train (0 = all)
   steps: 300
-  batch_size: 96          # api per step; ognuna entra con 2 viste aumentate
-  labeled_fraction: 0.5   # parte del batch presa da etichettate + pseudo-label; il resto è non etichettato
+  batch_size: 96          # bees per step; each one enters with 2 augmented views
+  labeled_fraction: 0.5   # part of the batch taken from labelled + pseudo-labelled bees; the rest is unlabelled
   lr_backbone: 1.0e-5
   lr_head: 1.0e-3
   temperature: 0.1
@@ -115,65 +115,65 @@ retrain:
   device: auto
 
 stopping:
-  # Criteri di stop mostrati in /al-status. Contano solo i round in cui sono arrivate etichette nuove.
-  window: 3               # numero di round consecutivi su cui valutare i tre criteri
-  max_pred_change: 0.01   # predizioni stabili: meno dell'1% delle api cambia classe da un round all'altro
-  f1_min_delta: 0.01      # plateau: la macro-F1 di validazione non migliora più di così
+  # Stopping criteria shown in /al-status. Only rounds in which new labels arrived count.
+  window: 3               # number of consecutive rounds over which the three criteria are evaluated
+  max_pred_change: 0.01   # stable predictions: less than 1% of the bees change class from one round to the next
+  f1_min_delta: 0.01      # plateau: the validation macro-F1 does not improve by more than this
 
 frames:
-  # Da quale frame viene ogni ape: si ricava dal manifest dell'estrazione di ogni cartella.
-  # Vuoto = <cartella pulita>/../raw_bees/_extraction_manifest.json; altrimenti {nome cartella: percorso}.
+  # Which frame each bee comes from: derived from the extraction manifest of each folder.
+  # Empty = <cleaned folder>/../raw_bees/_extraction_manifest.json; otherwise {folder name: path}.
   manifests: {}
-  # Regex con i gruppi nominati (?P<session>...) e/o (?P<colony>...) applicata al nome del frame,
-  # es. "(?P<colony>hive\\d+)_(?P<session>\\d{8})". Vuota = sessione = nome della cartella, alveare assente.
+  # Regex with the named groups (?P<session>...) and/or (?P<colony>...) applied to the frame name,
+  # e.g. "(?P<colony>hive\\d+)_(?P<session>\\d{8})". Empty = session = folder name, no hive.
   frame_pattern: ""
-  # Sessione = cartella che contiene il frame originale. I frame si chiamano DSC_xxxx.JPG e dal nome
-  # non si ricava nulla: batch_3 è del 12/09/2026, batch_4 del 26/09/2026, stesso alveare, con flash e zoom diversi.
-  # Le 791 foto del dataset SAM3 si attribuiscono tutte a una sola batch (168 / 241 / 199 / 183).
+  # Session = folder containing the original frame. Frames are named DSC_xxxx.JPG and nothing can be
+  # derived from the name: batch_3 is from 12/09/2026, batch_4 from 26/09/2026, same hive, with different flash and zoom.
+  # The 791 photos of the SAM3 dataset are each attributed to a single batch (168 / 241 / 199 / 183).
   session_dirs:
     batch_3: ${BEES_DATA_ROOT}/batch_3
     batch_4: ${BEES_DATA_ROOT}/batch_4
     batch_5: ${BEES_DATA_ROOT}/batch_5
     batch_6: ${BEES_DATA_ROOT}/batch_6
-  colony: ""             # nome dell'alveare per tutti i frame (un solo alveare fotografato); vuoto = non indicato
+  colony: ""             # hive name for all frames (a single photographed hive); empty = not specified
 
 audit:
-  # Campione di controllo di uno snapshot: stratificato per classe predetta, etichettato alla cieca.
-  # Le etichette di audit non entrano mai nel kNN: servono solo a correggere le stime.
-  per_stratum: 40           # api estratte da ogni strato (tutte, se lo strato ne ha meno)
-  large_stratum: 250        # api estratte dagli strati con almeno large_threshold api
+  # Audit sample of a snapshot: stratified by predicted class, labelled blind.
+  # Audit labels never enter the kNN: they are only used to correct the estimates.
+  per_stratum: 40           # bees drawn from each stratum (all of them, if the stratum has fewer)
+  large_stratum: 250        # bees drawn from strata with at least large_threshold bees
   large_threshold: 5000
-  confidence_bins: [0.9]    # ogni classe predetta è divisa in fasce di confidenza: <0.9 e >=0.9
-  double_fraction: 0.1      # quota del campione etichettata da due annotatori diversi (accordo, kappa)
-  anomaly_split_class: ""   # es. "Healthy": i suoi strati si dividono anche per anomaly score, se viene fornito
+  confidence_bins: [0.9]    # each predicted class is split into confidence bands: <0.9 and >=0.9
+  double_fraction: 0.1      # share of the sample labelled by two different annotators (agreement, kappa)
+  anomaly_split_class: ""   # e.g. "Healthy": its strata are also split by anomaly score, if one is provided
   anomaly_quantile: 0.9
   seed: 7
 
 colony:
-  # Indicatori di colonia, calcolati sulle stime corrette dall'audit (scripts/audit_report.py).
+  # Colony indicators, computed on the audit-corrected estimates (scripts/audit_report.py).
   group_by: session           # frame | session | colony | dataset
-  demographic_classes: []     # I1: classi del profilo demografico, es. ["Nurse", "Forager", "Drone"]
-  disease_classes: []         # I2: classi che sono segni di malattia, es. ["Varroa", "Deformed Wing"]
-  min_detected: 3             # I2: api confermate da un umano perché un segno sia "detected"
-  reference_groups: []        # I3: gruppi sani di riferimento; vuoto = media di tutti i gruppi
-  time_order:                 # I5: {alveare: [sessione1, sessione2, ...]}; "*" = tutti gli alveari insieme
+  demographic_classes: []     # I1: demographic profile classes, e.g. ["Nurse", "Forager", "Drone"]
+  disease_classes: []         # I2: classes that are signs of disease, e.g. ["Varroa", "Deformed Wing"]
+  min_detected: 3             # I2: human-confirmed bees needed for a sign to be "detected"
+  reference_groups: []        # I3: healthy reference groups; empty = mean of all groups
+  time_order:                 # I5: {hive: [session1, session2, ...]}; "*" = all hives together
     "*": [batch_3, batch_4, batch_5, batch_6]
-  anomaly_threshold: 0.0      # quota di api con anomaly score sopra soglia (0 = spento)
+  anomaly_threshold: 0.0      # share of bees with anomaly score above threshold (0 = off)
   n_boot: 1000
   seed: 11
-  light_rules: [disease_detected, profile_divergent]   # anche: unexplained_high
-  red_min_rules: 2            # regole scattate insieme per il rosso (una sola = giallo)
-  max_unexplained: 0.0        # soglia di I4 per la regola unexplained_high (0 = spenta)
+  light_rules: [disease_detected, profile_divergent]   # also: unexplained_high
+  red_min_rules: 2            # rules firing together for red (only one = yellow)
+  max_unexplained: 0.0        # I4 threshold for the unexplained_high rule (0 = off)
 
 review:
-  # Coda delle etichette sospette (pagina Review): api etichettate a mano a cui i vicini etichettati
-  # più simili assegnano con forza un'altra classe. Un umano conferma o corregge, niente è automatico.
-  # Validation set e audit non vengono mai controllati: servono a misurare il modello.
+  # Queue of suspicious labels (Review page): hand-labelled bees that their most similar labelled
+  # neighbours strongly assign to another class. A human confirms or corrects; nothing is automatic.
+  # Validation set and audit are never checked: they are used to measure the model.
   enabled: true
-  k: 0                    # vicini che votano; 0 = knn.k
-  min_disagreement: 0.8   # probabilità minima della classe suggerita perché l'etichetta sia sospetta
-  min_class_size: 5       # classi con meno etichette: mostrate a parte, il segnale lì è debole
-  show_neighbors: 6       # vicini mostrati come evidenza
+  k: 0                    # voting neighbours; 0 = knn.k
+  min_disagreement: 0.8   # minimum probability of the suggested class for the label to be suspicious
+  min_class_size: 5       # classes with fewer labels: shown separately, the signal there is weak
+  show_neighbors: 6       # neighbours shown as evidence
 
 simulation:
   seeds: [0, 1, 2, 3, 4]
@@ -183,5 +183,5 @@ simulation:
   synthetic_n: 3000
   synthetic_dim: 64
   synthetic_classes: 6
-  synthetic_imbalance: 0.6   # ogni classe ha il 60% degli esempi della precedente
+  synthetic_imbalance: 0.6   # each class has 60% of the examples of the previous one
   synthetic_noise: 2.0

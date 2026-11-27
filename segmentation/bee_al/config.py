@@ -1,4 +1,4 @@
-"""Configurazione tipata, letta da ``config/al_config.yaml``."""
+"""Typed configuration, read from ``config/al_config.yaml``."""
 from __future__ import annotations
 
 import dataclasses
@@ -17,25 +17,25 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG_PATH = REPO_ROOT / "config" / "al_config.yaml"
 
 UNCERTAINTIES = ("margin", "entropy", "least_confidence")
-ID_SEPARATOR = "__"  # tra nome della cartella e nome del file negli image_id
+ID_SEPARATOR = "__"  # between folder name and file name in image_ids
 
 
 def _check(cond: bool, msg: str) -> None:
     if not cond:
-        raise ValueError(f"Config non valida: {msg}")
+        raise ValueError(f"Invalid config: {msg}")
 
 
 @dataclass
 class PathsConfig:
     dataset_dir: str = "data/images"
-    # Più cartelle: {nome: cartella}. Se non è vuoto ha la precedenza su ``dataset_dir``
-    # e l'image_id diventa "<nome>__<file>", perché i nomi dei file si ripetono tra cartelle.
+    # Multiple folders: {name: folder}. When not empty it takes precedence over ``dataset_dir``
+    # and the image_id becomes "<name>__<file>", because file names repeat across folders.
     dataset_dirs: dict[str, str] = field(default_factory=dict)
     results_dir: str = "active_learning_tool/results"
     embeddings_dir: str = "data/embeddings"
     models_dir: str = "models"
-    # JSON {"image_ids": [...]}: se indicato, l'hub lavora solo su queste api (fase successiva
-    # di una pipeline, es. solo le api segmentate bene). Vuoto = tutte quelle con un embedding.
+    # JSON {"image_ids": [...]}: if set, the hub works only on these bees (a later phase
+    # of a pipeline, e.g. only the well-segmented bees). Empty = every bee with an embedding.
     subset_file: str = ""
 
 
@@ -69,7 +69,7 @@ class KNNConfig:
     def __post_init__(self) -> None:
         _check(self.k >= 1, "knn.k >= 1")
         _check(self.temperature > 0, "knn.temperature > 0")
-        _check(self.backend in ("auto", "faiss", "sklearn", "numpy"), "knn.backend sconosciuto")
+        _check(self.backend in ("auto", "faiss", "sklearn", "numpy"), "knn.backend unknown")
         _check(0 <= self.unassigned_fraction < 1, "knn.unassigned_fraction in [0, 1)")
 
 
@@ -109,8 +109,8 @@ class QueryConfig:
 class ValidationConfig:
     size: int = 100
     seed: int = 123
-    # Cartelle di dataset tenute da parte per validare il modello (es. un batch nuovo): il modello
-    # le predice ma non le propone mai, non impara da loro e le etichette date restano "holdout".
+    # Dataset folders held out to validate the model (e.g. a new batch): the model predicts
+    # them but never proposes them, does not learn from them, and their labels stay "holdout".
     holdout_datasets: list[str] = field(default_factory=list)
 
 
@@ -146,11 +146,11 @@ class RetrainConfig:
     device: str = "auto"
 
     def __post_init__(self) -> None:
-        _check(self.policy in ("label_count", "plateau", "either"), "retrain.policy sconosciuta")
+        _check(self.policy in ("label_count", "plateau", "either"), "retrain.policy unknown")
         _check(self.trainer in ("contrastive", "stub"), "retrain.trainer in (contrastive, stub)")
         _check(self.pseudo_label_threshold > 0, "retrain.pseudo_label_threshold > 0")
         _check(0 < self.labeled_fraction < 1, "retrain.labeled_fraction in (0, 1)")
-        _check(self.steps >= 1 and self.batch_size >= 4, "retrain.steps >= 1 e batch_size >= 4")
+        _check(self.steps >= 1 and self.batch_size >= 4, "retrain.steps >= 1 and batch_size >= 4")
         _check(self.temperature > 0, "retrain.temperature > 0")
         _check(self.metric in ("macro_f1", "accuracy"), "retrain.metric in (macro_f1, accuracy)")
         _check(self.initial_labels >= 1 and self.growth_factor >= 1, "retrain.initial_labels/growth_factor >= 1")
@@ -158,7 +158,7 @@ class RetrainConfig:
 
 @dataclass
 class StoppingConfig:
-    """Criteri di stop mostrati nell'hub: sono un'indicazione, non fermano nulla."""
+    """Stopping criteria shown in the hub: they are only a hint and do not stop anything."""
 
     window: int = 3
     max_pred_change: float = 0.01
@@ -172,16 +172,16 @@ class StoppingConfig:
 
 @dataclass
 class FramesConfig:
-    """Collegamento ape -> frame di origine (vedi ``bee_al/frames.py``)."""
+    """Link from bee to source frame (see ``bee_al/frames.py``)."""
 
-    # {nome cartella dataset: percorso del manifest dell'estrazione}; vuoto = <cartella pulita>/../raw_bees/
+    # {dataset folder name: path of the extraction manifest}; empty = <cleaned folder>/../raw_bees/
     manifests: dict[str, str] = field(default_factory=dict)
-    # regex con i gruppi nominati (?P<session>...) e/o (?P<colony>...) cercata nel nome del frame
+    # regex with the named groups (?P<session>...) and/or (?P<colony>...), searched in the frame name
     frame_pattern: str = ""
-    # {nome sessione: cartella con i frame originali di quella sessione}, cercati anche nelle sottocartelle.
-    # Serve quando il nome del frame non dice nulla (es. DSC_5365.JPG): la sessione è la cartella che lo contiene.
+    # {session name: folder with the original frames of that session}, also searched in subfolders.
+    # Needed when the frame name says nothing (e.g. DSC_5365.JPG): the session is the folder containing it.
     session_dirs: dict[str, str] = field(default_factory=dict)
-    # alveare da assegnare a tutti i frame quando la regex non ne ricava uno (un solo alveare fotografato)
+    # hive assigned to every frame when the regex does not yield one (a single photographed hive)
     colony: str = ""
 
     def __post_init__(self) -> None:
@@ -189,24 +189,24 @@ class FramesConfig:
             try:
                 groups = set(re.compile(self.frame_pattern).groupindex)
             except re.error as e:
-                raise ValueError(f"Config non valida: frames.frame_pattern non è una regex ({e})") from None
+                raise ValueError(f"Invalid config: frames.frame_pattern is not a regex ({e})") from None
             _check(bool(groups & {"session", "colony"}) and groups <= {"session", "colony"},
-                   "frames.frame_pattern deve avere i gruppi nominati 'session' e/o 'colony'")
+                   "frames.frame_pattern must have the named groups 'session' and/or 'colony'")
 
 
 @dataclass
 class AuditConfig:
-    """Campione di controllo stratificato (vedi ``bee_al/audit.py``)."""
+    """Stratified audit sample (see ``bee_al/audit.py``)."""
 
     per_stratum: int = 40
     large_stratum: int = 250
     large_threshold: int = 5000
     confidence_bins: list[float] = field(default_factory=lambda: [0.9])
     double_fraction: float = 0.1
-    anomaly_split_class: str = ""     # es. "Healthy Adult"; vuoto = nessuna divisione per anomaly score
+    anomaly_split_class: str = ""     # e.g. "Healthy Adult"; empty = no split by anomaly score
     anomaly_quantile: float = 0.9
     seed: int = 7
-    # Solo le api di queste cartelle di dataset (es. il batch tenuto da parte); vuoto = tutte.
+    # Only the bees of these dataset folders (e.g. the held-out batch); empty = all.
     datasets: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -214,7 +214,7 @@ class AuditConfig:
         _check(self.large_stratum >= self.per_stratum, "audit.large_stratum >= audit.per_stratum")
         _check(self.large_threshold >= 1, "audit.large_threshold >= 1")
         _check(all(0 < b < 1 for b in self.confidence_bins) and len(set(self.confidence_bins)) == len(self.confidence_bins),
-               "audit.confidence_bins: soglie distinte in (0, 1)")
+               "audit.confidence_bins: distinct thresholds in (0, 1)")
         _check(0 <= self.double_fraction <= 1, "audit.double_fraction in [0, 1]")
         _check(0 < self.anomaly_quantile < 1, "audit.anomaly_quantile in (0, 1)")
 
@@ -225,7 +225,7 @@ LIGHT_RULES = ("disease_detected", "profile_divergent", "unexplained_high")
 
 @dataclass
 class ColonyConfig:
-    """Indicatori di colonia sulle stime corrette dall'audit (vedi ``bee_al/colony.py``)."""
+    """Colony indicators on the audit-corrected estimates (see ``bee_al/colony.py``)."""
 
     group_by: str = "session"               # frame | session | colony | dataset
     demographic_classes: list[str] = field(default_factory=list)
@@ -233,13 +233,13 @@ class ColonyConfig:
     min_detected: int = 3
     reference_groups: list[str] = field(default_factory=list)
     time_order: dict[str, list[str]] = field(default_factory=dict)  # {colony: [session1, session2, ...]}
-    anomaly_threshold: float = 0.0          # 0 = indicatore AD disattivato
+    anomaly_threshold: float = 0.0          # 0 = AD indicator disabled
     n_boot: int = 1000
     seed: int = 11
-    # Semaforo: giallo se scatta almeno una regola, rosso da red_min_rules in su.
+    # Traffic light: yellow if at least one rule fires, red from red_min_rules upwards.
     light_rules: list[str] = field(default_factory=lambda: ["disease_detected", "profile_divergent"])
     red_min_rules: int = 2
-    max_unexplained: float = 0.0            # soglia della regola unexplained_high (0 = spenta)
+    max_unexplained: float = 0.0            # threshold of the unexplained_high rule (0 = off)
 
     def __post_init__(self) -> None:
         _check(self.group_by in GROUP_BY, f"colony.group_by in {GROUP_BY}")
@@ -253,18 +253,18 @@ class ColonyConfig:
 
 @dataclass
 class StageConfig:
-    """Fase della pipeline su cui lavora questa config: l'hub la mostra in ogni pagina."""
+    """Pipeline phase this config works on: the hub shows it on every page."""
 
-    name: str = ""          # es. "fase1": finisce anche nei file esportati
-    title: str = ""         # riga in evidenza, es. "Phase 1 of 2 - segmentation quality"
-    description: str = ""   # cosa deve fare l'annotatore in questa fase
+    name: str = ""          # e.g. "fase1": also ends up in the exported files
+    title: str = ""         # highlighted line, e.g. "Phase 1 of 2 - segmentation quality"
+    description: str = ""   # what the annotator has to do in this phase
 
 
 @dataclass
 class ExportConfig:
-    """Dove finiscono i cluster quando si chiude una fase (vedi ``bee_al/export.py``)."""
+    """Where the clusters go when a phase is closed (see ``bee_al/export.py``)."""
 
-    clusters_dir: str = ""  # una sottocartella per esportazione; vuoto = pulsante disattivato
+    clusters_dir: str = ""  # one subfolder per export; empty = button disabled
     mode: str = "copy"      # copy | hardlink | symlink
 
     def __post_init__(self) -> None:
@@ -273,12 +273,12 @@ class ExportConfig:
 
 @dataclass
 class ReviewConfig:
-    """Coda di revisione delle etichette sospette (vedi ``bee_al/review.py``)."""
+    """Review queue of suspicious labels (see ``bee_al/review.py``)."""
 
     enabled: bool = True
-    k: int = 0                    # 0 = usa knn.k
-    min_disagreement: float = 0.8 # probabilità minima della classe suggerita
-    min_class_size: int = 5       # sotto questa soglia la classe è "rara": sezione a parte
+    k: int = 0                    # 0 = use knn.k
+    min_disagreement: float = 0.8 # minimum probability of the suggested class
+    min_class_size: int = 5       # below this threshold the class is "rare": separate section
     show_neighbors: int = 6
 
     def __post_init__(self) -> None:
@@ -321,23 +321,23 @@ class ALConfig:
     export: ExportConfig = field(default_factory=ExportConfig)
     review: ReviewConfig = field(default_factory=ReviewConfig)
     simulation: SimulationConfig = field(default_factory=SimulationConfig)
-    root: str = str(REPO_ROOT)  # base dei percorsi relativi; non va nel file YAML
+    root: str = str(REPO_ROOT)  # base of relative paths; not part of the YAML file
 
     def resolve(self, path: Union[str, Path]) -> Path:
-        """Percorso assoluto: quelli relativi partono dalla root del repo."""
+        """Absolute path: relative paths start from the repo root."""
         p = Path(path).expanduser()
         return p if p.is_absolute() else Path(self.root) / p
 
     @property
     def dataset_sources(self) -> list[tuple[str, Path]]:
-        """Cartelle delle immagini come (prefisso dell'image_id, cartella); prefisso vuoto con una sola cartella."""
+        """Image folders as (image_id prefix, folder); empty prefix with a single folder."""
         if self.paths.dataset_dirs:
             return [(f"{name}{ID_SEPARATOR}", self.resolve(d)) for name, d in self.paths.dataset_dirs.items()]
         return [("", self.resolve(self.paths.dataset_dir))]
 
     @property
     def dataset_dir(self) -> Path:
-        """Prima (o unica) cartella del dataset."""
+        """First (or only) dataset folder."""
         return self.dataset_sources[0][1]
 
     @property
@@ -375,35 +375,35 @@ class ALConfig:
 
     @property
     def config_id(self) -> str:
-        """Hash breve della configurazione, salvato accanto a ogni etichetta."""
+        """Short hash of the configuration, saved next to every label."""
         blob = json.dumps(self.to_dict(), sort_keys=True, default=str)
         return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:8]
 
 
 def _coerce(value: Any, tp: Any, where: str) -> Any:
-    """Converte ``value`` nel tipo annotato, con errori leggibili."""
+    """Convert ``value`` to the annotated type, with readable errors."""
     origin = typing.get_origin(tp)
     if dataclasses.is_dataclass(tp):
-        _check(isinstance(value, dict), f"{where} deve essere una mappa")
+        _check(isinstance(value, dict), f"{where} must be a mapping")
         return _from_dict(tp, value, where)
     if origin is list:
         value = [] if value is None else value
-        _check(isinstance(value, list), f"{where} deve essere una lista")
+        _check(isinstance(value, list), f"{where} must be a list")
         (item_tp,) = typing.get_args(tp)
         return [_coerce(v, item_tp, f"{where}[{i}]") for i, v in enumerate(value)]
     if origin is dict:
         value = {} if value is None else value
-        _check(isinstance(value, dict), f"{where} deve essere una mappa")
+        _check(isinstance(value, dict), f"{where} must be a mapping")
         _, value_tp = typing.get_args(tp)
         return {str(k): _coerce(v, value_tp, f"{where}.{k}") for k, v in value.items()}
     if tp is bool:
-        _check(isinstance(value, bool), f"{where} deve essere true/false")
+        _check(isinstance(value, bool), f"{where} must be true/false")
         return value
     if tp is int:
-        _check(isinstance(value, int) and not isinstance(value, bool), f"{where} deve essere un intero")
+        _check(isinstance(value, int) and not isinstance(value, bool), f"{where} must be an integer")
         return value
     if tp is float:
-        _check(isinstance(value, (int, float)) and not isinstance(value, bool), f"{where} deve essere un numero")
+        _check(isinstance(value, (int, float)) and not isinstance(value, bool), f"{where} must be a number")
         return float(value)
     if tp is str:
         return str(value)
@@ -414,28 +414,28 @@ def _from_dict(cls: type, data: dict[str, Any], where: str = "") -> Any:
     hints = typing.get_type_hints(cls)
     known = {f.name for f in dataclasses.fields(cls)}
     unknown = set(data) - known
-    _check(not unknown, f"chiavi sconosciute in '{where or 'root'}': {sorted(unknown)}")
+    _check(not unknown, f"unknown keys in '{where or 'root'}': {sorted(unknown)}")
     kwargs = {k: _coerce(v, hints[k], f"{where}.{k}".lstrip(".")) for k, v in data.items()}
     return cls(**kwargs)
 
 
 def config_from_dict(data: Optional[dict[str, Any]], root: Union[str, Path, None] = None) -> ALConfig:
-    """Costruisce la config da un dict; le chiavi mancanti prendono i default."""
+    """Build the config from a dict; missing keys take the defaults."""
     data = dict(data or {})
-    _check("root" not in data, "'root' non va nel file di configurazione")
+    _check("root" not in data, "'root' does not belong in the configuration file")
     cfg: ALConfig = _from_dict(ALConfig, data)
     for name in cfg.paths.dataset_dirs:
         _check(bool(name) and "/" not in name and ID_SEPARATOR not in name,
                f"paths.dataset_dirs: nome non valido {name!r} (niente '/' né '{ID_SEPARATOR}')")
     for name in cfg.validation.holdout_datasets:
-        _check(name in cfg.paths.dataset_dirs, f"validation.holdout_datasets: {name!r} non è in paths.dataset_dirs")
+        _check(name in cfg.paths.dataset_dirs, f"validation.holdout_datasets: {name!r} is not in paths.dataset_dirs")
     if root is not None:
         cfg.root = str(Path(root).resolve())
     return cfg
 
 
 def load_config(path: Union[str, Path, None] = None, root: Union[str, Path, None] = None) -> ALConfig:
-    """Legge il file YAML (default ``config/al_config.yaml``)."""
+    """Read the YAML file (default ``config/al_config.yaml``)."""
     path = Path(path) if path is not None else DEFAULT_CONFIG_PATH
     with open(path, "r", encoding="utf-8") as f:
         text = f.read()

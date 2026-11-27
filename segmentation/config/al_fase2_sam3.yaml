@@ -1,7 +1,7 @@
-# Fase 'fase2_sam3': 138788 api con classe ['Ok'] nello snapshot 'fase1_finale_okvsscarta'
-# di al_config.yaml. Scritta da scripts/new_stage.py; etichette e modelli sono separati.
-# Aggiunte 34645 api di 'b7' (batch 7) filtrate con il modello v003 della fase 1 (scripts/add_dataset_to_stage.py).
-# Aggiunte 895 api di 'phone' (22 foto del telefono, batch_6/favi_phone_camera) filtrate con il modello v003 della fase 1.
+# Stage 'fase2_sam3': 138788 bees with class ['Ok'] in snapshot 'fase1_finale_okvsscarta'
+# of al_config.yaml. Written by scripts/new_stage.py; labels and models are kept separate.
+# Added 34645 bees of 'b7' (batch 7) filtered with model v003 of phase 1 (scripts/add_dataset_to_stage.py).
+# Added 895 bees of 'phone' (22 phone photos, batch_6/favi_phone_camera) filtered with model v003 of phase 1.
 
 seed: 42
 paths:
@@ -15,8 +15,8 @@ paths:
   models_dir: ${BEE_AL_WORKDIR}/models_fase2_sam3
   subset_file: ${BEE_AL_WORKDIR}/results_fase2_sam3/subset.json
 labels:
-  # Profilo demografico: Giovane, Adulte, Fuco. Malata: api malate in generale.
-  # Non Classificabile: non si giudica per segmentazione o posa (classe di scarto, fuori dalle quote).
+  # Demographic profile: Giovane (young), Adulte (adult), Fuco (drone). Malata: diseased bees in general.
+  # Non Classificabile: cannot be judged because of segmentation or pose (reject class, outside the shares).
   classes: [Giovane, Adulte, Fuco, Malata, Non Classificabile]
   label_aliases: {Non Classificabille: Non Classificabile}
   reject_classes: [Non Classificabile]
@@ -49,7 +49,7 @@ query:
 validation:
   size: 100
   seed: 123
-  # Batch 7 e foto del telefono tenuti da parte: predetti e visibili nei cluster, mai proposti né usati per addestrare.
+  # Batch 7 and phone photos held out: predicted and visible in the clusters, never proposed nor used for training.
   holdout_datasets: [b7, phone]
 hub:
   show_suggestion: false

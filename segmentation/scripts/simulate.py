@@ -1,12 +1,12 @@
-"""Simula l'hub con un oracolo e produce le curve di apprendimento delle varianti.
+"""Simulate the hub with an oracle and produce the learning curves of the variants.
 
-Uso:
-    python scripts/simulate.py                                   # dataset sintetico
-    python scripts/simulate.py --oracle store                    # etichette di al_labels.csv
-    python scripts/simulate.py --oracle csv:etichette.csv        # CSV con colonne image_id,label
+Usage:
+    python scripts/simulate.py                                   # synthetic dataset
+    python scripts/simulate.py --oracle store                    # labels from al_labels.csv
+    python scripts/simulate.py --oracle csv:labels.csv           # CSV with columns image_id,label
     python scripts/simulate.py --variants baseline v1 v2 v3 --seeds 0 1 2
 
-L'oracolo può essere un insieme qualsiasi di etichette: le classi non sono fissate.
+The oracle can be any set of labels: the classes are not fixed.
 """
 import argparse
 import csv
@@ -24,7 +24,7 @@ from bee_al.simulation import VARIANTS, make_synthetic, oracle_subset, run_simul
 
 
 def load_oracle(cfg, source: str):
-    """Embedding e etichette dell'oracolo scelto."""
+    """Embeddings and labels of the chosen oracle."""
     sim = cfg.simulation
     if source == "synthetic":
         return make_synthetic(sim.synthetic_n, sim.synthetic_dim, sim.synthetic_classes,
@@ -36,7 +36,7 @@ def load_oracle(cfg, source: str):
         with open(source[4:], "r", encoding="utf-8") as f:
             labels = {r["image_id"]: store.resolve(store.normalize_label(r["label"])) for r in csv.DictReader(f)}
     else:
-        sys.exit(f"Oracolo sconosciuto: {source}")
+        sys.exit(f"Unknown oracle: {source}")
     labels = {i: lbl for i, lbl in labels.items() if lbl != UNKNOWN_LABEL}
     emb = load_embeddings(latest_embeddings(cfg)[1])
     return oracle_subset(emb.ids, emb.X, labels)
@@ -57,8 +57,8 @@ def main() -> None:
         cfg.simulation.max_labels = args.max_labels
     X, oracle = load_oracle(cfg, args.oracle)
     if len(X) < 2 * cfg.query.batch_size:
-        sys.exit(f"L'oracolo copre solo {len(X)} api: troppo poche per simulare")
-    print(f"Oracolo '{args.oracle}': {len(X)} api, {len(set(oracle))} classi")
+        sys.exit(f"The oracle covers only {len(X)} bees: too few to simulate")
+    print(f"Oracle '{args.oracle}': {len(X)} bees, {len(set(oracle))} classes")
 
     result = run_simulation(X, oracle, cfg, args.variants, args.seeds, log=print)
     paths = save_results(result, cfg.resolve(args.out))

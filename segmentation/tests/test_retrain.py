@@ -30,11 +30,11 @@ def test_label_count_schedule_grows():
 
 def test_plateau_policy():
     policy = RetrainPolicy(RetrainConfig(policy="plateau", plateau_rounds=3))
-    assert policy.decide(10, 0, [0.5, 0.6, 0.7, 0.8]) is None            # sta ancora migliorando
-    assert policy.decide(10, 0, [0.5, 0.8, 0.8, 0.79, 0.8]) is not None  # fermo da 3 round
-    assert policy.decide(10, 0, [None, 0.8, None]) is None               # troppo pochi valori
-    assert policy.decide(1000, 0, [0.5, 0.6]) is None                    # il conteggio non conta in questa policy
-    assert policy.decide(0, 0, [0.8, 0.8, 0.8, 0.8]) is None             # senza etichette nuove non serve
+    assert policy.decide(10, 0, [0.5, 0.6, 0.7, 0.8]) is None            # still improving
+    assert policy.decide(10, 0, [0.5, 0.8, 0.8, 0.79, 0.8]) is not None  # flat for 3 rounds
+    assert policy.decide(10, 0, [None, 0.8, None]) is None               # too few values
+    assert policy.decide(1000, 0, [0.5, 0.6]) is None                    # the count does not matter in this policy
+    assert policy.decide(0, 0, [0.8, 0.8, 0.8, 0.8]) is None             # not needed without new labels
     either = RetrainPolicy(RetrainConfig(policy="either", initial_labels=50))
     assert either.decide(60, 0, []) and either.decide(10, 0, [0.8, 0.8, 0.8, 0.8])
 
@@ -43,14 +43,14 @@ def test_versions(cfg, tmp_path):
     assert list_versions(cfg.models_dir) == [] and next_version(cfg.models_dir) == "v001"
     assert latest_embeddings(cfg) == ("v000", cfg.embeddings_dir)
     (cfg.models_dir / "v001" / "embeddings").mkdir(parents=True)
-    (cfg.models_dir / "v002").mkdir()                                    # incompleta: senza embedding
+    (cfg.models_dir / "v002").mkdir()                                    # incomplete: no embeddings
     (cfg.models_dir / "v001" / "embeddings" / "manifest.json").write_text("{}")
     assert list_versions(cfg.models_dir) == ["v001"] and next_version(cfg.models_dir) == "v003"
     assert latest_embeddings(cfg)[0] == "v001"
 
 
 class RotatingTrainer(FeatureExtractorTrainer):
-    """Trainer finto che cambia davvero gli embedding e aspetta un via libera."""
+    """Fake trainer that actually changes the embeddings and waits for a go-ahead."""
 
     def __init__(self):
         self.gate = threading.Event()
@@ -87,10 +87,10 @@ def test_retrain_runs_in_background_and_versions_the_model(cfg, synth):
 
     _label(engine, truth, 10)
     assert manager.state == "idle" and manager.status()["new_labels"] == 10
-    _label(engine, truth, 10)                      # 20 etichette: a fine batch parte il job
-    assert manager.state == "running" and "20 nuove etichette" in manager.reason
+    _label(engine, truth, 10)                      # 20 labels: the job starts at the end of the batch
+    assert manager.state == "running" and "20 new labels" in manager.reason
 
-    # l'hub non è bloccato: si continua a etichettare con il modello vecchio
+    # the hub is not blocked: labelling continues with the old model
     _label(engine, truth, 5)
     assert engine.model_version == "v000" and engine.status()["n_labels"] == 25
     assert trainer.calls == [(20, 280, sorted(set(engine.bank.classes)))]
@@ -99,10 +99,10 @@ def test_retrain_runs_in_background_and_versions_the_model(cfg, synth):
     manager.join(10)
     assert manager.state == "idle" and manager.error == ""
     assert engine.model_version == "v001"
-    assert engine.status()["n_labels"] == 25       # le etichette date durante il job non si perdono
-    assert not np.allclose(engine.bank.X, old_X)   # bank ricostruita sugli embedding nuovi
+    assert engine.status()["n_labels"] == 25       # labels given during the job are not lost
+    assert not np.allclose(engine.bank.X, old_X)   # bank rebuilt on the new embeddings
     np.testing.assert_allclose(np.linalg.norm(engine.bank.X, axis=1), 1.0, atol=1e-5)
-    assert engine.history[-1]["model_version"] == "v001"   # incertezze e metriche ricalcolate
+    assert engine.history[-1]["model_version"] == "v001"   # uncertainties and metrics recomputed
 
     out = cfg.models_dir / "v001"
     assert yaml.safe_load((out / "config.yaml").read_text())["query"]["batch_size"] == 10
@@ -110,13 +110,13 @@ def test_retrain_runs_in_background_and_versions_the_model(cfg, synth):
     assert json.loads((out / "meta.json").read_text())["n_labels"] == 20
     np.testing.assert_allclose(load_embeddings(out / "embeddings").X, engine.bank.X, atol=1e-6)
 
-    # soglia successiva raddoppiata: servono 40 etichette nuove dalle 20 del job precedente
+    # next threshold doubled: 40 new labels are needed on top of the 20 of the previous job
     st = manager.status()
     assert st["n_retrains"] == 1 and st["next_threshold"] == 40 and st["new_labels"] == 5
     labeled = {i for i in engine.bank.ids if engine.bank.label_of(i)}
     assert not labeled & {b.image_id for b in engine.batch if not b.done}
 
-    # al riavvio si riparte dall'ultima versione
+    # on restart it resumes from the latest version
     assert latest_embeddings(cfg) == ("v001", out / "embeddings")
     restarted = RetrainManager(engine)
     assert restarted.n_retrains == 1 and restarted.labels_at_last == 20
@@ -124,24 +124,24 @@ def test_retrain_runs_in_background_and_versions_the_model(cfg, synth):
 
 def test_stub_trainer_and_failure_do_not_break_the_hub(cfg, synth):
     engine, truth = _engine(cfg, synth)
-    manager = RetrainManager.attach(engine)        # StubTrainer di default
+    manager = RetrainManager.attach(engine)        # StubTrainer by default
     assert isinstance(manager.trainer, StubTrainer)
     old_X = engine.bank.X.copy()
     _label(engine, truth, 20)
     manager.join(10)
     assert engine.model_version == "v001"
-    np.testing.assert_allclose(engine.bank.X, old_X, atol=1e-6)  # lo stub restituisce l'extractor congelato
+    np.testing.assert_allclose(engine.bank.X, old_X, atol=1e-6)  # the stub returns the frozen extractor
 
     class Broken(FeatureExtractorTrainer):
         def retrain(self, labeled, unlabeled):
-            raise RuntimeError("GPU esaurita")
+            raise RuntimeError("GPU out of memory")
 
     manager.trainer = Broken()
-    manager.start("manuale")
+    manager.start("manual")
     manager.join(10)
-    assert manager.state == "failed" and "GPU esaurita" in manager.status()["error"]
+    assert manager.state == "failed" and "GPU out of memory" in manager.status()["error"]
     assert engine.model_version == "v001"
-    _label(engine, truth, 3)                       # l'hub continua a funzionare
+    _label(engine, truth, 3)                       # the hub keeps working
 
 
 def test_automatic_jobs_are_off_by_default_but_manual_start_works(cfg, synth):
@@ -152,11 +152,11 @@ def test_automatic_jobs_are_off_by_default_but_manual_start_works(cfg, synth):
     manager = RetrainManager.attach(engine)
     assert engine.status()["retrain"]["auto"] is False
 
-    with pytest.raises(ValueError, match="at least 20 labels"):      # troppo poche etichette
+    with pytest.raises(ValueError, match="at least 20 labels"):      # too few labels
         manager.start()
     assert "20 labels" in manager.status()["blocked_by"]
     _label(engine, truth, 60)
-    assert manager.state == "idle" and manager.n_retrains == 0        # nessun job partito da solo
+    assert manager.state == "idle" and manager.n_retrains == 0        # no job started by itself
     assert manager.status()["blocked_by"] is None
 
     manager.start("button, a@x.it")
@@ -192,14 +192,14 @@ def test_pseudo_labels_are_confident_predictions_only(cfg, synth):
     pseudo = {i: p for i, p in zip(unl.ids, unl.pseudo_labels) if p is not None}
     assert 0 < len(pseudo) < len(unl.ids)
     assert all(confidence[i] >= 0.9 for i in pseudo)
-    assert item.image_id in unl.ids and item.image_id not in pseudo   # un "Non so" non diventa pseudo-label
-    assert not set(pseudo) & unassigned                               # né le api lontane da tutto
+    assert item.image_id in unl.ids and item.image_id not in pseudo   # a "Non so" (unknown) never becomes a pseudo-label
+    assert not set(pseudo) & unassigned                               # nor do bees far from everything
     right = np.mean([truth[i] == p for i, p in pseudo.items()])
     assert right > 0.9 and manager.status()["last"]["n_pseudo"] == len(pseudo)
 
 
 class NoiseTrainer(FeatureExtractorTrainer):
-    """Trainer che rovina gli embedding: la versione deve essere scartata."""
+    """Trainer that ruins the embeddings: the version must be rejected."""
 
     def retrain(self, labeled, unlabeled):
         paths = labeled.paths + unlabeled.paths
@@ -227,14 +227,14 @@ def test_worse_model_is_saved_but_not_used(cfg, synth):
     last = manager.status()["last"]
     assert manager.state == "idle" and last["accepted"] is False
     assert last["validation_after"]["macro_f1"] < last["validation_before"]["macro_f1"]
-    assert engine.model_version == "v000"                              # si resta sul modello precedente
+    assert engine.model_version == "v000"                              # stays on the previous model
     np.testing.assert_array_equal(engine.bank.X, old_X)
-    assert (cfg.models_dir / "v001" / "embeddings" / "manifest.json").exists()   # ma resta su disco
+    assert (cfg.models_dir / "v001" / "embeddings" / "manifest.json").exists()   # but stays on disk
     assert list_versions(cfg.models_dir) == [] and list_versions(cfg.models_dir, include_rejected=True) == ["v001"]
     assert latest_embeddings(cfg)[0] == "v000" and next_version(cfg.models_dir) == "v002"
-    assert RetrainManager(engine).n_retrains == 1                      # il tentativo conta per la soglia successiva
+    assert RetrainManager(engine).n_retrains == 1                      # the attempt counts for the next threshold
 
-    cfg.retrain.require_improvement = False                            # controllo disattivabile
+    cfg.retrain.require_improvement = False                            # the check can be disabled
     manager.start()
     manager.join(20)
     assert engine.model_version == "v002" and manager.status()["last"]["accepted"] is True
@@ -243,12 +243,12 @@ def test_worse_model_is_saved_but_not_used(cfg, synth):
 def test_better_or_unverifiable_model_is_used(cfg, synth):
     engine, truth = _engine(cfg, synth)
     cfg.retrain.enabled = False
-    manager = RetrainManager.attach(engine)                            # stub: stessi embedding, stessa metrica
+    manager = RetrainManager.attach(engine)                            # stub: same embeddings, same metric
     _label(engine, truth, 30)
     manager.start()
     manager.join(20)
     last = manager.status()["last"]
-    assert last["accepted"] and last["validation_before"] is None      # senza validazione non si può verificare
+    assert last["accepted"] and last["validation_before"] is None      # without validation it cannot be verified
     _label_validation(engine, truth)
     manager.start()
     manager.join(20)

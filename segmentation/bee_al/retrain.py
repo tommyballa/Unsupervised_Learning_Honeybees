@@ -1,4 +1,4 @@
-"""Re-train pesante dell'extractor: versioni dei modelli, policy di trigger, job in background."""
+"""Heavy re-train of the extractor: model versions, trigger policy, background jobs."""
 from __future__ import annotations
 
 import json
@@ -21,7 +21,7 @@ from .propagation import build_graph_cache_in_subprocess
 if TYPE_CHECKING:
     from .engine import ALEngine
 
-BASE_VERSION = "v000"  # extractor congelato di partenza (paths.embeddings_dir)
+BASE_VERSION = "v000"  # starting frozen extractor (paths.embeddings_dir)
 _VERSION_RE = re.compile(r"^v(\d{3,})$")
 
 
@@ -34,9 +34,9 @@ def read_meta(version_dir: Union[str, Path]) -> dict[str, Any]:
 
 
 def list_versions(models_dir: Union[str, Path], include_rejected: bool = False) -> list[str]:
-    """Versioni ``vNNN`` complete (con embedding) presenti in ``models_dir``, in ordine.
+    """Complete ``vNNN`` versions (with embeddings) in ``models_dir``, in order.
 
-    Quelle scartate perché peggioravano la validazione restano su disco ma non vengono usate.
+    Versions rejected because they made validation worse stay on disk but are not used.
     """
     d = Path(models_dir)
     if not d.is_dir():
@@ -56,7 +56,7 @@ def next_version(models_dir: Union[str, Path]) -> str:
 
 
 def latest_embeddings(cfg: ALConfig) -> tuple[str, Path]:
-    """Versione corrente e cartella dei suoi embedding: l'ultimo re-train, o l'extractor congelato."""
+    """Current version and the folder of its embeddings: the latest re-train, or the frozen extractor."""
     versions = list_versions(cfg.models_dir)
     if versions:
         return versions[-1], cfg.models_dir / versions[-1] / "embeddings"
@@ -64,15 +64,15 @@ def latest_embeddings(cfg: ALConfig) -> tuple[str, Path]:
 
 
 # --------------------------------------------------------------------------- #
-# Interfacce
+# Interfaces
 # --------------------------------------------------------------------------- #
 
 @dataclass
 class TrainingData:
-    """Api passate al trainer.
+    """Bees passed to the trainer.
 
-    Per le etichettate ``labels`` ha la classe di ognuna. Per le non etichettate è vuoto e
-    ``pseudo_labels`` ha la classe predetta dove la confidenza supera la soglia, altrimenti ``None``.
+    For labelled bees ``labels`` holds the class of each one. For unlabelled bees it is empty and
+    ``pseudo_labels`` holds the predicted class where the confidence exceeds the threshold, otherwise ``None``.
     """
 
     ids: list[str]
@@ -83,23 +83,23 @@ class TrainingData:
 
 
 class Extractor(Protocol):
-    """Extractor prodotto da un re-train."""
+    """Extractor produced by a re-train."""
 
     def embed(self, paths: Sequence[str]) -> np.ndarray:
-        """Embedding (n, dim) delle immagini, nell'ordine dato."""
+        """Embeddings (n, dim) of the images, in the given order."""
         ...
 
     def save(self, out_dir: Path) -> None:
-        """Salva i pesi in ``out_dir``."""
+        """Save the weights in ``out_dir``."""
         ...
 
 
 class FeatureExtractorTrainer(ABC):
-    """Re-train pesante dell'extractor.
+    """Heavy re-train of the extractor.
 
-    L'implementazione vera farà fine-tuning contrastive (SupCon/SimCLR/DINO) più
-    pseudo-label con soglia alta, ricalcolate da zero a ogni round, e consistency
-    regularization. Qui c'è solo l'architettura attorno.
+    The real implementation does contrastive fine-tuning (SupCon/SimCLR/DINO) plus
+    high-threshold pseudo-labels, recomputed from scratch every round, and consistency
+    regularization. Only the surrounding architecture lives here.
     """
 
     @abstractmethod
@@ -107,7 +107,7 @@ class FeatureExtractorTrainer(ABC):
 
 
 class FrozenExtractor:
-    """Restituisce gli embedding già noti: è l'extractor congelato."""
+    """Returns the already-known embeddings: this is the frozen extractor."""
 
     def __init__(self, paths: Sequence[str], X: np.ndarray) -> None:
         self._row = {p: i for i, p in enumerate(paths)}
@@ -118,11 +118,11 @@ class FrozenExtractor:
 
     def save(self, out_dir: Path) -> None:
         with open(Path(out_dir) / "weights.json", "w", encoding="utf-8") as f:
-            json.dump({"stub": True, "note": "extractor congelato, nessun peso nuovo"}, f, indent=2)
+            json.dump({"stub": True, "note": "frozen extractor, no new weights"}, f, indent=2)
 
 
 class StubTrainer(FeatureExtractorTrainer):
-    """Implementazione finta: non addestra nulla e restituisce l'extractor congelato."""
+    """Fake implementation: trains nothing and returns the frozen extractor."""
 
     def retrain(self, labeled: TrainingData, unlabeled: TrainingData) -> Extractor:
         return FrozenExtractor(
@@ -136,17 +136,17 @@ class StubTrainer(FeatureExtractorTrainer):
 # --------------------------------------------------------------------------- #
 
 class RetrainPolicy:
-    """Decide quando lanciare un re-train."""
+    """Decides when to launch a re-train."""
 
     def __init__(self, cfg: RetrainConfig) -> None:
         self.cfg = cfg
 
     def label_threshold(self, n_retrains: int) -> int:
-        """Nuove etichette richieste per il prossimo job: 50, 100, 200, 400, ..."""
+        """New labels required for the next job: 50, 100, 200, 400, ..."""
         return int(round(self.cfg.initial_labels * self.cfg.growth_factor ** n_retrains))
 
     def plateau(self, metrics: Sequence[Optional[float]]) -> bool:
-        """Vero se la metrica di validazione non migliora da ``plateau_rounds`` round."""
+        """True if the validation metric has not improved for ``plateau_rounds`` rounds."""
         values = [m for m in metrics if m is not None]
         k = self.cfg.plateau_rounds
         if len(values) <= k:
@@ -154,22 +154,22 @@ class RetrainPolicy:
         return max(values[-k:]) <= max(values[:-k]) + self.cfg.min_delta
 
     def decide(self, new_labels: int, n_retrains: int, metrics: Sequence[Optional[float]]) -> Optional[str]:
-        """Motivo del re-train, o ``None``. ``metrics``: un valore per round dall'ultimo re-train."""
+        """Reason for the re-train, or ``None``. ``metrics``: one value per round since the last re-train."""
         by_count = self.cfg.policy in ("label_count", "either")
         by_plateau = self.cfg.policy in ("plateau", "either")
         if by_count and new_labels >= self.label_threshold(n_retrains):
-            return f"{new_labels} nuove etichette (soglia {self.label_threshold(n_retrains)})"
+            return f"{new_labels} new labels (threshold {self.label_threshold(n_retrains)})"
         if by_plateau and new_labels > 0 and self.plateau(metrics):
-            return f"{self.cfg.metric} fermo da {self.cfg.plateau_rounds} round"
+            return f"{self.cfg.metric} flat for {self.cfg.plateau_rounds} rounds"
         return None
 
 
 # --------------------------------------------------------------------------- #
-# Job in background
+# Background jobs
 # --------------------------------------------------------------------------- #
 
 def make_trainer(cfg: ALConfig) -> FeatureExtractorTrainer:
-    """Trainer scelto in config: fine-tuning contrastive oppure lo stub."""
+    """Trainer chosen in the config: contrastive fine-tuning or the stub."""
     if cfg.retrain.trainer == "stub":
         return StubTrainer()
     from .contrastive import ContrastiveTrainer
@@ -178,12 +178,12 @@ def make_trainer(cfg: ALConfig) -> FeatureExtractorTrainer:
 
 
 class RetrainManager:
-    """Lancia i re-train in un thread, senza bloccare l'hub, e versiona il risultato.
+    """Runs re-trains in a thread, without blocking the hub, and versions the result.
 
-    Un job parte dal pulsante dell'hub (``start``) oppure da solo, se ``retrain.enabled``
-    è attivo e la policy lo chiede. A fine job: ricalcola tutti gli embedding, confronta
-    la metrica di validazione prima e dopo, salva tutto in ``models/vNNN/`` e, se la
-    versione non è peggiore, fa ricostruire all'engine bank, grafo e incertezze.
+    A job starts from the hub button (``start``) or by itself, if ``retrain.enabled``
+    is on and the policy asks for it. At the end of a job: recompute all embeddings, compare
+    the validation metric before and after, save everything in ``models/vNNN/`` and, if the
+    version is not worse, make the engine rebuild the bank, graph and uncertainties.
     """
 
     def __init__(self, engine: "ALEngine", trainer: Optional[FeatureExtractorTrainer] = None) -> None:
@@ -194,7 +194,7 @@ class RetrainManager:
         self.reason = ""
         self.error = ""
         self._thread: Optional[threading.Thread] = None
-        # Lo stato dei job precedenti si ricostruisce dalle versioni su disco, scartate comprese.
+        # The state of previous jobs is rebuilt from the versions on disk, rejected ones included.
         versions = list_versions(engine.cfg.models_dir, include_rejected=True)
         self.n_retrains = len(versions)
         self.last_result: dict[str, Any] = read_meta(engine.cfg.models_dir / versions[-1]) if versions else {}
@@ -203,7 +203,7 @@ class RetrainManager:
 
     @classmethod
     def attach(cls, engine: "ALEngine", trainer: Optional[FeatureExtractorTrainer] = None) -> "RetrainManager":
-        """Collega il manager all'engine. I job automatici partono solo con ``retrain.enabled``."""
+        """Attach the manager to the engine. Automatic jobs start only with ``retrain.enabled``."""
         engine.retrain = cls(engine, trainer)
         return engine.retrain
 
@@ -211,7 +211,7 @@ class RetrainManager:
         return max(0, self.engine.bank.n_labeled - self.labels_at_last)
 
     def blocked_by(self) -> Optional[str]:
-        """Perché un job non può partire adesso, o ``None`` se può."""
+        """Why a job cannot start right now, or ``None`` if it can."""
         cfg = self.engine.cfg.retrain
         if self.state == "running":
             return "a re-train is already running"
@@ -222,7 +222,7 @@ class RetrainManager:
         return None
 
     def maybe_start(self) -> Optional[str]:
-        """Chiamato dall'engine a ogni refresh: avvia un job se la policy lo chiede."""
+        """Called by the engine at every refresh: starts a job if the policy asks for it."""
         if not self.engine.cfg.retrain.enabled or self.blocked_by():
             return None
         metric = self.engine.cfg.retrain.metric
@@ -233,9 +233,9 @@ class RetrainManager:
         return reason
 
     def start(self, reason: str = "manual") -> None:
-        """Avvia il job in un thread. I dati sono una fotografia presa adesso.
+        """Start the job in a thread. The data is a snapshot taken now.
 
-        Solleva ``ValueError`` se non può partire (job già in corso, poche etichette).
+        Raises ``ValueError`` if it cannot start (job already running, too few labels).
         """
         engine = self.engine
         with engine.lock:
@@ -244,12 +244,12 @@ class RetrainManager:
                 raise ValueError(blocked)
             bank = engine.bank
             lab = bank.labeled_indices()
-            # Le api tenute da parte (validazione su un batch nuovo) non entrano nemmeno come non etichettate.
+            # Held-out bees (validation on a new batch) do not even enter as unlabelled.
             unl = np.setdiff1d(np.flatnonzero(~engine._holdout), lab)
             labeled = TrainingData([bank.ids[i] for i in lab], [bank.paths[i] for i in lab], bank.X[lab], bank.labels_at(lab))
 
-            # Pseudo-label: predizioni correnti molto sicure, ricalcolate a ogni job.
-            # Mai per i "Non so" né per le api lontane da ogni esempio etichettato.
+            # Pseudo-labels: very confident current predictions, recomputed at every job.
+            # Never for "Non so" (unknown) bees nor for bees far from every labelled example.
             threshold = engine.cfg.retrain.pseudo_label_threshold
             predicted, confidence = engine.final_pred.labels, engine.final_pred.confidence
             skip = set(bank.unknown_indices().tolist()) | set(np.flatnonzero(engine.unassigned).tolist())
@@ -269,11 +269,11 @@ class RetrainManager:
 
     @property
     def cache_dir(self) -> Path:
-        """Stessa cache dei grafi usata dal motore."""
+        """Same graph cache used by the engine."""
         return self.engine.cfg.results_dir / "cache"
 
     def _validation_score(self, snapshot: dict[str, Any], X: np.ndarray) -> Optional[dict[str, Optional[float]]]:
-        """Metriche di validazione che si otterrebbero con gli embedding ``X`` e le etichette della fotografia."""
+        """Validation metrics that would be obtained with the embeddings ``X`` and the snapshot's labels."""
         from .engine import predict_all
         from .memory_bank import MemoryBank
         from .propagation import LabelSpreader
@@ -289,7 +289,7 @@ class RetrainManager:
         spreader = None
         if cfg.propagation.enabled:
             p = cfg.propagation
-            # Grafo costruito fuori dal processo dell'hub (vedi build_graph_cache_in_subprocess)
+            # Graph built outside the hub process (see build_graph_cache_in_subprocess)
             build_graph_cache_in_subprocess(X, p.n_neighbors, self.cache_dir, cfg.knn.backend)
             spreader = LabelSpreader.from_bank(bank, p.n_neighbors, p.alpha, p.max_iter, p.tol, cache_dir=self.cache_dir)
         predicted = predict_all(bank, spreader, cfg)[1].labels
@@ -300,7 +300,7 @@ class RetrainManager:
         try:
             t0 = time.time()
             extractor = self.trainer.retrain(labeled, unlabeled)
-            X = l2_normalize(extractor.embed(snapshot["paths"]))  # tutti gli embedding, da zero
+            X = l2_normalize(extractor.embed(snapshot["paths"]))  # all embeddings, from scratch
 
             metric = cfg.retrain.metric
             before = self._validation_score(snapshot, snapshot["X"])
@@ -322,8 +322,8 @@ class RetrainManager:
             })
             with open(out / "meta.json", "w", encoding="utf-8") as f:
                 json.dump(meta, f, indent=2, ensure_ascii=False)
-            # Gli embedding per ultimi: una versione è "completa" solo quando ci sono loro.
-            # Già normalizzati: salvati identici a quelli in memoria, così al riavvio l'hub ritrova il grafo in cache
+            # Embeddings last: a version is "complete" only once they are there.
+            # Already normalised: saved identical to the in-memory ones, so on restart the hub finds the cached graph
             save_embeddings(out / "embeddings", snapshot["ids"], snapshot["paths"], X, meta={"model": version}, normalize=False)
 
             self.n_retrains += 1
@@ -331,11 +331,11 @@ class RetrainManager:
             self.round_at_last = snapshot["round"]
             self.last_result = meta
             if accepted:
-                if cfg.propagation.enabled:  # così set_embeddings trova il grafo in cache e non blocca l'hub
+                if cfg.propagation.enabled:  # so set_embeddings finds the cached graph and does not block the hub
                     build_graph_cache_in_subprocess(X, cfg.propagation.n_neighbors, self.cache_dir, cfg.knn.backend)
                 self.engine.set_embeddings(Embeddings(snapshot["ids"], snapshot["paths"], X, {"model": version}), version)
             self.state = "idle"
-        except Exception as e:  # il job non deve mai far cadere l'hub
+        except Exception as e:  # the job must never bring down the hub
             self.state, self.error = "failed", f"{type(e).__name__}: {e}"
 
     def join(self, timeout: Optional[float] = None) -> None:

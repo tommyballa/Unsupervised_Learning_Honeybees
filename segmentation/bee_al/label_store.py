@@ -1,4 +1,4 @@
-"""Store append-only delle etichette (``al_labels.csv``) e import delle etichette legacy."""
+"""Append-only label store (``al_labels.csv``) and import of legacy labels."""
 from __future__ import annotations
 
 import csv
@@ -17,9 +17,9 @@ FIELDS = [
     "query_type", "config_id", "model_version", "batch_id",
 ]
 QUERY_TYPES = ("random", "diversity", "uncertainty", "novelty", "manual", "validation", "audit", "holdout", "legacy")
-HELD_OUT_TYPES = ("validation", "audit", "holdout")  # eventi che non entrano mai nella memory bank
+HELD_OUT_TYPES = ("validation", "audit", "holdout")  # events that never enter the memory bank
 SENTINELS = (UNKNOWN_LABEL, REMOVED_LABEL)
-# Scritto a mano nel campo libero vale come il pulsante "Scarta ape" ("non so" era il vecchio nome).
+# Typed by hand in the free-text field it counts as the "Scarta ape" (discard bee) button ("non so" was the old name).
 UNKNOWN_TEXTS = ("scarta ape", "non so")
 
 
@@ -37,16 +37,16 @@ class LabelEvent:
 
 
 def is_training_event(event: LabelEvent) -> bool:
-    """Vero per gli eventi che alimentano la memory bank (tutti tranne quelli tenuti da parte)."""
+    """True for the events that feed the memory bank (all except the held-out ones)."""
     return event.query_type not in HELD_OUT_TYPES
 
 
 class LabelStore:
-    """Eventi di etichettatura in un CSV in sola aggiunta.
+    """Labelling events in an append-only CSV.
 
-    Correzioni e rimozioni sono nuovi eventi: per ogni immagine vince l'ultimo,
-    e ``REMOVED_LABEL`` vale come rimozione. Gli alias sono applicati in lettura,
-    quindi rinominare o unire classi non tocca mai lo storico.
+    Corrections and removals are new events: for each image the last one wins,
+    and ``REMOVED_LABEL`` counts as a removal. Aliases are applied on read,
+    so renaming or merging classes never touches the history.
     """
 
     def __init__(
@@ -61,10 +61,10 @@ class LabelStore:
         self.aliases: dict[str, str] = {}
         self.set_aliases(aliases or {})
 
-    # ------------------------------ etichette ------------------------------ #
+    # -------------------------------- labels -------------------------------- #
 
     def normalize_label(self, raw: str) -> str:
-        """Stessa normalizzazione dell'hub (``clean_label``); le sentinelle passano invariate."""
+        """Same normalisation as the hub (``clean_label``); sentinels pass through unchanged."""
         raw = (raw or "").strip()
         if raw in SENTINELS:
             return raw
@@ -75,7 +75,7 @@ class LabelStore:
         self.aliases = {self.normalize_label(k): self.normalize_label(v) for k, v in aliases.items()}
 
     def resolve(self, label: str) -> str:
-        """Applica gli alias (anche in catena) a un'etichetta già normalizzata."""
+        """Apply the aliases (including chained ones) to an already-normalised label."""
         seen = {label}
         while label in self.aliases:
             label = self.aliases[label]
@@ -84,7 +84,7 @@ class LabelStore:
             seen.add(label)
         return label
 
-    # ------------------------------- scrittura ------------------------------ #
+    # -------------------------------- writing ------------------------------- #
 
     def append(
         self,
@@ -98,12 +98,12 @@ class LabelStore:
         batch_id: str = "",
         timestamp: Optional[str] = None,
     ) -> LabelEvent:
-        """Aggiunge un evento. L'etichetta è salvata normalizzata ma senza alias."""
+        """Append an event. The label is saved normalised but without aliases."""
         label = self.normalize_label(label)
         if not label:
-            raise ValueError("etichetta vuota")
+            raise ValueError("empty label")
         if query_type not in QUERY_TYPES:
-            raise ValueError(f"query_type sconosciuto: {query_type!r}")
+            raise ValueError(f"unknown query_type: {query_type!r}")
         event = LabelEvent(
             image_id=image_id,
             label=label,
@@ -125,19 +125,19 @@ class LabelStore:
                 writer.writerow(dataclasses.asdict(event))
         return event
 
-    # -------------------------------- lettura ------------------------------- #
+    # -------------------------------- reading ------------------------------- #
 
     def events(self) -> list[LabelEvent]:
-        """Tutti gli eventi nell'ordine in cui sono stati scritti (etichette senza alias)."""
+        """All events in the order they were written (labels without aliases)."""
         if not self.path.exists():
             return []
         with self._lock, open(self.path, "r", newline="", encoding="utf-8") as f:
             return [LabelEvent(**{k: (row.get(k) or "") for k in FIELDS}) for row in csv.DictReader(f)]
 
     def current(self, keep: Optional[Callable[[LabelEvent], bool]] = None) -> dict[str, LabelEvent]:
-        """Stato attuale: ultimo evento per immagine, con alias applicati e rimozioni tolte.
+        """Current state: last event per image, with aliases applied and removals dropped.
 
-        ``keep`` filtra gli eventi prima di decidere chi vince (es. solo quelli di validazione).
+        ``keep`` filters the events before deciding which one wins (e.g. only validation ones).
         """
         latest: dict[str, LabelEvent] = {}
         for ev in self.events():
@@ -151,12 +151,12 @@ class LabelStore:
         return out
 
     def per_annotator(self, keep: Optional[Callable[[LabelEvent], bool]] = None) -> dict[str, dict[str, LabelEvent]]:
-        """Etichette per annotatore: ``{image_id: {annotator: ultimo evento di quell'annotatore}}``.
+        """Labels per annotator: ``{image_id: {annotator: last event of that annotator}}``.
 
-        A differenza di ``current`` non vince l'ultimo evento sull'immagine: ogni annotatore
-        conserva la propria risposta (serve per la doppia etichettatura dell'audit). Gli
-        annotatori sono nell'ordine in cui hanno risposto la prima volta; alias applicati,
-        rimozioni tolte.
+        Unlike ``current``, the last event on the image does not win: each annotator
+        keeps their own answer (needed for the audit's double labelling). Annotators
+        are in the order in which they first answered; aliases applied, removals
+        dropped.
         """
         out: dict[str, dict[str, LabelEvent]] = {}
         for ev in self.events():
@@ -173,11 +173,11 @@ class LabelStore:
     # -------------------------------- legacy -------------------------------- #
 
     def import_legacy(self, results_dir: Union[str, Path], config_id: str = "") -> int:
-        """Allinea lo store a ``single_labels.csv`` e ``grid_batch_labels.csv`` dell'hub.
+        """Align the store with the hub's ``single_labels.csv`` and ``grid_batch_labels.csv``.
 
-        Idempotente. Un'etichetta legacy non sovrascrive mai un'etichetta data in
-        active learning; un'etichetta tolta dai CSV (pagina ``/clean``) diventa un
-        evento di rimozione. Restituisce il numero di eventi aggiunti.
+        Idempotent. A legacy label never overwrites a label given in active
+        learning; a label removed from the CSVs (``/clean`` page) becomes a
+        removal event. Returns the number of events added.
         """
         legacy = read_legacy_labels(results_dir)
         if legacy is None:
@@ -204,10 +204,10 @@ class LabelStore:
 
 
 def read_legacy_labels(results_dir: Union[str, Path]) -> Optional[dict[str, dict[str, str]]]:
-    """Etichette dei CSV storici dell'hub: ``image_id -> {label, timestamp, annotator, confidence}``.
+    """Labels from the hub's historical CSVs: ``image_id -> {label, timestamp, annotator, confidence}``.
 
-    Usa ``parse_shifted_row_*`` dell'hub per le righe con le colonne disallineate.
-    Se un'immagine compare più volte vince la riga più recente. ``None`` se i CSV non esistono.
+    Uses the hub's ``parse_shifted_row_*`` for rows with misaligned columns.
+    If an image appears more than once the most recent row wins. ``None`` if the CSVs do not exist.
     """
     helpers = load_hub_helpers()
     d = Path(results_dir)
@@ -255,5 +255,5 @@ def read_legacy_labels(results_dir: Union[str, Path]) -> Optional[dict[str, dict
 
     if not found:
         return None
-    rows.sort(key=lambda r: r["timestamp"])  # ordinamento stabile: a parità vince l'ultima riga letta
+    rows.sort(key=lambda r: r["timestamp"])  # stable sort: on ties the last row read wins
     return {r["image_id"]: r for r in rows}

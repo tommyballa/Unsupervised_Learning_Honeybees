@@ -1,10 +1,10 @@
-"""Estrae una volta gli embedding di tutte le api con un extractor congelato.
+"""Extract, once, the embeddings of all bees with a frozen extractor.
 
-Uso:
-    python scripts/extract_embeddings.py                      # default da config/al_config.yaml
+Usage:
+    python scripts/extract_embeddings.py                      # defaults from config/al_config.yaml
     python scripts/extract_embeddings.py --model dinov2_vitb14 --out data/embeddings_vitb14
 
-Si può interrompere e rilanciare: riprende dalle immagini mancanti.
+It can be interrupted and restarted: it resumes from the missing images.
 """
 import argparse
 import sys
@@ -25,12 +25,12 @@ from bee_al.embeddings import (  # noqa: E402
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--config", default=None, help="file di configurazione (default config/al_config.yaml)")
-    ap.add_argument("--model", default=None, help="sovrascrive extractor.model")
-    ap.add_argument("--out", default=None, help="sovrascrive paths.embeddings_dir")
-    ap.add_argument("--device", default=None, help="sovrascrive extractor.device")
-    ap.add_argument("--limit", type=int, default=None, help="solo le prime N immagini (prova veloce)")
-    ap.add_argument("--weights", default=None, help="pesi di un re-train (es. models/v001/backbone.pt) al posto di quelli pre-addestrati")
+    ap.add_argument("--config", default=None, help="configuration file (default config/al_config.yaml)")
+    ap.add_argument("--model", default=None, help="overrides extractor.model")
+    ap.add_argument("--out", default=None, help="overrides paths.embeddings_dir")
+    ap.add_argument("--device", default=None, help="overrides extractor.device")
+    ap.add_argument("--limit", type=int, default=None, help="only the first N images (quick test)")
+    ap.add_argument("--weights", default=None, help="weights of a re-train (e.g. models/v001/backbone.pt) instead of the pre-trained ones")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -42,12 +42,12 @@ def main() -> None:
     image_ids, images = list_dataset(sources)
     for prefix, folder in sources:
         n = sum(i.startswith(prefix) for i in image_ids) if prefix else len(image_ids)
-        print(f"{n:6d} immagini in {folder}" + ("" if folder.is_dir() else "  (cartella non trovata)"))
+        print(f"{n:6d} images in {folder}" + ("" if folder.is_dir() else "  (folder not found)"))
     if args.limit:
         image_ids, images = image_ids[:args.limit], images[:args.limit]
     if not images:
-        sys.exit("Nessuna immagine trovata")
-    print(f"Modello {model_name}, output {out_dir}")
+        sys.exit("No images found")
+    print(f"Model {model_name}, output {out_dir}")
 
     backbone = load_backbone(model_name)
     if args.weights:
@@ -73,9 +73,9 @@ def main() -> None:
     )
     manifest = read_manifest(out_dir)
     total = sum(s["count"] for s in manifest["shards"])
-    print(f"Aggiunti {added} embedding in {time.time() - t0:.1f}s. Totale {total}, dim {manifest['dim']}.")
+    print(f"Added {added} embeddings in {time.time() - t0:.1f}s. Total {total}, dim {manifest['dim']}.")
     if manifest["failed"]:
-        print(f"Immagini illeggibili saltate: {len(manifest['failed'])}")
+        print(f"Unreadable images skipped: {len(manifest['failed'])}")
 
 
 if __name__ == "__main__":

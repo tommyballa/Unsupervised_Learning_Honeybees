@@ -1,18 +1,18 @@
-"""Distribuzione della grandezza delle api estratte singolarmente.
+"""Size distribution of the individually extracted bees.
 
-Le misure vanno prese su raw_bees (crop RGBA a risoluzione originale, la maschera è nel
-canale alpha): in cleaned_bees ogni ape è già riscalata a 512x512 con riempimento fisso,
-quindi lì la grandezza è uguale per tutte.
+Measurements must be taken on raw_bees (RGBA crops at original resolution, the mask is in the
+alpha channel): in cleaned_bees every bee is already rescaled to 512x512 with fixed padding,
+so there the size is the same for all of them.
 
-Uso:
-    python scripts/bee_size_distribution.py                 # raw_bees accanto a paths.dataset_dir
-    python scripts/bee_size_distribution.py --raw-dir /percorso/raw_bees --out data/size_distribution
+Usage:
+    python scripts/bee_size_distribution.py                 # raw_bees next to paths.dataset_dir
+    python scripts/bee_size_distribution.py --raw-dir /path/raw_bees --out data/size_distribution
 
-Per ogni ape (in pixel dell'immagine sorgente):
-    area_px     pixel della maschera
-    length_px   lato lungo del rettangolo minimo ruotato (lunghezza del corpo, non dipende dall'orientamento)
-    width_px    lato corto dello stesso rettangolo
-    bbox_w/h    bounding box dritto della maschera (il crop salvato ha 20 px di padding in più)
+For each bee (in pixels of the source image):
+    area_px     mask pixels
+    length_px   long side of the minimum rotated rectangle (body length, independent of orientation)
+    width_px    short side of the same rectangle
+    bbox_w/h    axis-aligned bounding box of the mask (the saved crop has 20 px of extra padding)
 """
 import argparse
 import sys
@@ -32,9 +32,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from bee_al.config import load_config  # noqa: E402
 
 METRICS = [
-    ("length_px", "Lunghezza (lato lungo, px)"),
-    ("width_px", "Larghezza (lato corto, px)"),
-    ("area_px", "Area della maschera (px²)"),
+    ("length_px", "Length (long side, px)"),
+    ("width_px", "Width (short side, px)"),
+    ("area_px", "Mask area (px²)"),
 ]
 
 
@@ -66,15 +66,15 @@ def plot(df: pd.DataFrame, out_path: Path, title: str) -> None:
     fig, axes = plt.subplots(1, len(METRICS), figsize=(5 * len(METRICS), 4))
     for ax, (col, label) in zip(axes, METRICS):
         values = df[col].to_numpy()
-        # Taglia la coda oltre il 99.5° percentile, altrimenti pochi outlier schiacciano l'istogramma
+        # Cut the tail beyond the 99.5th percentile, otherwise a few outliers squash the histogram
         hi = np.percentile(values, 99.5)
         ax.hist(values[values <= hi], bins=60, color="#3b6fb6", edgecolor="white", linewidth=0.4)
         median = np.median(values)
         ax.axvline(median, color="#333333", linewidth=1, linestyle="--")
-        ax.annotate(f"mediana {median:,.0f}", xy=(median, 1), xycoords=("data", "axes fraction"),
+        ax.annotate(f"median {median:,.0f}", xy=(median, 1), xycoords=("data", "axes fraction"),
                     xytext=(4, -12), textcoords="offset points", fontsize=9, color="#333333")
         ax.set_xlabel(label)
-        ax.set_ylabel("Numero di api")
+        ax.set_ylabel("Number of bees")
         ax.spines[["top", "right"]].set_visible(False)
         ax.grid(axis="y", color="#e5e5e5", linewidth=0.6)
         ax.set_axisbelow(True)
@@ -86,11 +86,11 @@ def plot(df: pd.DataFrame, out_path: Path, title: str) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--config", default=None, help="file di configurazione (default config/al_config.yaml)")
-    ap.add_argument("--raw-dir", default=None, help="cartella dei crop RGBA (default: raw_bees accanto a paths.dataset_dir)")
-    ap.add_argument("--out", default="data/size_distribution", help="cartella di output (CSV + PNG)")
+    ap.add_argument("--config", default=None, help="configuration file (default config/al_config.yaml)")
+    ap.add_argument("--raw-dir", default=None, help="folder of the RGBA crops (default: raw_bees next to paths.dataset_dir)")
+    ap.add_argument("--out", default="data/size_distribution", help="output folder (CSV + PNG)")
     ap.add_argument("--workers", type=int, default=16)
-    ap.add_argument("--limit", type=int, default=None, help="solo le prime N immagini (prova veloce)")
+    ap.add_argument("--limit", type=int, default=None, help="only the first N images (quick test)")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -104,23 +104,23 @@ def main() -> None:
     with Pool(args.workers) as pool:
         rows = [r for r in pool.imap_unordered(measure, paths, chunksize=256) if r is not None]
     df = pd.DataFrame(rows).sort_values("filename").reset_index(drop=True)
-    # Un'ape è "tenuta" se dataset_cleaning.py l'ha lasciata in cleaned_bees (stesso nome file)
+    # A bee is "kept" if dataset_cleaning.py left it in cleaned_bees (same file name)
     df["kept"] = df["filename"].isin({p.name for p in cleaned_dir.glob("*.png")})
 
     df.to_csv(out_dir / "bee_sizes.csv", index=False)
     cols = [c for c, _ in METRICS] + ["bbox_w", "bbox_h"]
     pcts = [0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99]
-    for name, sub in (("tutte (raw_bees)", df), ("tenute (cleaned_bees)", df[df["kept"]])):
+    for name, sub in (("all (raw_bees)", df), ("kept (cleaned_bees)", df[df["kept"]])):
         if sub.empty:
             continue
-        print(f"\n== {name}: {len(sub)} api ==")
+        print(f"\n== {name}: {len(sub)} bees ==")
         print(sub[cols].describe(percentiles=pcts).round(1).to_string())
 
-    plot(df, out_dir / "bee_sizes_raw.png", f"Grandezza delle api estratte — tutte ({len(df):,})")
+    plot(df, out_dir / "bee_sizes_raw.png", f"Size of the extracted bees — all ({len(df):,})")
     if df["kept"].any():
         kept = df[df["kept"]]
-        plot(kept, out_dir / "bee_sizes_cleaned.png", f"Grandezza delle api estratte — dopo la pulizia ({len(kept):,})")
-    print(f"\nScritti in {out_dir}: bee_sizes.csv, bee_sizes_raw.png, bee_sizes_cleaned.png")
+        plot(kept, out_dir / "bee_sizes_cleaned.png", f"Size of the extracted bees — after cleaning ({len(kept):,})")
+    print(f"\nWritten to {out_dir}: bee_sizes.csv, bee_sizes_raw.png, bee_sizes_cleaned.png")
 
 
 if __name__ == "__main__":

@@ -1,17 +1,17 @@
-"""Re-train pesante: fine-tuning contrastive dell'extractor.
+"""Heavy re-train: contrastive fine-tuning of the extractor.
 
-Una sola loss (SupCon generalizzata) su batch misti:
-- api etichettate a mano e pseudo-label ad alta confidenza: sono positive tra loro
-  le api della stessa classe (supervised contrastive);
-- api non etichettate: l'unico positivo è l'altra vista aumentata della stessa ape
-  (SimCLR), cioè consistency tra augmentation.
+A single loss (generalised SupCon) on mixed batches:
+- hand-labelled bees and high-confidence pseudo-labels: bees of the same class
+  are positives of each other (supervised contrastive);
+- unlabelled bees: the only positive is the other augmented view of the same bee
+  (SimCLR), i.e. consistency across augmentations.
 
-Le pseudo-label arrivano dalle predizioni correnti a ogni job, quindi sono ricalcolate
-da zero a ogni round. Anche i pesi ripartono ogni volta dal modello pre-addestrato,
-per non accumulare gli errori dei round precedenti.
+Pseudo-labels come from the current predictions at each job, so they are recomputed
+from scratch every round. The weights also restart every time from the pre-trained model,
+so that errors from previous rounds do not accumulate.
 
-Il training gira in un processo separato (``scripts/retrain_contrastive.py``) lanciato
-da ``ContrastiveTrainer``: l'hub non ha bisogno di torch e non viene bloccato.
+Training runs in a separate process (``scripts/retrain_contrastive.py``) launched
+by ``ContrastiveTrainer``: the hub does not need torch and is not blocked.
 """
 from __future__ import annotations
 
@@ -34,11 +34,11 @@ WEIGHTS_NAME = "backbone.pt"
 
 
 # --------------------------------------------------------------------------- #
-# Lato hub: lancio del processo e lettura del risultato (niente torch qui)
+# Hub side: launching the process and reading the result (no torch here)
 # --------------------------------------------------------------------------- #
 
 class PrecomputedExtractor:
-    """Extractor il cui lavoro è già su disco: embedding ricalcolati e pesi nella cartella di lavoro."""
+    """Extractor whose work is already on disk: recomputed embeddings and weights in the work folder."""
 
     def __init__(self, work_dir: Path) -> None:
         self.work_dir = Path(work_dir)
@@ -48,7 +48,7 @@ class PrecomputedExtractor:
         row = {p: i for i, p in enumerate(emb.paths)}
         missing = [p for p in paths if p not in row]
         if missing:
-            raise RuntimeError(f"{len(missing)} immagini senza embedding dopo il re-train (es. {missing[0]})")
+            raise RuntimeError(f"{len(missing)} images without embedding after the re-train (e.g. {missing[0]})")
         return emb.X[[row[p] for p in paths]]
 
     def save(self, out_dir: Path) -> None:
@@ -59,7 +59,7 @@ class PrecomputedExtractor:
 
 
 class ContrastiveTrainer(FeatureExtractorTrainer):
-    """Lancia il fine-tuning contrastive in un sottoprocesso e ne aspetta la fine."""
+    """Launch the contrastive fine-tuning in a subprocess and wait for it to finish."""
 
     def __init__(self, cfg: ALConfig, command: Optional[Sequence[str]] = None) -> None:
         self.cfg = cfg
@@ -96,11 +96,11 @@ class ContrastiveTrainer(FeatureExtractorTrainer):
             code = subprocess.run([*self.command, "--job", str(job_path)], stdout=log, stderr=subprocess.STDOUT).returncode
         if code != 0:
             tail = " | ".join(log_path.read_text(encoding="utf-8", errors="replace").strip().splitlines()[-3:])
-            raise RuntimeError(f"re-train fallito (codice {code}): {tail}")
+            raise RuntimeError(f"re-train failed (exit code {code}): {tail}")
         return PrecomputedExtractor(self.work_dir)
 
     def progress(self) -> Optional[dict[str, Any]]:
-        """Avanzamento scritto dal sottoprocesso (fase, step, loss), se disponibile."""
+        """Progress written by the subprocess (phase, step, loss), if available."""
         try:
             with open(self.work_dir / "progress.json", "r", encoding="utf-8") as f:
                 return json.load(f)
@@ -109,15 +109,15 @@ class ContrastiveTrainer(FeatureExtractorTrainer):
 
 
 # --------------------------------------------------------------------------- #
-# Lato training (torch importato solo qui dentro)
+# Training side (torch imported only in here)
 # --------------------------------------------------------------------------- #
 
 def supcon_loss(z, groups, temperature: float = 0.1):
-    """Supervised contrastive loss (Khosla et al., 2020) su embedding già normalizzati.
+    """Supervised contrastive loss (Khosla et al., 2020) on already-normalised embeddings.
 
-    ``groups[i] == groups[j]`` rende ``i`` e ``j`` positivi. Dando a ogni ape non
-    etichettata un gruppo tutto suo (condiviso solo dalle sue due viste) la stessa
-    formula diventa la NT-Xent di SimCLR.
+    ``groups[i] == groups[j]`` makes ``i`` and ``j`` positives. Giving each unlabelled
+    bee a group of its own (shared only by its two views) turns the same formula
+    into SimCLR's NT-Xent.
     """
     import torch
 
@@ -133,10 +133,10 @@ def supcon_loss(z, groups, temperature: float = 0.1):
 
 
 def build_train_transform(image_size: int = 224):
-    """Augmentation per le due viste.
+    """Augmentation for the two views.
 
-    Le api non hanno un verso naturale, quindi rotazioni e ribaltamenti liberi.
-    Il colore viene toccato poco (solo luminosità e contrasto): può essere un segnale di salute.
+    Bees have no natural orientation, so rotations and flips are unrestricted.
+    Colour is barely touched (only brightness and contrast): it can be a health signal.
     """
     import torchvision.transforms as T
 
@@ -154,11 +154,11 @@ def build_train_transform(image_size: int = 224):
 
 
 def plan_batches(job: dict[str, Any], rng: np.random.Generator) -> tuple[list[tuple[str, int]], dict[str, int]]:
-    """Sequenza (percorso, gruppo) per tutti gli step, più la mappa classe -> gruppo.
+    """Sequence of (path, group) for all steps, plus the class -> group map.
 
-    In ogni batch una parte viene da etichettate e pseudo-label, campionate bilanciando
-    le classi (metà dalle etichette umane se ci sono pseudo-label); il resto è non
-    etichettato e riceve un gruppo negativo unico.
+    In each batch one part comes from labelled bees and pseudo-labels, sampled with
+    balanced classes (half from human labels if there are pseudo-labels); the rest is
+    unlabelled and gets a unique negative group.
     """
     classes = sorted({lbl for _, lbl in job["labeled"]} | {lbl for _, lbl in job["pseudo"]})
     class_id = {c: i for i, c in enumerate(classes)}
@@ -195,7 +195,7 @@ def plan_batches(job: dict[str, Any], rng: np.random.Generator) -> tuple[list[tu
 
 
 def set_trainable(model: Any, unfreeze_blocks: int) -> list:
-    """Congela il backbone tranne gli ultimi ``unfreeze_blocks`` blocchi (0 = addestra tutto)."""
+    """Freeze the backbone except the last ``unfreeze_blocks`` blocks (0 = train everything)."""
     params = list(model.parameters())
     blocks = getattr(model, "blocks", None)
     if not unfreeze_blocks or blocks is None:
@@ -217,10 +217,10 @@ def train_contrastive(
     backbone: Any = None,
     log: Callable[[str], None] = print,
 ) -> dict[str, Any]:
-    """Fine-tuning contrastive, poi ricalcolo di tutti gli embedding in ``job['out_dir']``.
+    """Contrastive fine-tuning, then recompute all embeddings in ``job['out_dir']``.
 
-    Scrive ``backbone.pt``, ``train_log.json``, ``progress.json`` e ``embeddings/``.
-    ``backbone`` serve ai test; di norma si carica il modello pre-addestrato di ``job['model']``.
+    Writes ``backbone.pt``, ``train_log.json``, ``progress.json`` and ``embeddings/``.
+    ``backbone`` is for tests; normally the pre-trained model of ``job['model']`` is loaded.
     """
     import torch
     from PIL import Image
@@ -243,7 +243,7 @@ def train_contrastive(
     rng = np.random.default_rng(job["seed"])
     device = pick_device(job["device"])
     model = (backbone if backbone is not None else load_backbone(job["model"])).to(device)
-    model.eval()  # DINOv2 non ha batch norm né dropout attivi: resta in eval, si aggiornano solo i pesi scelti
+    model.eval()  # DINOv2 has no active batch norm or dropout: stays in eval, only the chosen weights are updated
     trainable = set_trainable(model, job["unfreeze_blocks"])
 
     plan, class_id = plan_batches(job, rng)
@@ -279,8 +279,8 @@ def train_contrastive(
     scaler = torch.amp.GradScaler(enabled=use_amp)
 
     n_pseudo = len(job["pseudo"])
-    log(f"device {device}; {len(job['labeled'])} etichettate, {n_pseudo} pseudo-label, {len(job['unlabeled'])} non etichettate; "
-        f"{len(class_id)} classi; {sum(p.numel() for p in trainable) / 1e6:.1f}M parametri addestrati")
+    log(f"device {device}; {len(job['labeled'])} labelled, {n_pseudo} pseudo-labels, {len(job['unlabeled'])} unlabelled; "
+        f"{len(class_id)} classes; {sum(p.numel() for p in trainable) / 1e6:.1f}M trained parameters")
     losses: list[float] = []
     for step, (v1, v2, groups) in enumerate(loader, start=1):
         x = torch.cat([v1, v2]).to(device, non_blocking=True)
@@ -298,7 +298,7 @@ def train_contrastive(
             progress("training", step, steps, float(np.mean(losses[-10:])))
             log(f"step {step}/{steps} loss {np.mean(losses[-10:]):.4f}")
     if not all(np.isfinite(losses)):
-        raise RuntimeError("loss non finita durante il training")
+        raise RuntimeError("non-finite loss during training")
 
     model.eval()
     torch.save(model.state_dict(), out / WEIGHTS_NAME)

@@ -1,22 +1,22 @@
-"""Mappa 2D (UMAP) degli embedding di una fase, colorata con il cluster assegnato dal modello.
+"""2D map (UMAP) of the embeddings of a phase, coloured by the cluster assigned by the model.
 
-Uso:
+Usage:
     python scripts/embedding_map.py --config config/al_fase2_sam3.yaml --name fase2_v004
 
-Le etichette sono quelle che l'hub mostrerebbe ora: etichetta umana se c'è, altrimenti la classe
-predetta (kNN + propagazione); a parte le "non assegnate" e le api messe da parte. UMAP si adatta
-solo alle api non tenute da parte (su un campione fisso, per la velocità) e poi vi proietta tutte
-le altre: le api di un batch tenuto da parte finiscono nella stessa mappa senza averla deformata.
+The labels are those the hub would show now: the human label if there is one, otherwise the predicted
+class (kNN + propagation); the "unassigned" and the set-aside bees are kept apart. UMAP is fitted
+only on the non-held-out bees (on a fixed sample, for speed) and then all the others are projected
+onto it: the bees of a held-out batch end up on the same map without having distorted it.
 
 In ``<results_dir>/embedding_map/<name>/``:
-- ``coords.csv``: coordinate, batch, cluster e confidenza di ogni ape;
-- ``map_overview.png``: tutte le api non tenute da parte, un colore per cluster;
-- ``map_by_cluster.png``: un pannello per cluster (le altre api in grigio);
-- ``map_holdout.png``: le api tenute da parte sopra la mappa delle altre (se ce ne sono);
-- ``map_holdout_by_cluster.png``: le stesse, un pannello per cluster;
-- con ``--per-batch``: ``map_<batch>.png`` e ``map_<batch>_by_cluster.png`` per ogni batch non tenuto da parte.
+- ``coords.csv``: coordinates, batch, cluster and confidence of each bee;
+- ``map_overview.png``: all non-held-out bees, one colour per cluster;
+- ``map_by_cluster.png``: one panel per cluster (the other bees in grey);
+- ``map_holdout.png``: the held-out bees over the map of the others (if there are any);
+- ``map_holdout_by_cluster.png``: the same, one panel per cluster;
+- with ``--per-batch``: ``map_<batch>.png`` and ``map_<batch>_by_cluster.png`` for each non-held-out batch.
 
-Nei grafici i nomi dei cluster sono in inglese (``ENGLISH``); in ``coords.csv`` restano quelli dell'hub.
+In the plots the cluster names are in English (``ENGLISH``); ``coords.csv`` keeps the hub's names.
 """
 import argparse
 import csv
@@ -29,12 +29,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from bee_al.engine import ALEngine  # noqa: E402
 
-# Palette categoriale in ordine fisso (validata: coppie adiacenti ok, quindi etichette dirette e pannelli per cluster).
+# Categorical palette in fixed order (validated: adjacent pairs ok, hence direct labels and per-cluster panels).
 SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
 UNASSIGNED, SET_ASIDE, OTHER = "Unassigned", "Set aside", "Other"
 GREY, BACKGROUND, DARK = "#9a9890", "#e3e2dc", "#4a4944"
 INK, MUTED = "#1f1e1c", "#6b6a64"
-# Nomi dei cluster nei grafici (i colori seguono comunque l'ordine fisso dei nomi originali).
+# Cluster names in the plots (colours still follow the fixed order of the original names).
 ENGLISH = {"Adulte": "Adult", "Fuco": "Drone", "Giovane": "Young", "Malata": "Sick",
            "Non Classificabile": "Unclassifiable", "Scarta": "Discard", "Ok": "Ok"}
 
@@ -44,7 +44,7 @@ def english(name: str) -> str:
 
 
 def cluster_of(engine: ALEngine) -> tuple[list[str], np.ndarray, list[str]]:
-    """Cluster di ogni ape, confidenza e fonte (``human`` / ``predicted`` / ``""``)."""
+    """Cluster of each bee, confidence and source (``human`` / ``predicted`` / ``""``)."""
     bank, pred = engine.bank, engine.final_pred
     labels, confidence = pred.labels, pred.confidence
     unknown = set(bank.unknown_indices().tolist())
@@ -89,10 +89,10 @@ def plot(coords, clusters, classes, holdout, out_dir, title, batches=None):
         ax.set_aspect("equal")
 
     def size_of(n):
-        return 1.0 if n > 20000 else 4.0       # i cluster piccoli con punti più grandi, altrimenti spariscono
+        return 1.0 if n > 20000 else 4.0       # small clusters get bigger points, otherwise they vanish
 
     def scatter(ax, idx, scale=1.0):
-        # Dal cluster più grande al più piccolo: Adulte (quasi 9 api su 10) non copre gli altri.
+        # From the largest cluster to the smallest: Adulte (almost 9 bees out of 10) does not cover the others.
         groups = sorted(set(clusters[idx]), key=lambda c: -np.sum(clusters[idx] == c))
         for c in groups:
             own = idx[clusters[idx] == c]
@@ -100,14 +100,14 @@ def plot(coords, clusters, classes, holdout, out_dir, title, batches=None):
                        alpha=0.35 if len(own) > 20000 else 0.8, linewidths=0, rasterized=True)
 
     def names(ax, idx):
-        # Il nome va dove il cluster è più denso (la mediana di un cluster sparso cade nel vuoto).
+        # The name goes where the cluster is densest (the median of a sparse cluster falls in empty space).
         for c in classes:
             members = idx[clusters[idx] == c]
             if len(members) >= 20:
                 h, xe, ye = np.histogram2d(coords[members, 0], coords[members, 1], bins=12, range=lim)
                 bx, by = np.unravel_index(np.argmax(h), h.shape)
                 if h[bx, by] < 0.1 * len(members):
-                    continue                    # cluster sparso su tutta la mappa: niente nome, basta la legenda
+                    continue                    # cluster spread over the whole map: no name, the legend is enough
                 ax.text((xe[bx] + xe[bx + 1]) / 2, (ye[by] + ye[by + 1]) / 2, english(c), ha="center", va="bottom",
                         fontsize=10, weight="bold", color=INK, path_effects=halo)
 
@@ -131,7 +131,7 @@ def plot(coords, clusters, classes, holdout, out_dir, title, batches=None):
     plt.close(fig)
 
     def by_cluster(idx, filename, subtitle):
-        """Un pannello per cluster delle api ``idx``, sopra la mappa grigia delle api non tenute da parte."""
+        """One panel per cluster of the bees ``idx``, over the grey map of the non-held-out bees."""
         panels = [c for c in classes + [UNASSIGNED] if np.any(clusters[idx] == c)]
         cols = 3
         rows = -(-len(panels) // cols)
@@ -153,7 +153,7 @@ def plot(coords, clusters, classes, holdout, out_dir, title, batches=None):
     by_cluster(train, "map_by_cluster.png", "one panel per cluster (other bees in grey)")
 
     def overlay(idx, stem, what):
-        """Le api ``idx`` a colori sopra la mappa grigia delle api non tenute da parte, poi un pannello per cluster."""
+        """The bees ``idx`` in colour over the grey map of the non-held-out bees, then one panel per cluster."""
         fig, ax = plt.subplots(figsize=(11, 8.5), dpi=150)
         ax.scatter(coords[train, 0], coords[train, 1], s=0.5, c=BACKGROUND, linewidths=0, rasterized=True)
         scatter(ax, idx, scale=2.0)
@@ -177,14 +177,14 @@ def plot(coords, clusters, classes, holdout, out_dir, title, batches=None):
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--config", required=True, help="config della fase")
-    ap.add_argument("--name", required=True, help="nome della cartella dei risultati")
-    ap.add_argument("--fit-sample", type=int, default=40000, help="api (non tenute da parte) su cui si adatta UMAP")
+    ap.add_argument("--config", required=True, help="config of the phase")
+    ap.add_argument("--name", required=True, help="name of the results folder")
+    ap.add_argument("--fit-sample", type=int, default=40000, help="(non-held-out) bees on which UMAP is fitted")
     ap.add_argument("--n-neighbors", type=int, default=30)
     ap.add_argument("--min-dist", type=float, default=0.1)
-    ap.add_argument("--title", default="", help="titolo dei grafici con --replot")
-    ap.add_argument("--replot", action="store_true", help="ridisegna dalle coordinate già salvate in coords.csv")
-    ap.add_argument("--per-batch", action="store_true", help="anche una mappa per ogni batch non tenuto da parte")
+    ap.add_argument("--title", default="", help="plot title with --replot")
+    ap.add_argument("--replot", action="store_true", help="redraw from the coordinates already saved in coords.csv")
+    ap.add_argument("--per-batch", action="store_true", help="also one map per non-held-out batch")
     args = ap.parse_args()
     if args.replot:
         from bee_al.config import load_config
@@ -200,7 +200,7 @@ def main() -> None:
         title = f"{cfg.stage.name or 'stage'} - " + (args.name if not args.title else args.title)
         batches = [r["batch"] for r in rows] if args.per_batch else None
         plot(coords, clusters, classes, holdout, out_dir, title, batches)
-        print(f"Fatto: {out_dir}")
+        print(f"Done: {out_dir}")
         return
 
     import umap
@@ -213,7 +213,7 @@ def main() -> None:
     batches = engine.bee_batches()
     holdout = engine._holdout.copy()
     classes = sorted(set(engine.final_pred.classes) | set(bank.classes))
-    print(f"Modello {engine.model_version}: {len(bank)} api, {int(holdout.sum())} tenute da parte, classi {classes}")
+    print(f"Model {engine.model_version}: {len(bank)} bees, {int(holdout.sum())} held out, classes {classes}")
 
     train = np.flatnonzero(~holdout)
     rng = np.random.default_rng(cfg.seed)
@@ -225,7 +225,7 @@ def main() -> None:
     for start in range(0, len(rest), 20000):
         chunk = rest[start:start + 20000]
         coords[chunk] = reducer.transform(bank.X[chunk])
-        print(f"  proiettate {min(start + 20000, len(rest))}/{len(rest)}", flush=True)
+        print(f"  projected {min(start + 20000, len(rest))}/{len(rest)}", flush=True)
 
     with open(out_dir / "coords.csv", "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -237,7 +237,7 @@ def main() -> None:
                              int(in_fit[i]), f"{coords[i, 0]:.4f}", f"{coords[i, 1]:.4f}"])
     title = f"{cfg.stage.name or 'stage'} - model {engine.model_version}"
     plot(coords, clusters, classes, holdout, out_dir, title, list(batches) if args.per_batch else None)
-    print(f"Fatto: {out_dir}")
+    print(f"Done: {out_dir}")
 
 
 if __name__ == "__main__":

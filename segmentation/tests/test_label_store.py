@@ -51,11 +51,11 @@ def test_last_event_wins_and_removed_is_a_removal(tmp_path):
     store = _store(tmp_path)
     store.append("a.png", "Sana", query_type="random")
     store.append("b.png", "Sana", query_type="random")
-    store.append("a.png", "Varroa", query_type="random")       # correzione
-    store.append("b.png", REMOVED_LABEL, query_type="random")  # rimozione
+    store.append("a.png", "Varroa", query_type="random")       # correction
+    store.append("b.png", REMOVED_LABEL, query_type="random")  # removal
     current = store.current()
     assert {k: v.label for k, v in current.items()} == {"a.png": "Varroa"}
-    assert len(store.events()) == 4  # lo storico resta tutto
+    assert len(store.events()) == 4  # the full history is kept
 
     store.append("b.png", "non so", query_type="random")
     assert store.current()["b.png"].label == UNKNOWN_LABEL
@@ -70,13 +70,13 @@ def test_aliases_apply_on_read_without_rewriting_history(tmp_path):
 
     store.set_aliases({"bad seg": "Bad_Seg", "Blurry": "Sfocata", "Sfocata": "Scarto"})
     labels = {k: v.label for k, v in store.current().items()}
-    assert labels == {"a.png": "Bad_Seg", "b.png": "Bad_Seg", "c.png": "Scarto"}  # unione + catena
+    assert labels == {"a.png": "Bad_Seg", "b.png": "Bad_Seg", "c.png": "Scarto"}  # merge + chain
     assert store.path.read_bytes() == before
     assert [e.label for e in store.events()] == ["Bad Seg", "Bad_Seg", "Blurry"]
 
-    store.set_aliases({"A": "B", "B": "A"})  # un ciclo non blocca la lettura
+    store.set_aliases({"A": "B", "B": "A"})  # a cycle does not block reading
     assert store.resolve("A") in {"A", "B"}
-    store.set_aliases({"Blurry": REMOVED_LABEL})  # un alias può anche scartare una classe
+    store.set_aliases({"Blurry": REMOVED_LABEL})  # an alias can also discard a class
     assert "c.png" not in store.current()
 
 
@@ -91,7 +91,7 @@ def test_legacy_import_with_shifted_rows_and_aliases(tmp_path):
             ["2026-09-22T11:24:01", "t@x.it", "bee_2.png;bee_3.png", "good low reflection"],
         ],
     )
-    # righe scritte col vecchio disallineamento: l'email finisce nella colonna dell'immagine
+    # rows written with the old misalignment: the email ends up in the image column
     with open(results / "single_labels.csv", "a", newline="") as f:
         csv.writer(f).writerow(["2026-09-21T10:00:00", "old@x.it", "bee_4.png", "blurry"])
     with open(results / "grid_batch_labels.csv", "a", newline="") as f:
@@ -111,7 +111,7 @@ def test_legacy_import_with_shifted_rows_and_aliases(tmp_path):
     assert {e.query_type for e in store.events()} == {"legacy"}
     assert current["bee_1.png"].confidence == "High"
     assert current["bee_1.png"].timestamp == "2026-09-22T11:20:04"
-    assert store.import_legacy(results) == 0  # idempotente
+    assert store.import_legacy(results) == 0  # idempotent
 
 
 def test_legacy_import_never_overrides_al_labels_and_follows_clean(tmp_path):
@@ -123,7 +123,7 @@ def test_legacy_import_never_overrides_al_labels_and_follows_clean(tmp_path):
     assert store.current()["bee_1.png"].label == "Varroa"
     assert store.current()["bee_2.png"].query_type == "legacy"
 
-    # /clean toglie bee_2 dal CSV legacy: nello store diventa un evento di rimozione
+    # /clean removes bee_2 from the legacy CSV: in the store it becomes a removal event
     _write_legacy(results, grid_rows=[["2026-09-22T11:24:01", "t@x.it", "bee_1.png", "Sana"]])
     assert store.import_legacy(results) == 1
     assert "bee_2.png" not in store.current()
@@ -140,6 +140,6 @@ def test_no_legacy_files_is_a_noop(tmp_path):
 
 def test_scarta_ape_typed_by_hand_sets_the_bee_aside(tmp_path):
     store = _store(tmp_path)
-    for text in ("Scarta ape", "  scarta   APE ", "non so"):        # il nome nuovo, e quello vecchio per compatibilità
+    for text in ("Scarta ape", "  scarta   APE ", "non so"):        # the new name, and the old one for compatibility
         assert store.normalize_label(text) == UNKNOWN_LABEL
-    assert store.normalize_label("Scarta") == "Scarta"              # una classe vera resta una classe
+    assert store.normalize_label("Scarta") == "Scarta"              # a real class stays a class
