@@ -24,7 +24,7 @@ def make_engine(cfg, synth, **kw):
 
 
 def label_batch(engine, truth, annotator="a@x.it"):
-    """Etichetta tutto il batch corrente con l'oracolo. Restituisce le immagini etichettate."""
+    """Label the whole current batch with the oracle. Returns the labelled images."""
     batch_id, done = engine.batch_id, []
     while engine.batch_id == batch_id:
         item = engine.next_image(annotator)
@@ -55,7 +55,7 @@ def test_submit_updates_bank_immediately_and_writes_event(cfg, synth, truth):
     engine = make_engine(cfg, synth)
     item = engine.next_image("a@x.it")
     engine.submit("a@x.it", item.image_id, "  nuova   classe ", "Medium")
-    assert engine.bank.label_of(item.image_id) == "Nuova Classe"   # add_label subito, senza refresh
+    assert engine.bank.label_of(item.image_id) == "Nuova Classe"   # add_label immediately, without refresh
     assert engine.round == 1
     assert "Nuova Classe" in engine.quick_labels()
     with open(cfg.al_labels_path) as f:
@@ -71,12 +71,12 @@ def test_finished_batch_triggers_refresh_and_regime_change(cfg, synth, truth):
     seen = []
     for _ in range(4):
         seen += label_batch(engine, truth)
-    assert len(seen) == len(set(seen)) == 40           # mai riproposte api già etichettate
+    assert len(seen) == len(set(seen)) == 40           # already labelled bees are never proposed again
     assert engine.round == 5 and engine.status()["n_labels"] == 40
-    assert not engine.status()["cold_start"]            # soglia 10 superata, più di una classe
+    assert not engine.status()["cold_start"]            # threshold of 10 exceeded, more than one class
     assert "uncertainty" in {b.query_type for b in engine.batch}
     assert not set(seen) & {b.image_id for b in engine.batch}
-    assert not set(seen) & set(engine.validation_ids)   # il validation set non viene mai interrogato
+    assert not set(seen) & set(engine.validation_ids)   # the validation set is never queried
 
 
 def test_unknown_is_set_aside_and_never_proposed_again(cfg, synth, truth):
@@ -98,16 +98,16 @@ def test_shared_batch_one_annotator_per_image(cfg, synth):
     a = engine.next_image("a@x.it")
     b = engine.next_image("b@x.it")
     assert a.image_id != b.image_id
-    assert engine.next_image("a@x.it").image_id == a.image_id  # ricaricare la pagina non cambia immagine
+    assert engine.next_image("a@x.it").image_id == a.image_id  # reloading the page does not change the image
     assigned = {engine.next_image(f"u{i}@x.it").image_id for i in range(8)}
     assert len(assigned | {a.image_id, b.image_id}) == 10
-    # Tutto il batch è già assegnato: chi arriva non aspetta, parte il round successivo
+    # The whole batch is already assigned: a newcomer does not wait, the next round starts
     round_before = engine.round
     late = engine.next_image("late@x.it")
     assert late is not None and late.image_id not in assigned | {a.image_id, b.image_id}
     assert engine.round == round_before + 1
-    assert engine.next_image("a@x.it").image_id == a.image_id  # chi aveva un'ape la tiene
-    many = engine.next_images("late2@x.it", 5)                  # lo stesso per la griglia
+    assert engine.next_image("a@x.it").image_id == a.image_id  # whoever had a bee keeps it
+    many = engine.next_images("late2@x.it", 5)                  # the same for the grid
     assert many and not {m.image_id for m in many} & (assigned | {a.image_id, b.image_id, late.image_id})
 
 
@@ -118,14 +118,14 @@ def test_refresh_keeps_images_someone_is_looking_at(cfg, synth):
     assert engine.next_image("a@x.it").image_id == a.image_id
     assert len({b.image_id for b in engine.batch}) == len(engine.batch) == 11
     engine.submit("a@x.it", a.image_id, "X")
-    assert engine.store.events()[-1].batch_id == "r0001"       # il batch che l'aveva proposta
+    assert engine.store.events()[-1].batch_id == "r0001"       # the batch that proposed it
 
 
 def test_validation_mode_is_separate_and_used_only_for_metrics(cfg, synth, truth):
     engine = make_engine(cfg, synth)
     for _ in range(3):
         label_batch(engine, truth)
-    assert engine.status()["metrics"]["accuracy"] is None       # nessuna etichetta di validazione ancora
+    assert engine.status()["metrics"]["accuracy"] is None       # no validation labels yet
 
     labeled_val = []
     for _ in range(20):
@@ -135,23 +135,23 @@ def test_validation_mode_is_separate_and_used_only_for_metrics(cfg, synth, truth
         labeled_val.append(item.image_id)
     assert engine.next_image("a@x.it", mode="validation") is None
     assert sorted(labeled_val) == sorted(engine.validation_ids)
-    assert engine.status()["n_labels"] == 30                    # le etichette di validazione non entrano nella bank
+    assert engine.status()["n_labels"] == 30                    # validation labels do not enter the bank
     assert all(engine.bank.label_of(i) is None for i in labeled_val)
 
     entry = engine.refresh()
     assert entry["n_validation"] == 20 and entry["accuracy"] > 0.8 and entry["macro_f1"] > 0.5
     assert entry["knn_accuracy"] is not None
 
-    with pytest.raises(ALError):   # un'ape di validazione non si etichetta in modalità normale
+    with pytest.raises(ALError):   # a validation bee cannot be labelled in normal mode
         engine.submit("a@x.it", labeled_val[0], "X")
-    with pytest.raises(ALError):   # e viceversa
+    with pytest.raises(ALError):   # and vice versa
         engine.submit("a@x.it", engine.batch[0].image_id, "X", mode="validation")
 
 
 def test_validation_set_is_fixed_on_disk(cfg, synth):
     first = make_engine(cfg, synth).validation_ids
     assert cfg.validation_path.exists()
-    cfg.validation.seed = 999  # il file salvato vince sulla config
+    cfg.validation.seed = 999  # the saved file wins over the config
     assert make_engine(cfg, synth).validation_ids == first
 
 
@@ -165,11 +165,11 @@ def test_legacy_labels_feed_knn_but_never_evaluation(cfg, synth, truth):
     store.append(val_id, truth[val_id], query_type="legacy")
     store.append(train_id, truth[train_id], query_type="legacy")
     engine = make_engine(cfg, synth, store=store)
-    assert engine.bank.label_of(train_id) == truth[train_id]   # usata per kNN e propagazione
-    assert engine.bank.label_of(val_id) is None                # mai nella bank se è di validazione
-    assert engine.val_labels == {}                             # e mai per la valutazione
+    assert engine.bank.label_of(train_id) == truth[train_id]   # used for kNN and propagation
+    assert engine.bank.label_of(val_id) is None                # never in the bank if it is a validation bee
+    assert engine.val_labels == {}                             # and never for evaluation
     assert engine.history[-1]["n_validation"] == 0
-    with pytest.raises(ALError):                               # le legacy si correggono dalle pagine esistenti
+    with pytest.raises(ALError):                               # legacy labels are corrected from the existing pages
         engine.submit("a@x.it", train_id, "Altro")
 
 
@@ -189,10 +189,10 @@ def test_alias_change_only_needs_config_and_refresh(cfg, synth, truth, tmp_path)
     }}))
     engine.refresh()
     assert set(engine.bank.classes) <= {"Class_0", "Class_3"}
-    assert engine.knn_pred.classes == engine.bank.classes       # il kNN segue subito le classi nuove
-    assert cfg.al_labels_path.read_bytes() == before            # nessuna modifica al CSV
+    assert engine.knn_pred.classes == engine.bank.classes       # the kNN follows the new classes immediately
+    assert cfg.al_labels_path.read_bytes() == before            # no change to the CSV
     assert "Sana" in engine.quick_labels() and "Class_1" not in engine.quick_labels()
-    assert "Class_3" not in engine.final_clusters()             # classe di scarto fuori dai cluster finali
+    assert "Class_3" not in engine.final_clusters()             # reject class out of the final clusters
 
 
 def test_correction_and_removal_are_new_events(cfg, synth, truth):
@@ -200,7 +200,7 @@ def test_correction_and_removal_are_new_events(cfg, synth, truth):
     first = label_batch(engine, truth)[0]
     n_events = len(engine.store.events())
 
-    engine.submit("a@x.it", first, "Corretta")                  # correzione di un batch precedente
+    engine.submit("a@x.it", first, "Corretta")                  # correction from a previous batch
     assert engine.bank.label_of(first) == "Corretta"
     engine.submit("a@x.it", first, REMOVED_LABEL)
     assert engine.bank.label_of(first) is None
@@ -243,30 +243,30 @@ def test_single_class_stays_in_cold_start(cfg, synth):
             engine.submit("a@x.it", item.image_id, "Solo")
     st = engine.status()
     assert st["n_labels"] == 30 and st["class_counts"] == {"Solo": 30}
-    assert st["cold_start"]                                      # meno di 2 classi
+    assert st["cold_start"]                                      # fewer than 2 classes
     assert {b.query_type for b in engine.batch} <= {"diversity", "random"}
 
 
 def test_cluster_samples_show_predicted_bees_per_class(cfg, synth, truth):
     engine = make_engine(cfg, synth)
-    assert engine.cluster_samples() == []                       # senza etichette non ci sono cluster
+    assert engine.cluster_samples() == []                       # without labels there are no clusters
     for _ in range(3):
         label_batch(engine, truth)
     human = {i for i in engine.bank.ids if engine.bank.label_of(i)}
 
     clusters = engine.cluster_samples(n=5)
     assert [c["label"] for c in clusters] == engine.final_pred.classes
-    n_unassigned = engine.status()["n_unassigned"]              # tenute fuori dai cluster
+    n_unassigned = engine.status()["n_unassigned"]              # kept out of the clusters
     assert sum(c["n_predicted"] for c in clusters) == 300 - len(human) - n_unassigned - len(engine.validation_ids)
     shown = {b["image_id"] for c in engine.cluster_samples(n=500) for b in c["samples"]}
-    assert not shown & set(engine.validation_ids)               # il validation set non compare tra i cluster
+    assert not shown & set(engine.validation_ids)               # the validation set does not appear among the clusters
     assert sum(c["n_human"] for c in clusters) == len(human)
     for c in clusters:
         ids = [b["image_id"] for b in c["samples"]]
         assert len(ids) == min(5, c["n_predicted"]) == len(set(ids))
-        assert not set(ids) & human                             # solo api assegnate dal modello
+        assert not set(ids) & human                             # only bees assigned by the model
         assert all(0 < b["confidence"] <= 1 for b in c["samples"])
-    assert clusters == engine.cluster_samples(n=5)              # campione stabile fino al prossimo round
+    assert clusters == engine.cluster_samples(n=5)              # sample stable until the next round
 
     top = engine.cluster_samples(n=5, order="confident")
     low = engine.cluster_samples(n=5, order="uncertain")
@@ -275,7 +275,7 @@ def test_cluster_samples_show_predicted_bees_per_class(cfg, synth, truth):
             assert min(x["confidence"] for x in a["samples"]) >= max(x["confidence"] for x in b["samples"])
     big = next(c for c in top if c["n_predicted"] > 5)
     right = sum(truth[b["image_id"]] == big["label"] for b in big["samples"])
-    assert right >= 4                                           # le più sicure sono quasi sempre giuste
+    assert right >= 4                                           # the most confident ones are almost always right
 
 
 def test_assign_many_edits_single_bees_and_groups(cfg, synth, truth):
@@ -284,15 +284,15 @@ def test_assign_many_edits_single_bees_and_groups(cfg, synth, truth):
     round_before, batch_before = engine.round, [b.image_id for b in engine.batch]
     n_events = len(engine.store.events())
 
-    # cambio idea su un'ape etichettata
+    # change of mind on a labelled bee
     assert engine.assign_many("a@x.it", [done[0]], "ripensata") == 1
     assert engine.bank.label_of(done[0]) == "Ripensata"
     last = engine.store.events()[-1]
-    assert last.query_type == engine.store.events()[0].query_type   # correzione: resta il tipo di query originale
-    assert "Ripensata" in engine.final_pred.classes                  # predizioni ricalcolate subito...
-    assert engine.round == round_before and [b.image_id for b in engine.batch] == batch_before  # ...senza nuovo round o batch
+    assert last.query_type == engine.store.events()[0].query_type   # correction: the original query type is kept
+    assert "Ripensata" in engine.final_pred.classes                  # predictions recomputed immediately...
+    assert engine.round == round_before and [b.image_id for b in engine.batch] == batch_before  # ...without a new round or batch
 
-    # un gruppo di api mai proposte, prese dai cluster predetti
+    # a group of never-proposed bees, taken from the predicted clusters
     cluster = next(c for c in engine.cluster_samples(n=4) if len(c["samples"]) == 4)
     group = [b["image_id"] for b in cluster["samples"]]
     assert engine.assign_many("b@x.it", group + group[:1], "Gruppo Nuovo") == 4
@@ -301,16 +301,16 @@ def test_assign_many_edits_single_bees_and_groups(cfg, synth, truth):
     assert {e.query_type for e in events} == {"manual"} and {e.annotator for e in events} == {"b@x.it"}
     assert not set(group) & {b["image_id"] for c in engine.cluster_samples(n=500) for b in c["samples"]}
 
-    # ripetere la stessa scelta non scrive nulla; rimozione e "Non so" sono eventi nuovi
+    # repeating the same choice writes nothing; removal and "Don't know" are new events
     count = len(engine.store.events())
     assert engine.assign_many("b@x.it", group, "Gruppo Nuovo") == 0 and len(engine.store.events()) == count
     assert engine.assign_many("b@x.it", group[:2], REMOVED_LABEL) == 2
-    assert engine.assign_many("b@x.it", group[:2], REMOVED_LABEL) == 0  # non c'è più nulla da togliere
+    assert engine.assign_many("b@x.it", group[:2], REMOVED_LABEL) == 0  # nothing left to remove
     assert engine.assign_many("b@x.it", group[2:3], UNKNOWN_LABEL) == 1
     assert engine.bank.label_of(group[0]) is None and engine.bank.label_of(group[2]) == UNKNOWN_LABEL
     assert len(engine.store.events()) == count + 3 and len(engine.store.events()) > n_events
 
-    # o tutto o niente: un'ape di validazione nel gruppo blocca l'intera modifica
+    # all or nothing: a validation bee in the group blocks the whole change
     count = len(engine.store.events())
     with pytest.raises(ALError):
         engine.assign_many("b@x.it", [group[3], engine.validation_ids[0]], "X")
@@ -318,7 +318,7 @@ def test_assign_many_edits_single_bees_and_groups(cfg, synth, truth):
         engine.assign_many("b@x.it", [group[3]], "  ")
     assert len(engine.store.events()) == count and engine.bank.label_of(group[3]) == "Gruppo Nuovo"
 
-    # dopo un riavvio le modifiche ci sono ancora
+    # after a restart the changes are still there
     restarted = make_engine(cfg, synth)
     assert restarted.bank.label_of(done[0]) == "Ripensata" and restarted.bank.label_of(group[3]) == "Gruppo Nuovo"
 
@@ -341,19 +341,19 @@ def test_manual_label_on_pending_batch_image_closes_it(cfg, synth, truth):
     engine.assign_many("a@x.it", [target.image_id], "Vista Nei Cluster")
     assert target.done and engine.store.events()[-1].query_type == target.query_type
     seen = label_batch(engine, truth)
-    assert target.image_id not in seen and len(seen) == 9          # non viene riproposta
+    assert target.image_id not in seen and len(seen) == 9          # not proposed again
 
 
 def test_similarity_bands_take_top_median_and_bottom_thirds():
     from bee_al.engine import similarity_bands
 
-    sims = np.linspace(1.0, 0.0, 120)                            # indice = posizione, dalla più simile
+    sims = np.linspace(1.0, 0.0, 120)                            # index = position, from the most similar
     picks, n_pages = similarity_bands(sims, 12, 0)
     assert n_pages == 9 and [b for _, b in picks] == ["high"] * 4 + ["median"] * 4 + ["low"] * 4
     assert [i for i, _ in picks] == [0, 1, 2, 3, 58, 59, 60, 61, 116, 117, 118, 119]
     seen = [i for page in range(n_pages) for i, _ in similarity_bands(sims, 12, page)[0]]
-    assert len(seen) == len(set(seen)) == 108                    # ogni pagina api nuove, mai ripetute
-    assert similarity_bands(sims, 12, n_pages) == (picks, n_pages)   # dopo l'ultima pagina si ricomincia
+    assert len(seen) == len(set(seen)) == 108                    # every page new bees, never repeated
+    assert similarity_bands(sims, 12, n_pages) == (picks, n_pages)   # after the last page it starts over
     assert similarity_bands(sims, 12, -1)[0] == similarity_bands(sims, 12, n_pages - 1)[0]
 
     shuffled = np.random.default_rng(0).permutation(sims)
@@ -362,7 +362,7 @@ def test_similarity_bands_take_top_median_and_bottom_thirds():
     few, pages = similarity_bands(np.array([0.2, 0.9, 0.5, 0.7, 0.1]), 12, 3)
     assert pages == 1 and [i for i, _ in few] == [1, 3, 2, 0, 4] and [b for _, b in few] == ["high", "high", "median", "median", "low"]
     assert similarity_bands(np.array([]), 12, 0) == ([], 1)
-    for m in range(1, 80):                                       # nessuna ripetizione, qualunque sia la dimensione
+    for m in range(1, 80):                                       # no repetition, whatever the size
         pages = similarity_bands(np.arange(m, dtype=float), 12, 0)[1]
         for page in range(pages):
             shown = [i for i, _ in similarity_bands(np.arange(m, dtype=float), 12, page)[0]]
@@ -382,7 +382,7 @@ def test_cluster_view_orders_one_group_by_similarity_to_its_centre(cfg, synth, t
     sims = sorted((X @ centre).tolist(), reverse=True)
     assert view["samples"][0]["similarity"] == pytest.approx(sims[0], abs=1e-5)
     assert view["samples"][-1]["similarity"] == pytest.approx(sims[-1], abs=1e-5)
-    assert view == engine.cluster_view("predicted", name, 12, 0)             # deterministico
+    assert view == engine.cluster_view("predicted", name, 12, 0)             # deterministic
 
     hand = engine.cluster_view("labeled", name, 12, 0)
     assert all(engine.bank.label_of(b["image_id"]) == name and b["annotator"] for b in hand["samples"])

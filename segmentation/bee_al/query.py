@@ -1,4 +1,4 @@
-"""Selezione del batch di api da far etichettare (active learning)."""
+"""Selection of the batch of bees to be labelled (active learning)."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -18,17 +18,17 @@ NOVELTY = "novelty"
 
 @dataclass(frozen=True)
 class Query:
-    index: int        # posizione dell'ape nella memory bank
+    index: int        # position of the bee in the memory bank
     query_type: str   # random | diversity | uncertainty | novelty
 
 
 def is_cold_start(n_labeled: int, n_classes: int, cfg: QueryConfig) -> bool:
-    """Cold start finché le etichette sono poche o c'è meno di 2 classi."""
+    """Cold start while there are few labels or fewer than 2 classes."""
     return n_labeled < cfg.cold_start_threshold or n_classes < 2
 
 
 def kmeans_representatives(X: np.ndarray, k: int, rng: np.random.Generator) -> np.ndarray:
-    """Indici (in ``X``) di ``k`` punti distinti, ognuno il più vicino a un centroide k-means."""
+    """Indices (into ``X``) of ``k`` distinct points, each the closest to a k-means centroid."""
     n = len(X)
     if k >= n:
         return np.arange(n)
@@ -38,7 +38,7 @@ def kmeans_representatives(X: np.ndarray, k: int, rng: np.random.Generator) -> n
     else:
         km = KMeans(n_clusters=k, n_init=1, random_state=seed)
     km.fit(X)
-    # Distanza al quadrato punto-centroide, a meno di ||x||^2 che non serve per l'argmin per centroide.
+    # Squared point-centroid distance, up to ||x||^2, which is not needed for the per-centroid argmin.
     centers = km.cluster_centers_
     dist = (centers**2).sum(axis=1)[:, None] - 2.0 * centers @ X.T + (X**2).sum(axis=1)[None, :]
     chosen: list[int] = []
@@ -61,20 +61,20 @@ def select_batch(
     rng: np.random.Generator,
     novelty: Optional[np.ndarray] = None,
 ) -> list[Query]:
-    """Sceglie il prossimo batch tra le api non in ``excluded``.
+    """Choose the next batch among the bees not in ``excluded``.
 
-    ``excluded`` deve contenere etichettate, "Non so", validation set e batch in corso.
-    ``probs`` è la distribuzione sulle classi di tutte le api (kNN o propagazione),
-    ignorata in cold start. ``novelty`` è la distanza di ogni ape dall'esempio
-    etichettato più vicino; se manca, la quota novelty va all'incertezza.
+    ``excluded`` must contain labelled bees, "Don't know" bees, the validation set and the batch in progress.
+    ``probs`` is the class distribution of all bees (kNN or propagation),
+    ignored during cold start. ``novelty`` is the distance of each bee from the nearest
+    labelled example; if missing, the novelty share goes to uncertainty.
 
-    - Quota random: ``random_fraction`` del batch, a caso tra le candidate.
-    - Cold start: k-means sulle candidate, le api più vicine ai centroidi (``diversity``).
-    - Regime normale: top-M più incerte, k-means su quelle, un rappresentante per
-      cluster (``uncertainty``). Mai le top-N in blocco.
-    - Quota novelty (solo regime normale): ``novelty_fraction`` del batch tra le api più
-      lontane da tutto ciò che è etichettato, per far emergere classi rare mai viste.
-      Anche qui top-M e poi un rappresentante per cluster.
+    - Random share: ``random_fraction`` of the batch, drawn at random among the candidates.
+    - Cold start: k-means on the candidates, the bees closest to the centroids (``diversity``).
+    - Normal regime: top-M most uncertain, k-means on those, one representative per
+      cluster (``uncertainty``). Never the top-N as a block.
+    - Novelty share (normal regime only): ``novelty_fraction`` of the batch among the bees
+      farthest from everything labelled, to surface rare, never-seen classes.
+      Here too top-M and then one representative per cluster.
     """
     mask = np.ones(len(X), dtype=bool)
     mask[np.fromiter(excluded, dtype=np.int64)] = False
@@ -109,12 +109,12 @@ def select_batch(
         pool_for_kmeans, kind = pool, DIVERSITY
     else:
         unc = uncertainty_scores(probs[pool], cfg.uncertainty)
-        # Parità di incertezza risolta a caso, non per ordine di file.
+        # Uncertainty ties broken at random, not by file order.
         order = np.lexsort((rng.random(len(pool)), -unc))
         pool_for_kmeans, kind = pool[order[:cfg.candidate_multiplier * n_main]], UNCERTAINTY
 
     if n_main:
         reps = kmeans_representatives(X[pool_for_kmeans], n_main, rng)
         queries += [Query(int(i), kind) for i in pool_for_kmeans[reps]]
-    order = rng.permutation(len(queries))  # l'annotatore non deve riconoscere il tipo dall'ordine
+    order = rng.permutation(len(queries))  # the annotator must not be able to infer the type from the order
     return [queries[i] for i in order]

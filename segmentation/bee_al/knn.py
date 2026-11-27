@@ -1,4 +1,4 @@
-"""Classificatore kNN pesato sulla memory bank."""
+"""Weighted kNN classifier on the memory bank."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,10 +11,10 @@ from .memory_bank import MemoryBank
 
 @dataclass
 class Prediction:
-    """Distribuzione sulle classi per un insieme di api (righe allineate a ``indices``)."""
+    """Class distribution for a set of bees (rows aligned with ``indices``)."""
 
     classes: list[str]
-    probs: np.ndarray  # (n, n_classi); n_classi può essere 0 o 1
+    probs: np.ndarray  # (n, n_classes); n_classes can be 0 or 1
 
     @property
     def confidence(self) -> np.ndarray:
@@ -35,10 +35,10 @@ def knn_predict(
     k: int = 10,
     temperature: float = 0.07,
 ) -> Prediction:
-    """Distribuzione sulle classi dai k vicini etichettati, pesati con ``exp(sim / T)``.
+    """Class distribution from the k labelled neighbours, weighted by ``exp(sim / T)``.
 
-    Funziona con qualsiasi numero di classi: con 0 etichette le probabilità hanno 0 colonne,
-    con una sola classe valgono tutte 1. Un'ape etichettata non vota per se stessa.
+    Works with any number of classes: with 0 labels the probabilities have 0 columns,
+    with a single class they are all 1. A labelled bee does not vote for itself.
     """
     idx = np.arange(len(bank)) if indices is None else np.asarray(indices, dtype=np.int64)
     classes = bank.classes
@@ -46,7 +46,7 @@ def knn_predict(
     if not classes or len(idx) == 0:
         return Prediction(classes, probs)
 
-    # Un vicino in più, per poter scartare l'ape stessa quando è etichettata.
+    # One extra neighbour, so the bee itself can be dropped when it is labelled.
     sims, nb = bank.search_labeled(bank.X[idx], k + 1)
     is_self = nb == idx[:, None]
     sims = np.where(is_self, -np.inf, sims.astype(np.float64))
@@ -68,10 +68,10 @@ def knn_predict(
 
 
 def nearest_labeled_similarity(bank: MemoryBank, indices: Optional[Sequence[int]] = None) -> np.ndarray:
-    """Similarità coseno tra ogni ape e l'esempio etichettato più vicino (escluso se stessa).
+    """Cosine similarity between each bee and the nearest labelled example (excluding itself).
 
-    Vale 0 se non ci sono (altre) api etichettate. ``1 - similarità`` è la "novità" dell'ape:
-    alta per le api che non assomigliano a nulla di ciò che è stato etichettato finora.
+    It is 0 if there are no (other) labelled bees. ``1 - similarity`` is the bee's "novelty":
+    high for bees that look like nothing labelled so far.
     """
     idx = np.arange(len(bank)) if indices is None else np.asarray(indices, dtype=np.int64)
     sims, nb = bank.search_labeled(bank.X[idx], 2)

@@ -1,4 +1,4 @@
-"""Motore di active learning usato dall'hub: bank, store, batch condiviso e metriche."""
+"""Active learning engine used by the hub: bank, store, shared batch and metrics."""
 from __future__ import annotations
 
 import json
@@ -26,25 +26,25 @@ from .validation import classification_metrics, load_or_create_validation_set
 CONFIDENCES = ("High", "Medium", "Low")
 
 
-CLUSTER_ORDERS = ("bands", "similar", "dissimilar", "confident", "uncertain", "random")  # ordinamenti della pagina dei cluster
+CLUSTER_ORDERS = ("bands", "similar", "dissimilar", "confident", "uncertain", "random")  # sort orders of the clusters page
 
 
 def similarity_bands(sims: np.ndarray, n: int = 12, page: int = 0) -> tuple[list[tuple[int, str]], int]:
-    """Sceglie ``n`` elementi per fasce di similarità: un terzo i più simili, un terzo intorno alla mediana, un terzo i meno simili.
+    """Pick ``n`` items by similarity band: a third the most similar, a third around the median, a third the least similar.
 
-    Restituisce le coppie ``(indice, fascia)`` con fascia ``high``/``median``/``low``, dalla più simile
-    alla meno simile, e il numero di pagine. Ogni pagina prende elementi nuovi: i successivi dall'alto,
-    i successivi dal basso e quelli accanto alla mediana, alternando i due lati. Se gli elementi sono
-    al più ``n`` si mostrano tutti, divisi in tre parti per posizione.
+    Returns the ``(index, band)`` pairs, with band ``high``/``median``/``low``, from most to least
+    similar, and the number of pages. Each page takes new items: the next ones from the top,
+    the next ones from the bottom and those next to the median, alternating the two sides. If there
+    are at most ``n`` items, all are shown, split into three parts by position.
     """
     order = np.argsort(-np.asarray(sims, dtype=np.float64), kind="stable")
     m, names = len(order), ("high", "median", "low")
     third = max(1, n // 3)
     if m <= 3 * third:
         return [(int(i), names[min(2, 3 * rank // max(m, 1))]) for rank, i in enumerate(order)], 1
-    n_pages = max(1, (m - third) // (3 * third))        # così le tre fasce non si toccano mai
+    n_pages = max(1, (m - third) // (3 * third))        # so the three bands never touch
     page %= n_pages
-    step = (page + 1) // 2 * (1 if page % 2 else -1)     # finestre intorno alla mediana: 0, +1, -1, +2, -2, ...
+    step = (page + 1) // 2 * (1 if page % 2 else -1)     # windows around the median: 0, +1, -1, +2, -2, ...
     start = m // 2 - third // 2 + step * third
     picks = [(order[page * third:(page + 1) * third], "high"), (order[start:start + third], "median"),
              (order[m - (page + 1) * third:m - page * third], "low")]
@@ -52,7 +52,7 @@ def similarity_bands(sims: np.ndarray, n: int = 12, page: int = 0) -> tuple[list
 
 
 class ALError(ValueError):
-    """Richiesta non valida (immagine sconosciuta, etichetta vuota, ...)."""
+    """Invalid request (unknown image, empty label, ...)."""
 
 
 @dataclass
@@ -67,10 +67,10 @@ class BatchItem:
 
 
 def predict_all(bank: MemoryBank, spreader: Optional[LabelSpreader], cfg: ALConfig) -> tuple[Prediction, Prediction]:
-    """Predizioni su tutte le api: (kNN, finale).
+    """Predictions for all bees: (kNN, final).
 
-    La finale è la propagazione se abilitata, con il kNN come ripiego per le api
-    che nessuna etichetta raggiunge lungo il grafo.
+    The final one is the propagation if enabled, with the kNN as a fallback for bees
+    that no label reaches along the graph.
     """
     knn = knn_predict(bank, None, k=cfg.knn.k, temperature=cfg.knn.temperature)
     if spreader is None or not cfg.propagation.enabled or not knn.classes:
@@ -81,11 +81,11 @@ def predict_all(bank: MemoryBank, spreader: Optional[LabelSpreader], cfg: ALConf
 
 
 class ALEngine:
-    """Stato in-process dell'active learning, protetto da un lock.
+    """In-process active learning state, protected by a lock.
 
-    Tutti gli annotatori condividono un solo batch globale; ogni immagine è
-    assegnata a un annotatore alla volta. Lo store su disco è la fonte di verità:
-    al riavvio lo stato si ricostruisce da lì.
+    All annotators share a single global batch; each image is assigned
+    to one annotator at a time. The on-disk store is the source of truth:
+    on restart the state is rebuilt from it.
     """
 
     def __init__(
@@ -99,7 +99,7 @@ class ALEngine:
         persist_rounds: bool = True,
     ) -> None:
         self.cfg = cfg
-        self.persist_rounds = persist_rounds  # False = non scrive al_rounds.jsonl (script che non sono l'hub)
+        self.persist_rounds = persist_rounds  # False = do not write al_rounds.jsonl (scripts other than the hub)
         self.config_path = Path(config_path) if config_path else None
         self.clock = clock
         self.lock = threading.RLock()
@@ -109,11 +109,11 @@ class ALEngine:
         self.round = len(self.history)
         self.batch: list[BatchItem] = []
         self.batch_id = ""
-        self._shuffled_out: set[int] = set()   # api tolte dal batch con "rimescola": fuori fino al round successivo
+        self._shuffled_out: set[int] = set()   # bees removed from the batch with "reshuffle": out until the next round
         self._n_shuffles = 0
-        self.retrain: Any = None  # RetrainManager opzionale, vedi bee_al/retrain.py
+        self.retrain: Any = None  # optional RetrainManager, see bee_al/retrain.py
         self.exporter = ClusterExporter(self)
-        # Revisione delle etichette sospette: coda in cache, conferme ricostruite dal log.
+        # Review of suspicious labels: queue in cache, confirmations rebuilt from the log.
         self.review_log_path = cfg.results_dir / "review_log.jsonl"
         self._suspects: list[review.Suspect] = []
         self._n_checked = 0
@@ -124,12 +124,12 @@ class ALEngine:
             cfg.validation_path, embeddings.ids, cfg.validation.size, cfg.validation.seed
         )
         self._val_set = set(self.validation_ids)
-        self.holdout_labels: dict[str, str] = {}   # etichette delle api tenute da parte (mai addestramento)
-        self._batches: Optional[np.ndarray] = None  # batch (sessione) di ogni ape, calcolato alla prima richiesta
-        self._round_final: Optional[np.ndarray] = None  # etichette finali al round precedente (criteri di stop)
-        # Audit attivo: campione di controllo di uno snapshot, mai usato per addestrare.
+        self.holdout_labels: dict[str, str] = {}   # labels of held-out bees (never used for training)
+        self._batches: Optional[np.ndarray] = None  # batch (session) of each bee, computed on first request
+        self._round_final: Optional[np.ndarray] = None  # final labels at the previous round (stopping criteria)
+        # Active audit: control sample of a snapshot, never used for training.
         self.audit: Optional[dict[str, Any]] = None
-        self.audit_labels: dict[str, dict[str, str]] = {}   # image_id -> {annotatore: etichetta}
+        self.audit_labels: dict[str, dict[str, str]] = {}   # image_id -> {annotator: label}
         self._audit_ids: set[str] = set()
         self._audit_assigned: dict[str, dict[str, float]] = {}
         self._restore_audit(set(embeddings.ids))
@@ -138,19 +138,19 @@ class ALEngine:
 
     @classmethod
     def from_config(cls, config_path: Union[str, Path, None] = None, persist_rounds: bool = True) -> "ALEngine":
-        """Carica config, embedding dell'ultima versione, store e importa le etichette legacy."""
+        """Load config, latest-version embeddings and store, and import the legacy labels."""
         cfg = load_config(config_path)
         version, emb_dir = latest_embeddings(cfg)
         store = LabelStore(cfg.al_labels_path, cfg.labels.label_aliases)
         store.import_legacy(cfg.results_dir, config_id=cfg.config_id)
         embeddings = load_embeddings(emb_dir)
-        if cfg.paths.dataset_dirs:  # solo le cartelle elencate in config, anche se ci sono embedding di altre
+        if cfg.paths.dataset_dirs:  # only the folders listed in the config, even if there are embeddings of others
             embeddings = restrict_to_datasets(embeddings, list(cfg.paths.dataset_dirs))
         if cfg.subset_path is not None:
             embeddings = restrict_embeddings(embeddings, cfg.subset_path)
         return cls(cfg, embeddings, store, version, config_path or DEFAULT_CONFIG_PATH, persist_rounds=persist_rounds)
 
-    # ------------------------------ stato base ------------------------------ #
+    # ------------------------------ base state ------------------------------ #
 
     def _load_history(self) -> list[dict[str, Any]]:
         if not self.rounds_path.exists():
@@ -172,17 +172,17 @@ class ALEngine:
             )
 
     def set_embeddings(self, embeddings: Embeddings, model_version: str) -> None:
-        """Sostituisce l'extractor (fine re-train): nuova bank, nuovo grafo, incertezze ricalcolate."""
+        """Replace the extractor (end of re-training): new bank, new graph, recomputed uncertainties."""
         with self.lock:
             self._install_embeddings(embeddings, model_version)
             self.refresh(reload_config=False)
 
     def _reload_labels(self) -> None:
-        """Ricostruisce le etichette della bank e del validation set dallo store, con gli alias attuali."""
+        """Rebuild the bank and validation set labels from the store, with the current aliases."""
         self.store.set_aliases(self.cfg.labels.label_aliases)
         self.bank.clear_labels()
-        # Le api di validazione non entrano mai nella bank, nemmeno se hanno un'etichetta legacy.
-        # Gli eventi di validazione e di audit sono tenuti da parte: non addestrano nulla.
+        # Validation bees never enter the bank, not even if they have a legacy label.
+        # Validation and audit events are kept apart: they train nothing.
         for image_id, ev in self.store.current(is_training_event).items():
             if image_id in self.bank and image_id not in self._val_set and image_id not in self._holdout_ids:
                 self.bank.add_label(image_id, ev.label)
@@ -201,10 +201,10 @@ class ALEngine:
     # ------------------------------- refresh -------------------------------- #
 
     def refresh(self, reload_config: bool = True) -> dict[str, Any]:
-        """Ricalcola propagazione, incertezze e metriche e genera il batch successivo.
+        """Recompute propagation, uncertainties and metrics, and generate the next batch.
 
-        Rilegge anche la sezione ``labels`` della config: alias, classi suggerite e
-        classi di scarto cambiano senza riavviare l'hub e senza toccare i CSV.
+        Also re-reads the ``labels`` section of the config: aliases, suggested classes and
+        reject classes change without restarting the hub and without touching the CSVs.
         """
         with self.lock:
             if reload_config and self.config_path and self.config_path.exists():
@@ -227,14 +227,14 @@ class ALEngine:
             return entry
 
     def recompute(self) -> None:
-        """Ricalcola predizioni e "non assegnate" con le etichette attuali, senza cambiare round né batch."""
+        """Recompute predictions and "unassigned" bees with the current labels, without changing round or batch."""
         with self.lock:
             self.knn_pred, self.final_pred = predict_all(self.bank, self.spreader, self.cfg)
             self._update_novelty()
             self._update_suspects()
 
     def _update_suspects(self) -> None:
-        """Ricalcola la coda delle etichette sospette (mai validation set né audit)."""
+        """Recompute the queue of suspicious labels (never validation set or audit)."""
         self._suspects, self._n_checked = [], 0
         if not self.cfg.review.enabled:
             return
@@ -243,11 +243,11 @@ class ALEngine:
         self._suspects = review.find_suspects(self.bank, self.store, self.cfg, held_out)
 
     def _is_confirmed(self, s: review.Suspect) -> bool:
-        """Già confermata da un umano, e da allora non sono cambiate né l'etichetta né la classe suggerita."""
+        """Already confirmed by a human, and neither the label nor the suggested class has changed since."""
         return self._confirmed.get(s.image_id) == (s.label, s.suggested)
 
     def suspects(self) -> dict[str, Any]:
-        """Coda di revisione dalla cache: ``main``, ``rare`` (classi con poche etichette), conteggi."""
+        """Review queue from the cache: ``main``, ``rare`` (classes with few labels), counts."""
         with self.lock:
             visible = [s for s in self._suspects if not self._is_confirmed(s)]
             return {
@@ -258,16 +258,16 @@ class ALEngine:
             }
 
     def review(self, annotator: str, image_id: str, decision: str, new_label: Optional[str] = None) -> None:
-        """Applica la decisione di un umano su un'etichetta sospetta e la scrive in ``review_log.jsonl``.
+        """Apply a human decision on a suspicious label and write it to ``review_log.jsonl``.
 
-        - ``confirmed``: l'etichetta è giusta. Nessun evento nuovo tra le etichette; l'ape non
-          torna in coda finché restano uguali la sua etichetta e la classe suggerita.
-        - ``corrected``: la classe giusta è ``new_label`` (quella suggerita o un'altra). Passa
-          dal percorso delle correzioni manuali, quindi l'evento finisce in ``al_labels.csv``
-          e le predizioni si ricalcolano.
-        - ``set_aside``: l'ape diventa "Scarta ape".
+        - ``confirmed``: the label is correct. No new label event; the bee does not
+          return to the queue as long as its label and the suggested class stay the same.
+        - ``corrected``: the correct class is ``new_label`` (the suggested one or another). It goes
+          through the manual-correction path, so the event ends up in ``al_labels.csv``
+          and the predictions are recomputed.
+        - ``set_aside``: the bee becomes "Scarta ape" (discarded).
 
-        Validation set e audit non si rivedono mai: ``ALError``.
+        Validation set and audit bees are never reviewed: ``ALError``.
         """
         with self.lock:
             if decision not in review.DECISIONS:
@@ -275,9 +275,9 @@ class ALEngine:
             if image_id not in self.bank:
                 raise ALError(f"immagine sconosciuta: {image_id}")
             if image_id in self._val_set:
-                raise ALError(f"{image_id} è nel validation set: le sue etichette non si rivedono con il modello")
+                raise ALError(f"{image_id} is in the validation set: its labels are not reviewed against the model")
             if image_id in self._audit_ids:
-                raise ALError(f"{image_id} è nel campione di audit: le sue etichette non si rivedono con il modello")
+                raise ALError(f"{image_id} is in the audit sample: its labels are not reviewed against the model")
             suspect = next((s for s in self._suspects if s.image_id == image_id), None)
             if suspect is None or suspect.label != self.bank.label_of(image_id):
                 raise ALError(f"{image_id} non è più tra le etichette sospette")
@@ -304,7 +304,7 @@ class ALEngine:
             review.append_log(self.review_log_path, row)
 
     def review_stats(self) -> dict[str, Any]:
-        """Numeri della revisione: etichette controllate, sospette, decisioni, correzioni per coppia di classi."""
+        """Review figures: labels checked, suspicious ones, decisions, corrections per class pair."""
         with self.lock:
             log = review.read_log(self.review_log_path)
             queue = self.suspects()
@@ -314,7 +314,7 @@ class ALEngine:
                 if r.get("decision") == "corrected":
                     key = f"{r.get('old_label')} -> {r.get('new_label')}"
                     pairs[key] = pairs.get(key, 0) + 1
-            # Quota di etichette oggi segnalate, per confidenza dichiarata da chi le ha date.
+            # Share of labels currently flagged, by the confidence declared by whoever gave them.
             held_out = self._val_set | self._audit_ids
             events = self.store.current(is_training_event)
             flagged = {s.image_id for s in self._suspects if not s.rare_class}
@@ -349,10 +349,10 @@ class ALEngine:
             }
 
     def _update_novelty(self) -> None:
-        """Distanza di ogni ape dalle etichettate e gruppo delle "non assegnate".
+        """Distance of each bee from the labelled ones, and the group of "unassigned" bees.
 
-        Le non assegnate sono la frazione ``knn.unassigned_fraction`` di api non
-        etichettate (validation set escluso) più lontane da ogni esempio: restano fuori dai cluster.
+        The unassigned bees are the ``knn.unassigned_fraction`` of unlabelled bees
+        (validation set excluded) farthest from every example: they stay out of the clusters.
         """
         n = len(self.bank)
         self.unassigned = np.zeros(n, dtype=bool)
@@ -360,11 +360,11 @@ class ALEngine:
         if not self.bank.n_labeled:
             return
         self.nearest_sim = nearest_labeled_similarity(self.bank)
-        free = self._not_validation()  # le api di validazione restano fuori da questa pagina
+        free = self._not_validation()  # validation bees stay out of this page
         free[self.bank.labeled_indices()] = False
         free[self.bank.unknown_indices()] = False
-        # La soglia viene dalle sole api non tenute da parte, così aggiungerne non cambia le altre;
-        # alle tenute da parte si applica la stessa soglia di similarità.
+        # The threshold comes from non-held-out bees only, so adding held-out ones does not change the others;
+        # the same similarity threshold is applied to the held-out bees.
         free_idx = np.flatnonzero(free & ~self._holdout)
         k = int(round(self.cfg.knn.unassigned_fraction * len(free_idx)))
         if k:
@@ -373,7 +373,7 @@ class ALEngine:
             self.unassigned |= free & self._holdout & (self.nearest_sim <= self.nearest_sim[far].max())
 
     def _evaluate(self) -> dict[str, Any]:
-        """Metriche sul validation set (solo etichette date in modalità validazione)."""
+        """Metrics on the validation set (only labels given in validation mode)."""
         val = [(i, lbl) for i, lbl in self.val_labels.items() if lbl != UNKNOWN_LABEL]
         idx = [self.bank.index_of(i) for i, _ in val]
         y_true = [lbl for _, lbl in val]
@@ -387,7 +387,7 @@ class ALEngine:
             "accuracy": None, "macro_f1": None, "knn_accuracy": None, "knn_macro_f1": None,
         }
         if val and self.bank.n_labeled:
-            # labels è una property che ricalcola la lista di tutte le api: una volta sola, non per ape
+            # labels is a property that recomputes the list for all bees: once, not per bee
             final_labels, knn_labels = self.final_pred.labels, self.knn_pred.labels
             final = classification_metrics(y_true, [final_labels[i] for i in idx])
             knn = classification_metrics(y_true, [knn_labels[i] for i in idx])
@@ -396,9 +396,9 @@ class ALEngine:
         return entry
 
     def _final_labels(self) -> np.ndarray:
-        """Etichetta finale di ogni ape: umana se c'è, altrimenti predetta.
+        """Final label of each bee: the human one if present, the predicted one otherwise.
 
-        ``None`` per le api di validazione, i "Non so", le non assegnate e quelle senza predizione.
+        ``None`` for validation bees, "Don't know" bees, unassigned bees and those without a prediction.
         """
         out = np.empty(len(self.bank), dtype=object)
         pred = self.final_pred
@@ -413,16 +413,16 @@ class ALEngine:
         return out
 
     def _round_dynamics(self) -> dict[str, Any]:
-        """Campi del round usati dai criteri di stop: stabilità delle predizioni e scoperta di classi.
+        """Round fields used by the stopping criteria: prediction stability and class discovery.
 
-        - ``pred_change``: frazione di api la cui etichetta finale è cambiata rispetto al round
-          precedente (solo api che hanno un'etichetta finale in entrambi i round).
-        - ``model_changed``: l'extractor è cambiato, quindi ``pred_change`` non è confrontabile.
-        - ``effective``: dal round precedente sono arrivati eventi di etichettatura. Un riavvio
-          dell'hub o un ricalcolo a vuoto creano un round ma non dicono nulla sulla convergenza,
-          quindi i criteri di stop li ignorano.
-        - ``novelty_queries`` / ``novelty_new_class``: query ``novelty`` del batch appena chiuso
-          che sono state etichettate, e quante hanno portato una classe che prima non c'era.
+        - ``pred_change``: fraction of bees whose final label changed since the previous round
+          (only bees that have a final label in both rounds).
+        - ``model_changed``: the extractor changed, so ``pred_change`` is not comparable.
+        - ``effective``: labelling events arrived since the previous round. A hub restart
+          or an empty recomputation creates a round but says nothing about convergence,
+          so the stopping criteria ignore it.
+        - ``novelty_queries`` / ``novelty_new_class``: ``novelty`` queries of the batch just closed
+          that were labelled, and how many of them brought a class that did not exist before.
         """
         prev = self.history[-1] if self.history else None
         now = self._final_labels()
@@ -441,7 +441,7 @@ class ALEngine:
         else:
             if prev.get("n_events") is not None:
                 effective = len(events) != prev["n_events"]
-            else:  # riga scritta da una versione precedente: si confronta il numero di etichette
+            else:  # row written by an older version: compare the number of labels
                 effective = self.bank.n_labeled != prev.get("n_labels")
             if prev_classes is None:
                 new_classes, since = [], 0
@@ -453,7 +453,7 @@ class ALEngine:
                 elif effective:
                     since += 1
 
-        # Ultimo evento per immagine tra le query novelty del batch che si sta chiudendo.
+        # Last event per image among the novelty queries of the batch being closed.
         novelty: dict[str, str] = {}
         if self.batch_id:
             for e in events:
@@ -474,16 +474,16 @@ class ALEngine:
         }
 
     def stopping_status(self) -> dict[str, Any]:
-        """Criteri di stop: per ciascuno ``{"ok": True | False | None, "detail": testo}``.
+        """Stopping criteria: for each one ``{"ok": True | False | None, "detail": text}``.
 
-        ``None`` = non ci sono ancora abbastanza round per dirlo. Si guardano solo i round
-        ``effective`` (con etichette nuove). I criteri sono un'indicazione, non fermano nulla.
+        ``None`` = not enough rounds yet to tell. Only ``effective`` rounds (with new labels)
+        are considered. The criteria are an indication only; they stop nothing.
 
-        - ``f1_plateau``: la macro-F1 di validazione degli ultimi ``window`` round non supera
-          di più di ``f1_min_delta`` il massimo dei round precedenti.
-        - ``predictions_stable``: ``pred_change < max_pred_change`` negli ultimi ``window`` round
-          con lo stesso extractor del round prima.
-        - ``no_new_classes``: nessuna classe nuova da almeno ``window`` round.
+        - ``f1_plateau``: the validation macro-F1 of the last ``window`` rounds does not exceed
+          the maximum of the previous rounds by more than ``f1_min_delta``.
+        - ``predictions_stable``: ``pred_change < max_pred_change`` in the last ``window`` rounds
+          that used the same extractor as the round before.
+        - ``no_new_classes``: no new class for at least ``window`` rounds.
         """
         with self.lock:
             cfg = self.cfg.stopping
@@ -531,7 +531,7 @@ class ALEngine:
 
     def _new_batch(self) -> None:
         now = self.clock()
-        # Le immagini che qualcuno sta guardando in questo momento restano sue.
+        # Images someone is looking at right now stay theirs.
         carried = [b for b in self.batch if not b.done and self._is_assigned(b, now)]
         self.batch_id = f"r{self.round:04d}"
         self._shuffled_out, self._n_shuffles = set(), 0
@@ -539,7 +539,7 @@ class ALEngine:
         self.batch = carried + self._select_items({b.index for b in carried}, self.cfg.query.batch_size, rng)
 
     def _select_items(self, taken: set[int], n: int, rng: np.random.Generator) -> list[BatchItem]:
-        """``n`` api da proporre, scelte dalla strategia di query tra quelle libere e non in ``taken``."""
+        """``n`` bees to propose, chosen by the query strategy among the free ones not in ``taken``."""
         excluded = set(self.bank.labeled_indices().tolist())
         excluded.update(self.bank.unknown_indices().tolist())
         excluded.update(self.bank.index_of(i) for i in self._val_set if i in self.bank)
@@ -555,11 +555,11 @@ class ALEngine:
         return [BatchItem(self.bank.ids[q.index], q.index, q.query_type, self.batch_id) for q in queries]
 
     def reshuffle_batch(self, annotator: str) -> int:
-        """Sostituisce le api del batch non ancora etichettate con altre. Restituisce quante ne ha cambiate.
+        """Replace the not-yet-labelled bees of the batch with others. Returns how many were replaced.
 
-        Stessa strategia di query e stesso modello: non parte un round nuovo. Le api già etichettate
-        restano nel batch, quelle che un altro annotatore sta guardando restano sue. Le api tolte non
-        vengono riproposte fino al round successivo.
+        Same query strategy and same model: no new round starts. Already labelled bees
+        stay in the batch, those another annotator is looking at stay theirs. Removed bees are
+        not proposed again until the next round.
         """
         with self.lock:
             now = self.clock()
@@ -581,12 +581,12 @@ class ALEngine:
     def _is_assigned(self, item: BatchItem, now: float) -> bool:
         return item.assigned_to is not None and now - item.assigned_at < self.cfg.hub.assignment_timeout_s
 
-    # ----------------------------- etichettatura ---------------------------- #
+    # ------------------------------- labelling ------------------------------- #
 
     def next_image(self, annotator: str, mode: str = "train") -> Optional[BatchItem]:
-        """Prossima immagine per l'annotatore, o ``None`` se non c'è nulla da proporre.
+        """Next image for the annotator, or ``None`` if there is nothing to propose.
 
-        Chi ha già un'immagine assegnata riceve di nuovo quella (es. ricaricando la pagina).
+        Whoever already has an assigned image gets the same one again (e.g. when reloading the page).
         """
         with self.lock:
             now = self.clock()
@@ -606,13 +606,13 @@ class ALEngine:
                         return item
                 if attempt == 0:
                     self._next_round_if_taken(now)
-            return None  # non resta nessuna ape da etichettare
+            return None  # no bees left to label
 
     def next_images(self, annotator: str, n: int = 12, mode: str = "train") -> list[BatchItem]:
-        """Fino a ``n`` immagini per l'annotatore, per etichettarne molte insieme (pagina a griglia).
+        """Up to ``n`` images for the annotator, to label many at once (grid page).
 
-        Prima quelle che ha già in mano, poi quelle libere: nessun'altra persona le riceve
-        finché l'assegnazione non scade. Le immagini non etichettate tornano alla griglia successiva.
+        First those already in hand, then free ones: nobody else receives them
+        until the assignment expires. Unlabelled images come back in the next grid.
         """
         with self.lock:
             now = self.clock()
@@ -639,8 +639,8 @@ class ALEngine:
             return chosen
 
     def _next_round_if_taken(self, now: float) -> None:
-        """Le api rimaste nel batch sono tutte in mano ad altri annotatori: invece di far
-        aspettare chi è libero si passa al round successivo (le api assegnate restano a chi le ha)."""
+        """The bees left in the batch are all held by other annotators: instead of making
+        a free annotator wait, move on to the next round (assigned bees stay with whoever holds them)."""
         if any(not b.done and not self._is_assigned(b, now) for b in self.batch):
             return
         self.refresh()
@@ -665,27 +665,27 @@ class ALEngine:
     def submit(
         self, annotator: str, image_id: str, label: str, confidence: str = "", mode: str = "train", manual: bool = False
     ) -> str:
-        """Salva un'etichetta e aggiorna subito la bank. Restituisce l'etichetta normalizzata.
+        """Save a label and update the bank immediately. Returns the normalised label.
 
-        Di norma si etichettano solo api proposte dal batch (o si corregge una propria
-        etichetta). Con ``manual=True`` si può etichettare qualsiasi ape, ad esempio dalla
-        pagina dei cluster: l'evento ha ``query_type = manual``.
+        Normally only bees proposed by the batch are labelled (or one's own label is
+        corrected). With ``manual=True`` any bee can be labelled, for example from the
+        clusters page: the event has ``query_type = manual``.
 
-        ``UNKNOWN_LABEL`` ("Non so") mette l'ape da parte; ``REMOVED_LABEL`` annulla l'etichetta.
-        A batch finito ricalcola tutto e prepara il batch successivo.
+        ``UNKNOWN_LABEL`` ("Don't know") sets the bee aside; ``REMOVED_LABEL`` cancels the label.
+        When the batch is finished, everything is recomputed and the next batch is prepared.
         """
         with self.lock:
             if image_id not in self.bank:
-                raise ALError(f"immagine sconosciuta: {image_id}")
+                raise ALError(f"unknown image: {image_id}")
             label = self.store.normalize_label(label)
             if not label:
-                raise ALError("etichetta vuota")
+                raise ALError("empty label")
             if confidence not in CONFIDENCES:
                 confidence = ""
 
             if mode == "validation":
                 if image_id not in self._val_set:
-                    raise ALError(f"{image_id} non fa parte del validation set")
+                    raise ALError(f"{image_id} is not part of the validation set")
                 self.store.append(image_id, label, annotator, confidence, "validation",
                                   self.cfg.config_id, self.model_version, "validation")
                 self._val_assigned.pop(image_id, None)
@@ -698,7 +698,7 @@ class ALEngine:
 
             if mode == "audit":
                 if self.audit is None or image_id not in self._audit_ids:
-                    raise ALError(f"{image_id} non fa parte dell'audit attivo")
+                    raise ALError(f"{image_id} is not part of the active audit")
                 self.store.append(image_id, label, annotator, confidence, "audit", self.cfg.config_id,
                                   self.model_version, audit.batch_id_of(self.audit["snapshot"]))
                 self._audit_assigned.get(image_id, {}).pop(annotator, None)
@@ -711,13 +711,13 @@ class ALEngine:
                 return label
 
             if image_id in self._val_set:
-                raise ALError(f"{image_id} è nel validation set: va etichettata in modalità validazione")
+                raise ALError(f"{image_id} is in the validation set: label it in validation mode")
             if image_id in self._audit_ids:
-                raise ALError(f"{image_id} è nel campione di audit: va etichettata in modalità audit")
+                raise ALError(f"{image_id} is in the audit sample: label it in audit mode")
             if image_id in self._holdout_ids:
-                # Batch tenuto da parte: l'etichetta serve a valutare il modello, non entra nella bank.
+                # Held-out batch: the label is used to evaluate the model, it does not enter the bank.
                 if not manual:
-                    raise ALError(f"{image_id} fa parte di un dataset tenuto da parte")
+                    raise ALError(f"{image_id} belongs to a held-out dataset")
                 self.store.append(image_id, label, annotator, confidence, "holdout",
                                   self.cfg.config_id, self.model_version, "holdout")
                 resolved = self.store.resolve(label)
@@ -730,7 +730,7 @@ class ALEngine:
             if item is not None:
                 query_type, batch_id = item.query_type, item.batch_id
             else:
-                # Correzione di un'etichetta data in un batch precedente: stesso tipo di query.
+                # Correction of a label given in a previous batch: same query type.
                 prev = next(
                     (e for e in reversed(self.store.events()) if e.image_id == image_id and is_training_event(e)),
                     None,
@@ -740,7 +740,7 @@ class ALEngine:
                 elif manual:
                     query_type, batch_id = "manual", "manual"
                 else:
-                    raise ALError(f"{image_id} non è stata proposta dall'active learning")
+                    raise ALError(f"{image_id} was not proposed by active learning")
             self.store.append(image_id, label, annotator, confidence, query_type,
                               self.cfg.config_id, self.model_version, batch_id)
             self.bank.add_label(image_id, self.store.resolve(label))
@@ -750,10 +750,10 @@ class ALEngine:
                     self.refresh()
             return label
 
-    # ------------------------------- lettura -------------------------------- #
+    # ------------------------------- reading -------------------------------- #
 
     def quick_labels(self) -> list[str]:
-        """Classi già viste più quelle suggerite in config."""
+        """Classes seen so far plus those suggested in the config."""
         labels = set(self.bank.classes)
         labels.update(lbl for lbl in self.val_labels.values() if lbl != UNKNOWN_LABEL)
         labels.update(self.store.resolve(self.store.normalize_label(c)) for c in self.cfg.labels.classes)
@@ -761,7 +761,7 @@ class ALEngine:
         return sorted(labels)
 
     def suggestion(self, image_id: str) -> Optional[tuple[str, float]]:
-        """Classe proposta dal kNN e confidenza, solo se ``hub.show_suggestion`` è attivo."""
+        """Class proposed by the kNN and its confidence, only if ``hub.show_suggestion`` is enabled."""
         if not self.cfg.hub.show_suggestion:
             return None
         with self.lock:
@@ -774,10 +774,10 @@ class ALEngine:
         return {self.store.resolve(self.store.normalize_label(c)) for c in self.cfg.labels.reject_classes}
 
     def final_clusters(self) -> dict[str, list[dict[str, Any]]]:
-        """Cluster finali: etichetta umana se c'è, altrimenti quella predetta.
+        """Final clusters: the human label if present, the predicted one otherwise.
 
-        Restano fuori le classi di scarto, i "Non so", le api senza predizione e le
-        "non assegnate" (troppo lontane da ogni esempio etichettato).
+        Reject classes, "Don't know" bees, bees without a prediction and
+        "unassigned" bees (too far from every labelled example) are left out.
         """
         with self.lock:
             reject = self.reject_classes()
@@ -800,37 +800,37 @@ class ALEngine:
             return dict(sorted(clusters.items()))
 
     def assign_many(self, annotator: str, image_ids: Sequence[str], label: str, confidence: str = "") -> int:
-        """Etichetta, corregge o rimuove a mano un gruppo di api (pagina dei cluster).
+        """Manually label, correct or remove a group of bees (clusters page).
 
-        Ogni modifica è un nuovo evento nello store. Poi ricalcola le predizioni, così i
-        cluster riflettono subito il cambiamento. Restituisce quante api sono cambiate.
+        Each change is a new event in the store. Then the predictions are recomputed, so the
+        clusters reflect the change immediately. Returns how many bees changed.
         """
         with self.lock:
             label = self.store.normalize_label(label)
             if not label:
-                raise ALError("etichetta vuota")
+                raise ALError("empty label")
             image_ids = list(dict.fromkeys(image_ids))
-            for image_id in image_ids:  # si controlla tutto prima di scrivere qualcosa
+            for image_id in image_ids:  # check everything before writing anything
                 if image_id not in self.bank:
-                    raise ALError(f"immagine sconosciuta: {image_id}")
+                    raise ALError(f"unknown image: {image_id}")
                 if image_id in self._val_set:
-                    raise ALError(f"{image_id} è nel validation set: va etichettata in modalità validazione")
+                    raise ALError(f"{image_id} is in the validation set: label it in validation mode")
                 if image_id in self._audit_ids:
-                    raise ALError(f"{image_id} è nel campione di audit: va etichettata in modalità audit")
+                    raise ALError(f"{image_id} is in the audit sample: label it in audit mode")
             resolved = self.store.resolve(label)
             changed = 0
             for image_id in image_ids:
                 current = self.holdout_labels.get(image_id) if image_id in self._holdout_ids else self.bank.label_of(image_id)
                 if current == resolved or (resolved == REMOVED_LABEL and current is None):
-                    continue  # niente da cambiare: nessun evento inutile nello storico
+                    continue  # nothing to change: no useless event in the history
                 self.submit(annotator, image_id, label, confidence, manual=True)
                 changed += 1
             if changed and any(i not in self._holdout_ids for i in image_ids):
-                self.recompute()  # le etichette tenute da parte non cambiano le predizioni
+                self.recompute()  # held-out labels do not change the predictions
             return changed
 
     def labeled_samples(self, n: int = 12, batch: str = "") -> list[dict[str, Any]]:
-        """Per ogni classe, le ultime ``n`` api etichettate a mano; in fondo i "Non so"."""
+        """For each class, the last ``n`` hand-labelled bees; "Don't know" bees at the end."""
         with self.lock:
             reject = self.reject_classes()
             in_batch = self._batch_mask(batch)
@@ -854,9 +854,9 @@ class ALEngine:
             return out
 
     def bee_batches(self) -> np.ndarray:
-        """Batch di ogni ape della bank: la sessione di ``frames`` (cartella del frame di origine).
+        """Batch of each bee in the bank: the ``frames`` session (folder of the source frame).
 
-        Si calcola alla prima richiesta (legge i manifest dell'estrazione) e resta in memoria.
+        Computed on first request (it reads the extraction manifests) and kept in memory.
         """
         if self._batches is None or len(self._batches) != len(self.bank):
             maps, grouper = load_frame_maps(self.cfg), FrameGrouper(self.cfg)
@@ -870,16 +870,16 @@ class ALEngine:
         return self._batches
 
     def batch_counts(self) -> dict[str, int]:
-        """Api per batch, in ordine di nome."""
+        """Bees per batch, in name order."""
         names, counts = np.unique(self.bee_batches().astype(str), return_counts=True)
         return {str(k): int(v) for k, v in zip(names, counts)}
 
     def held_out_batches(self) -> set[str]:
-        """Batch che contengono api tenute da parte."""
+        """Batches containing held-out bees."""
         return set(self.bee_batches()[self._holdout].tolist())
 
     def _batch_mask(self, batch: str = "") -> np.ndarray:
-        """Api del batch ``batch``; tutte se è vuoto."""
+        """Bees of batch ``batch``; all of them if empty."""
         if not batch:
             return np.ones(len(self.bank), dtype=bool)
         return self.bee_batches() == batch
@@ -890,11 +890,11 @@ class ALEngine:
         return mask
 
     def cluster_samples(self, n: int = 12, order: str = "random", batch: str = "") -> list[dict[str, Any]]:
-        """Per ogni cluster, ``n`` api assegnate dal modello (non dall'annotatore).
+        """For each cluster, ``n`` bees assigned by the model (not by the annotator).
 
-        Le predizioni sono quelle dell'ultimo ricalcolo, quindi la pagina cambia a ogni batch.
-        Le api del validation set non vengono mostrate: si etichettano solo nella loro modalità.
-        ``order``: ``random`` (campione fisso fino al prossimo round), ``confident`` o ``uncertain``.
+        Predictions are those of the last recomputation, so the page changes at every batch.
+        Validation set bees are not shown: they are labelled only in their own mode.
+        ``order``: ``random`` (fixed sample until the next round), ``confident`` or ``uncertain``.
         """
         with self.lock:
             pred = self.final_pred
@@ -929,9 +929,9 @@ class ALEngine:
             return clusters
 
     def unassigned_samples(self, n: int = 12, order: str = "random", batch: str = "") -> dict[str, Any]:
-        """``n`` api del gruppo "non assegnate", con la similarità all'esempio etichettato più vicino.
+        """``n`` bees from the "unassigned" group, with the similarity to the nearest labelled example.
 
-        ``order``: ``random``, ``uncertain`` (le più lontane) o ``confident`` (le meno lontane).
+        ``order``: ``random``, ``uncertain`` (the farthest) or ``confident`` (the least far).
         """
         with self.lock:
             members = np.flatnonzero(self.unassigned & ~self._audit_mask() & self._batch_mask(batch))
@@ -956,7 +956,7 @@ class ALEngine:
     # -------------------------------- audit --------------------------------- #
 
     def _restore_audit(self, known_ids: set[str]) -> None:
-        """All'avvio riprende l'audit attivo salvato, altrimenti l'ultimo snapshot che ha un audit set."""
+        """On startup, restore the saved active audit, otherwise the latest snapshot that has an audit set."""
         name = ""
         path = self.cfg.results_dir / "active_audit.json"
         if path.exists():
@@ -983,24 +983,24 @@ class ALEngine:
 
     def cluster_view(self, kind: str, label: str = "", n: int = 12, page: int = 0,
                      order: str = "bands", batch: str = "") -> Optional[dict[str, Any]]:
-        """Api di un solo gruppo per la pagina dei cluster, scelte per fasce di similarità (``similarity_bands``).
+        """Bees of a single group for the clusters page, chosen by similarity band (``similarity_bands``).
 
-        ``kind``: ``predicted`` (api assegnate dal modello alla classe ``label``), ``labeled`` (etichettate a
-        mano come ``label``) o ``unassigned``. La similarità è il coseno con il centro del gruppo; per le
-        "non assegnate" è quella con l'esempio etichettato più vicino. ``None`` se il gruppo non esiste.
+        ``kind``: ``predicted`` (bees assigned by the model to class ``label``), ``labeled`` (hand-labelled
+        as ``label``) or ``unassigned``. Similarity is the cosine with the group centre; for
+        "unassigned" bees it is the one with the nearest labelled example. ``None`` if the group does not exist.
 
-        ``order``: ``bands`` (le tre fasce), ``similar``/``dissimilar``, ``confident``/``uncertain`` (confidenza
-        del modello, solo per ``predicted``) o ``random`` (fisso fino al round successivo). Un ordinamento
-        che il gruppo non ammette ricade su ``bands``; quello usato è nel campo ``order``.
-        ``batch``: solo le api di quel batch (vuoto = tutte); il centro è quello delle api mostrate.
-        Le api tenute da parte hanno ``holdout`` vero e, se c'è, l'etichetta data a mano in ``holdout_label``.
+        ``order``: ``bands`` (the three bands), ``similar``/``dissimilar``, ``confident``/``uncertain`` (model
+        confidence, ``predicted`` only) or ``random`` (fixed until the next round). An order
+        the group does not allow falls back to ``bands``; the one used is in the ``order`` field.
+        ``batch``: only the bees of that batch (empty = all); the centre is that of the bees shown.
+        Held-out bees have ``holdout`` true and, if present, the hand-given label in ``holdout_label``.
         """
         with self.lock:
             pred = self.final_pred
-            # confidence e labels sono property calcolate su tutte le api: lette dentro un ciclo
-            # sui membri il costo diventa quadratico (minuti, con l'hub bloccato, su 180k api)
+            # confidence and labels are properties computed over all bees: read inside a loop
+            # over the members, the cost becomes quadratic (minutes, with the hub blocked, on 180k bees)
             confidence = pred.confidence
-            # Dettagli del tooltip: calcolati solo per le api mostrate, non per tutto il gruppo
+            # Tooltip details: computed only for the bees shown, not for the whole group
             extra_of: Callable[[int], dict[str, Any]]
             if kind == "predicted":
                 if label not in pred.classes:
@@ -1058,7 +1058,7 @@ class ALEngine:
         return mask
 
     def create_audit(self, snapshot_name: str, anomaly_scores: Optional[dict[str, float]] = None) -> dict[str, Any]:
-        """Estrae il campione di controllo di uno snapshot (una volta sola) e lo rende l'audit attivo."""
+        """Draw the control sample of a snapshot (only once) and make it the active audit."""
         with self.lock:
             try:
                 folder = snapshot.snapshot_path(self.cfg, snapshot_name)
@@ -1070,10 +1070,10 @@ class ALEngine:
             return self.load_audit(snapshot_name)
 
     def load_audit(self, snapshot_name: str) -> dict[str, Any]:
-        """Rende attivo l'audit di uno snapshot e lo ricorda in ``results_dir/active_audit.json``.
+        """Make the audit of a snapshot active and remember it in ``results_dir/active_audit.json``.
 
-        Le api del campione escono dal batch in corso e non vengono più proposte in
-        modalità normale: si etichettano solo in modalità audit, alla cieca.
+        The sample bees leave the current batch and are no longer proposed in
+        normal mode: they are labelled only in audit mode, blind.
         """
         with self.lock:
             try:
@@ -1097,7 +1097,7 @@ class ALEngine:
             return self.audit_progress()
 
     def _audit_done(self, bee: dict[str, Any]) -> bool:
-        """Un'ape singola è completa con una risposta, una doppia con due annotatori diversi."""
+        """A single bee is complete with one answer, a double one with two different annotators."""
         return len(self.audit_labels.get(bee["image_id"], {})) >= (2 if bee["double"] else 1)
 
     def _next_audit(self, annotator: str, now: float) -> Optional[BatchItem]:
@@ -1110,7 +1110,7 @@ class ALEngine:
             bee = by_id[image_id]
             answers = self.audit_labels.get(image_id, {})
             if image_id not in self._audit_ids or self._audit_done(bee) or annotator in answers:
-                continue  # lo stesso annotatore non riceve due volte la stessa ape
+                continue  # the same annotator never gets the same bee twice
             owners = {a: t for a, t in self._audit_assigned.get(image_id, {}).items()
                       if now - t < timeout and a not in answers}
             if annotator in owners:
@@ -1130,7 +1130,7 @@ class ALEngine:
             return self.audit_labels.get(image_id, {}).get(annotator)
 
     def audit_progress(self) -> Optional[dict[str, Any]]:
-        """Avanzamento dell'audit attivo: totale, completate, per strato, annotatori. ``None`` senza audit."""
+        """Progress of the active audit: total, completed, per stratum, annotators. ``None`` without an audit."""
         with self.lock:
             if self.audit is None:
                 return None
@@ -1156,10 +1156,10 @@ class ALEngine:
     # ------------------------------- snapshot ------------------------------- #
 
     def export_snapshot(self, name: str, annotator: str) -> Path:
-        """Congela predizioni, frame di origine e stato in ``results_dir/snapshots/<name>/``.
+        """Freeze predictions, source frames and state into ``results_dir/snapshots/<name>/``.
 
-        Lo snapshot è immutabile: un nome già usato o non valido solleva ``ALError``.
-        Il lock si prende dentro, solo per leggere lo stato: la scrittura non blocca l'hub.
+        The snapshot is immutable: a name already used or invalid raises ``ALError``.
+        The lock is taken inside, only to read the state: writing does not block the hub.
         """
         try:
             return snapshot.export_snapshot(self, name, annotator)
@@ -1171,7 +1171,7 @@ class ALEngine:
             return snapshot.list_snapshots(self.cfg)
 
     def reject_counts(self) -> dict[str, dict[str, int]]:
-        """Per ogni classe di scarto: api etichettate a mano e api che il modello vi ha assegnato."""
+        """For each reject class: hand-labelled bees and bees the model assigned to it."""
         with self.lock:
             reject = self.reject_classes()
             human = self.bank.class_counts()

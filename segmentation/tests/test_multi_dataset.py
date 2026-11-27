@@ -1,4 +1,4 @@
-"""Dataset fatto di più cartelle con nomi di file che si ripetono."""
+"""Dataset made of several folders with repeated file names."""
 import re
 from pathlib import Path
 
@@ -16,7 +16,7 @@ from bee_al.validation import load_or_create_validation_set
 
 @pytest.fixture
 def two_folders(tmp_path):
-    """Due cartelle con gli stessi nomi di file (come cleaned_bees di train e test)."""
+    """Two folders with the same file names (like the train and test cleaned_bees)."""
     for name, n in (("train", 5), ("test", 3)):
         d = tmp_path / name / "cleaned_bees"
         d.mkdir(parents=True)
@@ -38,12 +38,12 @@ def _encoder(paths):
 def test_default_config_uses_the_sam3_folder():
     cfg = load_config()
     sources = dict(cfg.dataset_sources)
-    assert set(sources) == {"sam3_b3456__"}                                  # tutte le foto di batch 3-6
+    assert set(sources) == {"sam3_b3456__"}                                  # all photos of batches 3-6
     assert sources["sam3_b3456__"].parts[-2:] == ("single_bee3+4+5+6_SAM3", "cleaned_bees")
     assert cfg.embeddings_dir.name == "embeddings_sam3_b3456"
     assert cfg.stage.name == "fase1" and "segmentation" in cfg.stage.title.lower()
     assert cfg.clusters_dir.name == "single_bee3+4+5+6_SAM3_clusters" and cfg.export.mode == "copy"
-    assert cfg.clusters_dir.parent == sources["sam3_b3456__"].parents[1]      # accanto agli altri dataset, in una cartella sua
+    assert cfg.clusters_dir.parent == sources["sam3_b3456__"].parents[1]      # next to the other datasets, in its own folder
 
 
 def test_sources_and_unique_ids(two_folders, tmp_path):
@@ -51,14 +51,14 @@ def test_sources_and_unique_ids(two_folders, tmp_path):
     assert [p for p, _ in cfg.dataset_sources] == ["tr__", "te__"]
     assert cfg.dataset_dir == tmp_path / "train" / "cleaned_bees"
     ids, paths = list_dataset(cfg.dataset_sources)
-    assert len(ids) == len(set(ids)) == 8                                   # 5 + 3, niente manifest
+    assert len(ids) == len(set(ids)) == 8                                   # 5 + 3, no manifest
     assert ids[0] == "tr__bee_00000_conf0.90.png" and ids[5] == "te__bee_00000_conf0.90.png"
     assert paths[0].name == paths[5].name and paths[0] != paths[5]
 
     single = config_from_dict({"paths": {"dataset_dir": "train/cleaned_bees"}}, root=tmp_path)
-    assert list_dataset(single.dataset_sources)[0][0] == "bee_00000_conf0.90.png"   # una sola cartella: id = nome file
+    assert list_dataset(single.dataset_sources)[0][0] == "bee_00000_conf0.90.png"   # a single folder: id = file name
     missing = config_from_dict({"paths": {"dataset_dirs": {"a": "non_esiste", "tr": "train/cleaned_bees"}}}, root=tmp_path)
-    assert len(list_dataset(missing.dataset_sources)[0]) == 5              # cartella non ancora creata: saltata
+    assert len(list_dataset(missing.dataset_sources)[0]) == 5              # folder not created yet: skipped
     with pytest.raises(ValueError, match="nome non valido"):
         config_from_dict({"paths": {"dataset_dirs": {"a__b": "x"}}})
 
@@ -68,12 +68,12 @@ def test_extraction_keeps_same_named_files_apart_and_resumes(two_folders, tmp_pa
     ids, paths = list_dataset(cfg.dataset_sources)
     out = tmp_path / "emb"
     assert extract_embeddings(paths[:6], out, _encoder, image_ids=ids[:6], shard_size=4) == 6
-    assert extract_embeddings(paths, out, _encoder, image_ids=ids, shard_size=4) == 2    # ripresa: solo le nuove
+    assert extract_embeddings(paths, out, _encoder, image_ids=ids, shard_size=4) == 2    # resume: only the new ones
     emb = load_embeddings(out)
     assert emb.ids == ids and emb.paths == [str(p) for p in paths]
-    assert not np.allclose(emb.X[0], emb.X[5])                              # stesso nome, api diverse
+    assert not np.allclose(emb.X[0], emb.X[5])                              # same name, different bees
     with pytest.raises(ValueError):
-        extract_embeddings(paths, tmp_path / "e2", _encoder, image_ids=[p.name for p in paths])  # id ripetuti
+        extract_embeddings(paths, tmp_path / "e2", _encoder, image_ids=[p.name for p in paths])  # repeated ids
 
 
 def test_retrain_job_carries_ids(two_folders):
@@ -103,15 +103,15 @@ def test_hub_serves_images_from_both_folders(two_folders, monkeypatch, tmp_path,
     monkeypatch.setattr(al_hub.STATE, "engine", engine)
     monkeypatch.chdir(tmp_path)
     c = hub_app.app.test_client()
-    assert c.get(f"/al-image/{ids[0]}").status_code == 403                   # serve il login
+    assert c.get(f"/al-image/{ids[0]}").status_code == 403                   # login required
     c.post("/", data={"email": "t@x.it"})
 
     assert c.get(f"/al-image/{ids[0]}").data == b"train-0"
-    assert c.get(f"/al-image/{ids[5]}").data == b"test-0"                    # stesso nome file, cartella diversa
+    assert c.get(f"/al-image/{ids[5]}").data == b"test-0"                    # same file name, different folder
     assert c.get("/al-image/non_esiste.png").status_code == 404
     assert c.get("/al-image/..%2F..%2Fetc%2Fpasswd").status_code == 404
     paths[1].unlink()
-    assert c.get(f"/al-image/{ids[1]}").status_code == 404                   # file rimosso dopo l'estrazione
+    assert c.get(f"/al-image/{ids[1]}").status_code == 404                   # file removed after extraction
 
     html = c.get("/al-labeling").get_data(as_text=True)
     shown = re.search(r'name="image_id" value="([^"]+)"', html).group(1)

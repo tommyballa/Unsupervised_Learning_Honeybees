@@ -1,4 +1,4 @@
-"""Il set di classi è dinamico: nasce dalle etichette e può avere anche una sola classe."""
+"""The class set is dynamic: it comes from the labels and can even have a single class."""
 import numpy as np
 
 from bee_al.knn import knn_predict
@@ -13,7 +13,7 @@ def test_single_class_gives_probability_one(synth):
     pred = knn_predict(bank)
     assert pred.classes == ["Solo"] and pred.probs.shape == (len(X), 1)
     assert set(pred.labels) == {"Solo"}
-    # l'unica ape etichettata non ha altri vicini etichettati: resta senza voto, ma non si rompe nulla
+    # the only labelled bee has no other labelled neighbours: it gets no vote, but nothing breaks
     assert np.isfinite(pred.probs).all()
     for name in ("margin", "entropy", "least_confidence"):
         assert np.isfinite(uncertainty_scores(pred.probs, name)).all()
@@ -27,13 +27,13 @@ def test_new_class_at_runtime_becomes_a_knn_class(synth):
     before = knn_predict(bank)
     assert "Nuova Classe" not in before.classes
 
-    # l'annotatore scrive una classe mai vista su un'ape: diventa subito una classe del kNN
+    # the annotator types a never-seen class on a bee: it immediately becomes a kNN class
     target = 200
     bank.add_label(ids[target], "Nuova Classe")
     after = knn_predict(bank)
     assert "Nuova Classe" in after.classes
     assert after.probs.shape[1] == before.probs.shape[1] + 1
-    nearest = bank.search(X[target], 2)[1][0, 1]  # il vicino più prossimo dell'ape nuova
+    nearest = bank.search(X[target], 2)[1][0, 1]  # the nearest neighbour of the new bee
     col = after.classes.index("Nuova Classe")
     assert after.probs[nearest, col] > 0
 
@@ -47,6 +47,6 @@ def test_class_with_one_example_and_renamed_class(synth):
     assert bank.class_counts()["Rara"] == 1
     assert np.isfinite(knn_predict(bank).probs).all()
 
-    # togliendo l'unico esempio la classe sparisce
+    # removing the only example makes the class disappear
     bank.remove_label(ids[40])
     assert "Rara" not in knn_predict(bank).classes

@@ -1,4 +1,4 @@
-"""Label spreading su un grafo kNN sparso (Zhou et al., 2004). Nessuna rete da addestrare."""
+"""Label spreading on a sparse kNN graph (Zhou et al., 2004). No network to train."""
 from __future__ import annotations
 
 import hashlib
@@ -17,10 +17,10 @@ from .memory_bank import MemoryBank
 
 
 def build_knn_graph(bank: MemoryBank, n_neighbors: int = 15) -> sp.csr_matrix:
-    """Grafo kNN simmetrico e normalizzato ``S = D^-1/2 W D^-1/2`` su tutte le api.
+    """Symmetric, normalised kNN graph ``S = D^-1/2 W D^-1/2`` over all bees.
 
-    I pesi sono le similarità coseno (tagliate a 0). Dipende solo dagli embedding:
-    si costruisce una volta e si riusa finché l'extractor non cambia.
+    Weights are the cosine similarities (clipped at 0). It depends only on the embeddings:
+    it is built once and reused until the extractor changes.
     """
     n = len(bank)
     sims, idx = bank.search(bank.X, min(n_neighbors + 1, n))
@@ -37,10 +37,10 @@ def build_knn_graph(bank: MemoryBank, n_neighbors: int = 15) -> sp.csr_matrix:
 
 
 def load_or_build_graph(bank: MemoryBank, n_neighbors: int = 15, cache_dir: Union[str, Path, None] = None) -> sp.csr_matrix:
-    """Come ``build_knn_graph``, ma riusa il grafo salvato su disco se gli embedding sono gli stessi.
+    """Like ``build_knn_graph``, but reuses the graph saved on disk if the embeddings are the same.
 
-    Su dataset grandi costruire il grafo richiede circa un minuto; il file in cache
-    è legato al contenuto degli embedding e al numero di vicini, quindi non va mai invalidato a mano.
+    On large datasets building the graph takes about a minute; the cached file is tied
+    to the content of the embeddings and to the number of neighbours, so it never needs manual invalidation.
     """
     if cache_dir is None:
         return build_knn_graph(bank, n_neighbors)
@@ -51,7 +51,7 @@ def load_or_build_graph(bank: MemoryBank, n_neighbors: int = 15, cache_dir: Unio
             if graph.shape == (len(bank), len(bank)):
                 return graph
         except Exception:
-            pass  # file rovinato (es. scrittura interrotta): si ricostruisce
+            pass  # corrupted file (e.g. interrupted write): rebuild it
     graph = build_knn_graph(bank, n_neighbors)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp.npz")
@@ -61,7 +61,7 @@ def load_or_build_graph(bank: MemoryBank, n_neighbors: int = 15, cache_dir: Unio
 
 
 def graph_cache_path(X: np.ndarray, n_neighbors: int, cache_dir: Union[str, Path]) -> Path:
-    """File della cache del grafo: legato al contenuto degli embedding (float32, come nella bank)."""
+    """Graph cache file: tied to the content of the embeddings (float32, as in the bank)."""
     key = hashlib.sha1(np.ascontiguousarray(X, dtype=np.float32).tobytes()).hexdigest()[:16]
     return Path(cache_dir) / f"knn_graph_{key}_k{n_neighbors}.npz"
 
@@ -69,12 +69,12 @@ def graph_cache_path(X: np.ndarray, n_neighbors: int, cache_dir: Union[str, Path
 def build_graph_cache_in_subprocess(
     X: np.ndarray, n_neighbors: int, cache_dir: Union[str, Path], backend: str = "auto"
 ) -> Path:
-    """Costruisce il grafo di ``X`` in un processo Python separato e lo lascia nella cache.
+    """Build the graph of ``X`` in a separate Python process and leave it in the cache.
 
-    Serve all'hub: la ricerca di faiss su tutte le api non rilascia il GIL, quindi costruito
-    nel processo del server il grafo lo blocca per minuti (anche le pagine che non usano il
-    motore). Il processo chiamante aspetta senza tenere il GIL; poi ``load_or_build_graph``
-    trova il file in cache e lo carica in un attimo.
+    Needed by the hub: the faiss search over all bees does not release the GIL, so building
+    the graph inside the server process blocks it for minutes (even pages that do not use the
+    engine). The calling process waits without holding the GIL; then ``load_or_build_graph``
+    finds the cached file and loads it in no time.
     """
     from .config import REPO_ROOT
 
@@ -91,7 +91,7 @@ def build_graph_cache_in_subprocess(
 
 
 class LabelSpreader:
-    """Propaga le etichette lungo il grafo: ``F <- alpha * S F + (1 - alpha) * Y0``."""
+    """Propagate labels along the graph: ``F <- alpha * S F + (1 - alpha) * Y0``."""
 
     def __init__(self, graph: sp.csr_matrix, alpha: float = 0.8, max_iter: int = 30, tol: float = 1e-4) -> None:
         self.graph = graph
@@ -107,11 +107,11 @@ class LabelSpreader:
         return cls(load_or_build_graph(bank, n_neighbors, cache_dir), alpha=alpha, max_iter=max_iter, tol=tol)
 
     def propagate(self, labeled_idx: Sequence[int], labels: Sequence[str]) -> Prediction:
-        """Distribuzione sulle classi per ogni nodo del grafo.
+        """Class distribution for every node of the graph.
 
-        Le classi sono quelle presenti in ``labels`` (anche una sola, o nessuna).
-        Le api etichettate restano fissate alla loro label; quelle non raggiunte
-        da nessuna etichetta hanno una riga di zeri.
+        Classes are those present in ``labels`` (even just one, or none).
+        Labelled bees stay fixed to their label; those not reached
+        by any label get a row of zeros.
         """
         n = self.graph.shape[0]
         classes = sorted(set(labels))
@@ -142,7 +142,7 @@ class LabelSpreader:
 
 
 if __name__ == "__main__":
-    # Usato da build_graph_cache_in_subprocess: python -m bee_al.propagation X.npy n_neighbors cache_dir backend
+    # Used by build_graph_cache_in_subprocess: python -m bee_al.propagation X.npy n_neighbors cache_dir backend
     x_file, k, cache, backend_name = sys.argv[1:5]
     X_all = np.load(x_file)
     load_or_build_graph(MemoryBank([str(i) for i in range(len(X_all))], X_all, backend=backend_name), int(k), cache)

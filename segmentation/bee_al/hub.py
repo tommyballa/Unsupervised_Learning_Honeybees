@@ -1,4 +1,4 @@
-"""Pagine Flask dell'active learning, registrate dall'hub come blueprint."""
+"""Flask pages for active learning, registered by the hub as a blueprint."""
 from __future__ import annotations
 
 import csv
@@ -23,14 +23,14 @@ from .snapshot import snapshot_path
 
 
 class EngineLoading(Exception):
-    """L'engine si sta ancora caricando in background."""
+    """The engine is still loading in the background."""
 
 
 class HubState:
-    """Engine condiviso da tutte le richieste, caricato in background alla prima che ne ha bisogno.
+    """Engine shared by all requests, loaded in the background by the first one that needs it.
 
-    Su dataset grandi il primo avvio richiede circa un minuto (grafo dei vicini): nel
-    frattempo le pagine mostrano un avviso invece di restare bloccate.
+    On large datasets the first start takes about a minute (neighbour graph): meanwhile
+    the pages show a notice instead of hanging.
     """
 
     def __init__(self) -> None:
@@ -40,7 +40,7 @@ class HubState:
         self.error: Optional[Exception] = None
         self.started_at = 0.0
         self._thread: Optional[threading.Thread] = None
-        self.review_count = 0   # ultimo numero di etichette sospette, per il menù quando il motore è occupato
+        self.review_count = 0   # last count of suspicious labels, for the menu while the engine is busy
 
     def _load(self) -> None:
         try:
@@ -51,19 +51,19 @@ class HubState:
             self.error = e
 
     def get_engine(self) -> ALEngine:
-        """Engine pronto, altrimenti ``EngineLoading`` o l'errore dell'ultimo tentativo di caricamento."""
+        """The ready engine, otherwise ``EngineLoading`` or the error of the last loading attempt."""
         with self.lock:
             if self.engine is not None:
                 return self.engine
             if self._thread is not None and self._thread.is_alive():
                 raise EngineLoading()
             if self.error is not None:
-                error, self.error, self._thread = self.error, None, None  # la prossima richiesta riprova
+                error, self.error, self._thread = self.error, None, None  # the next request retries
                 raise error
             self.started_at = time.time()
             self._thread = threading.Thread(target=self._load, daemon=True, name="bee-al-load")
             self._thread.start()
-        self._thread.join(0.5)  # se il caricamento è rapido la pagina arriva subito
+        self._thread.join(0.5)  # if loading is quick the page is served right away
         with self.lock:
             if self.engine is not None:
                 return self.engine
@@ -165,9 +165,9 @@ document.querySelectorAll('.quick-label-btn').forEach(function (b) {
 
 GRID_COLORS = (("Azure", "#38bdf8"), ("Red", "#ef4444"), ("Green", "#22c55e"), ("Yellow", "#eab308"),
                ("Violet", "#a78bfa"), ("Pink", "#f472b6"))
-GRID_SIZE = 12  # 4 colonne x 3 righe
+GRID_SIZE = 12  # 4 columns x 3 rows
 
-# Stile, menu, righe dei colori e script comuni alle pagine a griglia (etichettatura e ispezione dei cluster).
+# Style, menu, colour rows and script shared by the grid pages (labelling and cluster inspection).
 _GRID_STYLE = """<style>
     body { margin: 12px; }
     .grid-page { display: flex; gap: 18px; align-items: flex-start; }
@@ -692,7 +692,7 @@ _CLUSTERS_PAGE = """
 {{ css|safe }}
 """ + _GRID_STYLE + """
 <style>
-    /* Le api scorrono da sole: la pagina resta ferma e i comandi a destra sempre visibili. */
+    /* Only the bees scroll: the page stays still and the controls on the right are always visible. */
     body { margin-bottom: 0; }
     .grid-page { height: calc(100vh - 32px); }
     .grid-left { max-height: 100%; overflow-y: auto; overscroll-behavior: contain; padding-right: 6px; }
@@ -781,22 +781,22 @@ document.querySelectorAll('.cluster-option').forEach(function (el) { el.addEvent
 
 
 def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) -> Blueprint:
-    """Blueprint con ``/al-grid``, ``/al-labeling``, ``/al-clusters``, ``/al-status``, ``/al-refresh`` e ``/al-retrain``.
+    """Blueprint with ``/al-grid``, ``/al-labeling``, ``/al-clusters``, ``/al-status``, ``/al-refresh`` and ``/al-retrain``.
 
-    ``base_css`` è il CSS dell'hub, così le pagine nuove hanno lo stesso aspetto.
+    ``base_css`` is the hub's CSS, so the new pages look the same.
     """
     bp = Blueprint("al", __name__)
 
     @bp.app_context_processor
     def stage_banner():
-        """Fase corrente, mostrata in cima a ogni pagina di active learning."""
+        """Current phase, shown at the top of every active learning page."""
         engine = STATE.engine
         if engine is None:
             return {"al_stage": None, "al_review_count": 0}
         stage = engine.cfg.stage
         done = [e["name"] for e in list_exports(engine.cfg) if e.get("stage") == stage.name and e.get("config_id")]
-        # Gira a ogni pagina, home compresa: non deve mai aspettare il motore. Se è occupato
-        # (re-train che installa embedding nuovi, ricalcolo lungo) si mostra l'ultimo conteggio.
+        # Runs on every page, home included: it must never wait for the engine. If it is busy
+        # (re-training installing new embeddings, a long recomputation) the last count is shown.
         if engine.lock.acquire(blocking=False):
             try:
                 STATE.review_count = len(engine.suspects()["main"])
@@ -805,7 +805,7 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
         return {"al_stage": {"name": stage.name, "title": stage.title, "description": stage.description,
                              "exported": done[0] if done else ""},
                 "al_review_count": STATE.review_count}
-    # La config si può scegliere all'avvio con BEE_AL_CONFIG=config/al_fase2.yaml (una fase per file).
+    # The config can be chosen at startup with BEE_AL_CONFIG=config/al_fase2.yaml (one phase per file).
     STATE.config_path = config_path or os.environ.get("BEE_AL_CONFIG") or None
 
     def message(title: str, text: str, code: int = 200, reload: int = 0):
@@ -827,7 +827,7 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
 
     @bp.route("/al-image/<image_id>")
     def image(image_id: str):
-        """Immagine di un'ape, letta dal percorso salvato con gli embedding (più cartelle possibili)."""
+        """Image of a bee, read from the path saved with the embeddings (multiple folders possible)."""
         if not session.get("user_email"):
             abort(403)
         engine, _ = engine_or_message()
@@ -840,7 +840,7 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
 
     @bp.route("/al-reshuffle", methods=["POST"])
     def reshuffle():
-        """Pulsante "Shuffle": le api del batch non ancora etichettate vengono sostituite con altre."""
+        """"Shuffle" button: the not-yet-labelled bees of the batch are replaced with others."""
         user = session.get("user_email")
         if not user:
             return redirect(url_for("index"))
@@ -915,17 +915,17 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
         return render_template_string(
             _LABELING_PAGE, css=base_css, user=user, mode=mode, image_id=image_id, progress=progress,
             quick_labels=engine.quick_labels(), error=error or request.args.get("shuffle_error"),
-            suggestion=None if mode == "audit" else engine.suggestion(image_id),  # l'audit è alla cieca
+            suggestion=None if mode == "audit" else engine.suggestion(image_id),  # the audit is blind
             redo=redo, previous_label=previous_label, has_previous=previous is not None,
         )
 
     @bp.route("/al-grid", methods=["GET", "POST"])
     def grid():
-        """Etichettatura a griglia: 12 api per volta, più classi in un colpo solo.
+        """Grid labelling: 12 bees at a time, several classes in one go.
 
-        Ogni colore è un gruppo con la sua classe: si sceglie un colore, si cliccano le api,
-        si passa al colore successivo e si salva tutto insieme. Le classi dei colori restano
-        nella sessione dell'annotatore tra una griglia e l'altra.
+        Each colour is a group with its own class: pick a colour, click the bees,
+        move on to the next colour and save everything together. The colour classes are kept
+        in the annotator's session from one grid to the next.
         """
         user = session.get("user_email")
         if not user:
@@ -934,10 +934,10 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
         if engine is None:
             return page
         mode = "validation" if request.args.get("mode") == "validation" else "train"
-        # Le classi dei colori si ricordano per fase: quelle della fase 1 non devono ricomparire nella fase 2.
+        # Colour classes are remembered per phase: those of phase 1 must not reappear in phase 2.
         labels_key = f"al_grid_labels_{engine.cfg.stage.name}"
         labels = list(session.get(labels_key) or [])
-        if not labels:  # prima volta: le classi suggerite in config, poi quelle già viste
+        if not labels:  # first time: the classes suggested in the config, then those already seen
             suggested = [engine.store.normalize_label(c) for c in engine.cfg.labels.classes]
             labels = list(dict.fromkeys(suggested + engine.quick_labels()))
         labels = (labels + [""] * len(GRID_COLORS))[:len(GRID_COLORS)]
@@ -960,7 +960,7 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
             if error is None and not chosen:
                 error = "No bee has a colour yet: pick a colour and click the bees."
             if error is None:
-                try:  # tutto o niente: si controlla prima di scrivere
+                try:  # all or nothing: check before writing
                     for image_id, label in chosen:
                         if image_id not in engine.bank or not engine.store.normalize_label(label):
                             raise ALError(f"cannot label {image_id}")
@@ -1008,7 +1008,7 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
 
     @bp.route("/al-export", methods=["POST"])
     def export_clusters():
-        """Chiude la fase: congela uno snapshot e scrive su disco configurazione e cluster (in background)."""
+        """Close the phase: freeze a snapshot and write configuration and clusters to disk (in the background)."""
         user = session.get("user_email")
         if not user:
             return redirect(url_for("index"))
@@ -1078,7 +1078,7 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
 
     @bp.route("/al-audit-results")
     def audit_results():
-        """Stime corrette e indicatori di colonia di uno snapshot con audit (in cache finché non arrivano risposte nuove)."""
+        """Corrected estimates and colony indicators of a snapshot with an audit (cached until new answers arrive)."""
         user = session.get("user_email")
         if not user:
             return redirect(url_for("index"))
@@ -1120,7 +1120,7 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
 
     @bp.route("/al-review", methods=["GET", "POST"])
     def review_page():
-        """Revisione delle etichette sospette, una alla volta: si conferma, si corregge o si scarta."""
+        """Review of suspicious labels, one at a time: confirm, correct or discard."""
         user = session.get("user_email")
         if not user:
             return redirect(url_for("index"))
@@ -1133,7 +1133,7 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
             decision = request.form.get("decision", "")
             new_label = request.form.get("new_label", "")
             try:
-                if decision == "suggested":   # "Change to <classe suggerita>": la classe la sa il server
+                if decision == "suggested":   # "Change to <suggested class>": the server knows the class
                     current = next((x for x in engine.suspects()["main"] + engine.suspects()["rare"] if x["image_id"] == image_id), None)
                     if current is None:
                         raise ALError(f"{image_id} is no longer in the review queue")
@@ -1159,7 +1159,7 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
 
     @bp.route("/al-review-file/<filename>")
     def review_file(filename: str):
-        """Scarica il log delle decisioni (jsonl) o lo stesso contenuto come CSV, una riga per decisione."""
+        """Download the decision log (jsonl) or the same content as CSV, one row per decision."""
         if not session.get("user_email"):
             abort(403)
         engine, _ = engine_or_message()
@@ -1180,10 +1180,10 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
 
     @bp.route("/al-clusters", methods=["GET", "POST"])
     def clusters():
-        """Ispezione di un gruppo alla volta, scelto da un menù a tendina, con le api grandi come nella griglia.
+        """Inspection of one group at a time, chosen from a drop-down menu, with bees as large as in the grid.
 
-        Dodici api: le più simili al gruppo, quelle intorno alla mediana e le meno simili. Si correggono
-        con i colori, come nell'etichettatura a griglia.
+        Twelve bees: the most similar to the group, those around the median and the least similar. They are
+        corrected with the colours, as in grid labelling.
         """
         user = session.get("user_email")
         if not user:
@@ -1201,7 +1201,7 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
         def shown(name: str) -> str:
             return "Scarta ape (set aside)" if name == UNKNOWN_LABEL else name
 
-        # Filtro per batch: anche questa scelta resta nella sessione ("" = tutti i batch).
+        # Batch filter: this choice is also kept in the session ("" = all batches).
         batches = engine.batch_counts()
         batch = request.args.get("batch")
         batch = session.get("al_clusters_batch", "") if batch is None else batch
@@ -1217,13 +1217,13 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
         menu = [(title, options) for title, options in (("Model predictions", predicted), ("Labels given by hand", by_hand)) if options]
         sizes = {o["key"]: o["n"] for _, options in menu for o in options}
         group = request.args.get("group", "")
-        if not sizes.get(group):  # pagina aperta senza scelta, o gruppo svuotato da una correzione
+        if not sizes.get(group):  # page opened without a choice, or group emptied by a correction
             wanted = "h:" if request.args.get("view") == "labeled" else "p:"
             filled = [k for k, size in sizes.items() if size]
             group = next((k for k in filled if k.startswith(wanted)), filled[0] if filled else "")
         page_no = request.args.get("page", default=0, type=int) or 0
         kind = {"p": "predicted", "h": "labeled", "u": "unassigned"}.get(group[:1])
-        # Quante api e in che ordine: la scelta resta nella sessione, anche cambiando gruppo.
+        # How many bees and in which order: the choice is kept in the session, even when changing group.
         sizes = (12, 24, 48, 96)
         n = request.args.get("n", type=int) or session.get("al_clusters_n") or GRID_SIZE
         n = n if n in sizes else GRID_SIZE
@@ -1256,7 +1256,7 @@ def create_blueprint(base_css: str, config_path: Union[str, Path, None] = None) 
             if error is None and not chosen:
                 error = "No bee has a colour yet: pick a colour and click the bees."
             if error is None:
-                try:  # tutto o niente: si controlla prima di scrivere
+                try:  # all or nothing: check before writing
                     for label, image_ids in chosen.items():
                         if not engine.store.normalize_label(label) or any(i not in engine.bank for i in image_ids):
                             raise ALError("cannot label the selected bees")

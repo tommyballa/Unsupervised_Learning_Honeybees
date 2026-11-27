@@ -20,13 +20,13 @@ def test_graph_is_sparse_symmetric_without_self_loops(synth):
     assert sp.issparse(S) and S.shape == (300, 300)
     assert abs(S - S.T).max() < 1e-12
     assert S.diagonal().sum() == 0
-    assert S.nnz < 300 * 2 * 8 + 1  # al più 2k archi per nodo
+    assert S.nnz < 300 * 2 * 8 + 1  # at most 2k edges per node
 
 
 def test_propagation_spreads_labels_from_few_examples(synth):
     X, y, ids = synth
     bank = _bank(synth)
-    # un solo esempio per classe: la propagazione li estende lungo il grafo
+    # a single example per class: propagation spreads them along the graph
     for cls in sorted(set(y)):
         i = int(np.flatnonzero(y == cls)[0])
         bank.add_label(ids[i], cls)
@@ -44,7 +44,7 @@ def test_graph_is_reused_and_labeled_nodes_are_clamped(synth):
     spreader = LabelSpreader.from_bank(bank, n_neighbors=8)
     graph = spreader.graph
     first = spreader.propagate_bank(bank)
-    bank.add_label(ids[0], "Corretta")  # nuovo batch di etichette: si ricalcola, senza ricostruire il grafo
+    bank.add_label(ids[0], "Corretta")  # new batch of labels: recompute, without rebuilding the graph
     second = spreader.propagate_bank(bank)
     assert spreader.graph is graph
     assert "Corretta" in second.classes and "Corretta" not in first.classes
@@ -63,7 +63,7 @@ def test_zero_and_single_class(synth):
 
 
 def test_unreached_nodes_have_zero_rows():
-    # due componenti scollegate: l'etichetta non può attraversarle
+    # two disconnected components: the label cannot cross them
     X = np.zeros((6, 4), dtype=np.float32)
     X[:3, 0] = 1.0
     X[3:, 1] = 1.0
@@ -84,26 +84,26 @@ def test_graph_cache_is_reused_and_tied_to_the_embeddings(synth, tmp_path, monke
     first = LabelSpreader.from_bank(bank, n_neighbors=8, cache_dir=tmp_path).graph
     assert len(list(tmp_path.glob("knn_graph_*_k8.npz"))) == 1
 
-    monkeypatch.setattr(propagation, "build_knn_graph", lambda *a, **k: pytest.fail("il grafo andava letto dalla cache"))
+    monkeypatch.setattr(propagation, "build_knn_graph", lambda *a, **k: pytest.fail("the graph should have been read from the cache"))
     again = LabelSpreader.from_bank(bank, n_neighbors=8, cache_dir=tmp_path).graph
     assert abs(first - again).max() < 1e-12
     monkeypatch.undo()
 
     X, _, ids = synth
-    other = MemoryBank(ids, np.roll(X, 1, axis=1))               # embedding diversi (es. dopo un re-train): file nuovo
+    other = MemoryBank(ids, np.roll(X, 1, axis=1))               # different embeddings (e.g. after a re-train): new file
     LabelSpreader.from_bank(other, n_neighbors=8, cache_dir=tmp_path)
     LabelSpreader.from_bank(bank, n_neighbors=5, cache_dir=tmp_path)
     assert len(list(tmp_path.glob("knn_graph_*.npz"))) == 3
 
     broken = next(tmp_path.glob("knn_graph_*_k8.npz"))
     for f in tmp_path.glob("knn_graph_*_k8.npz"):
-        f.write_bytes(b"rotto")                                   # cache rovinata: si ricostruisce senza errori
+        f.write_bytes(b"rotto")                                   # corrupted cache: rebuilt without errors
     assert LabelSpreader.from_bank(bank, n_neighbors=8, cache_dir=tmp_path).graph.shape == (300, 300)
     assert broken.stat().st_size > 100
 
 
 def test_graph_built_in_subprocess_is_reused_from_cache(tmp_path, monkeypatch):
-    """L'hub non costruisce il grafo: lo trova in cache, preparato da un processo separato."""
+    """The hub does not build the graph: it finds it in the cache, prepared by a separate process."""
     from bee_al import propagation
     from bee_al.embeddings import l2_normalize
     from bee_al.memory_bank import MemoryBank
@@ -113,7 +113,7 @@ def test_graph_built_in_subprocess_is_reused_from_cache(tmp_path, monkeypatch):
     assert path.exists() and path == propagation.graph_cache_path(X, 5, tmp_path)
 
     def no_build(*args, **kwargs):
-        raise AssertionError("il grafo doveva arrivare dalla cache")
+        raise AssertionError("the graph should have come from the cache")
 
     monkeypatch.setattr(propagation, "build_knn_graph", no_build)
     bank = MemoryBank([f"b{i}" for i in range(len(X))], X, backend="numpy")
@@ -122,7 +122,7 @@ def test_graph_built_in_subprocess_is_reused_from_cache(tmp_path, monkeypatch):
 
 
 def test_saved_retrain_embeddings_keep_the_graph_cache_key(tmp_path):
-    """Gli embedding di un re-train ricaricati dopo un riavvio devono ritrovare lo stesso grafo in cache."""
+    """Re-trained embeddings reloaded after a restart must find the same cached graph."""
     from bee_al.embeddings import l2_normalize, load_embeddings, save_embeddings
     from bee_al.propagation import graph_cache_path
 

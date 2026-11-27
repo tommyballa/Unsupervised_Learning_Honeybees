@@ -1,8 +1,8 @@
-"""Riuso delle funzioni di parsing dell'hub, senza duplicarle.
+"""Reuse of the hub's parsing functions, without duplicating them.
 
-``clean_label`` e ``parse_shifted_row_*`` vivono in ``active_learning_tool/app.py``.
-Importare quel modulo avvierebbe Flask e creerebbe una cartella ``results`` nella
-directory corrente, quindi qui si estraggono dal sorgente solo le definizioni che servono.
+``clean_label`` and ``parse_shifted_row_*`` live in ``active_learning_tool/app.py``.
+Importing that module would start Flask and create a ``results`` folder in the
+current directory, so here only the needed definitions are extracted from the source.
 """
 from __future__ import annotations
 
@@ -25,13 +25,13 @@ class HubHelpers(NamedTuple):
 
 @lru_cache(maxsize=None)
 def load_hub_helpers(app_path: Union[str, Path] = HUB_APP_PATH) -> HubHelpers:
-    """Compila le sole funzioni di parsing prese da ``app.py``."""
+    """Compile only the parsing functions taken from ``app.py``."""
     path = Path(app_path)
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in _NAMES]
     missing = set(_NAMES) - {n.name for n in nodes}
     if missing:
-        raise ImportError(f"{path} non definisce più: {sorted(missing)}")
+        raise ImportError(f"{path} no longer defines: {sorted(missing)}")
     namespace: dict = {}
     exec(compile(ast.Module(body=nodes, type_ignores=[]), str(path), "exec"), namespace)
     return HubHelpers(*(namespace[name] for name in _NAMES))

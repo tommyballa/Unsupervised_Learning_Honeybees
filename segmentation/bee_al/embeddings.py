@@ -1,6 +1,6 @@
-"""Estrazione e persistenza degli embedding (shard + manifest, riprendibile).
+"""Extraction and persistence of embeddings (shards + manifest, resumable).
 
-Il formato su disco non dipende da torch: l'hub legge gli embedding con solo numpy.
+The on-disk format does not depend on torch: the hub reads the embeddings with numpy only.
 """
 from __future__ import annotations
 
@@ -17,13 +17,13 @@ IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 MANIFEST_NAME = "manifest.json"
 
-# Riceve una lista di percorsi e restituisce un array (n, dim); una riga di NaN = immagine illeggibile.
+# Takes a list of paths and returns an (n, dim) array; a row of NaN = unreadable image.
 Encoder = Callable[[Sequence[Path]], np.ndarray]
 
 
 @dataclass
 class Embeddings:
-    """Embedding float32 normalizzati L2, con image_id (nome file) e percorso."""
+    """L2-normalised float32 embeddings, with image_id (file name) and path."""
 
     ids: list[str]
     paths: list[str]
@@ -41,16 +41,16 @@ def l2_normalize(X: np.ndarray) -> np.ndarray:
 
 
 def list_images(dataset_dir: Union[str, Path]) -> list[Path]:
-    """Immagini del dataset in ordine alfabetico (stesse estensioni dell'hub)."""
+    """Dataset images in alphabetical order (same extensions as the hub)."""
     d = Path(dataset_dir)
     return sorted(p for p in d.iterdir() if p.suffix.lower() in IMAGE_EXTENSIONS)
 
 
 def list_dataset(sources: Sequence[tuple[str, Union[str, Path]]]) -> tuple[list[str], list[Path]]:
-    """Image_id e percorsi di tutte le cartelle (vedi ``ALConfig.dataset_sources``).
+    """Image_ids and paths of all folders (see ``ALConfig.dataset_sources``).
 
-    L'image_id è il prefisso della cartella più il nome del file, così resta unico
-    anche quando due cartelle contengono file con lo stesso nome.
+    The image_id is the folder prefix plus the file name, so it stays unique
+    even when two folders contain files with the same name.
     """
     ids: list[str] = []
     paths: list[Path] = []
@@ -61,7 +61,7 @@ def list_dataset(sources: Sequence[tuple[str, Union[str, Path]]]) -> tuple[list[
             ids.append(f"{prefix}{p.name}")
             paths.append(p)
     if len(set(ids)) != len(ids):
-        raise ValueError("image_id duplicati tra le cartelle del dataset")
+        raise ValueError("duplicate image_id across the dataset folders")
     return ids, paths
 
 
@@ -104,11 +104,11 @@ def extract_embeddings(
     log: Callable[[str], None] = lambda s: None,
     image_ids: Optional[Sequence[str]] = None,
 ) -> int:
-    """Estrae gli embedding mancanti e li salva a shard. Restituisce quanti ne ha aggiunti.
+    """Extract the missing embeddings and save them in shards. Returns how many were added.
 
-    Si può interrompere e rilanciare: le immagini già presenti nel manifest vengono saltate.
-    ``image_ids`` dà un id a ogni percorso; se manca, l'id è il nome del file.
-    ``meta`` (modello, dimensione immagine, ...) deve coincidere con quello di un'estrazione precedente.
+    It can be interrupted and restarted: images already in the manifest are skipped.
+    ``image_ids`` gives an id to each path; if missing, the id is the file name.
+    ``meta`` (model, image size, ...) must match that of any previous extraction.
     """
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -116,17 +116,17 @@ def extract_embeddings(
     manifest = read_manifest(out) or {"meta": meta, "shards": [], "failed": [], "dim": None}
     if manifest["meta"] != meta:
         raise ValueError(
-            f"{out} contiene embedding estratti con {manifest['meta']}, richiesti {meta}. "
-            "Usa un'altra cartella o cancella quella esistente."
+            f"{out} contains embeddings extracted with {manifest['meta']}, requested {meta}. "
+            "Use another folder or delete the existing one."
         )
 
     paths = [Path(p) for p in image_paths]
     ids = list(image_ids) if image_ids is not None else [p.name for p in paths]
     if len(ids) != len(paths) or len(set(ids)) != len(ids):
-        raise ValueError("image_ids deve avere un id distinto per ogni immagine")
+        raise ValueError("image_ids must have a distinct id for each image")
     done = _done_ids(out, manifest)
     todo = [(i, p) for i, p in zip(ids, paths) if i not in done]
-    log(f"{len(done)} immagini già fatte, {len(todo)} da estrarre")
+    log(f"{len(done)} images already done, {len(todo)} to extract")
 
     added = 0
     for start in range(0, len(todo), shard_size):
@@ -142,7 +142,7 @@ def extract_embeddings(
             manifest["shards"].append({"file": name, "count": len(kept)})
             manifest["dim"] = int(X.shape[1])
             added += len(kept)
-        # Il manifest è aggiornato solo dopo lo shard: un'interruzione non lascia stati a metà.
+        # The manifest is updated only after the shard: an interruption never leaves a half-written state.
         _write_json_atomic(out / MANIFEST_NAME, manifest)
         log(f"  {min(start + shard_size, len(todo))}/{len(todo)}")
     if not todo:
@@ -158,10 +158,10 @@ def save_embeddings(
     meta: Optional[dict[str, Any]] = None,
     normalize: bool = True,
 ) -> None:
-    """Salva in un colpo solo embedding già calcolati (usato dai re-train e dai test).
+    """Save already computed embeddings in one go (used by re-training and by the tests).
 
-    ``normalize=False`` per vettori già normalizzati: normalizzarli di nuovo cambia gli ultimi
-    bit, e con loro la chiave della cache del grafo kNN (che va riusato anche dopo un riavvio).
+    ``normalize=False`` for already normalised vectors: normalising them again changes the last
+    bits, and with them the kNN graph cache key (the graph must be reused even after a restart).
     """
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -178,11 +178,11 @@ def save_embeddings(
 
 
 def load_embeddings(emb_dir: Union[str, Path]) -> Embeddings:
-    """Carica tutti gli shard elencati nel manifest."""
+    """Load all shards listed in the manifest."""
     d = Path(emb_dir)
     manifest = read_manifest(d)
     if manifest is None or not manifest["shards"]:
-        raise FileNotFoundError(f"Nessun embedding in {d}: esegui prima scripts/extract_embeddings.py")
+        raise FileNotFoundError(f"No embeddings in {d}: run scripts/extract_embeddings.py first")
     ids: list[str] = []
     paths: list[str] = []
     chunks: list[np.ndarray] = []
@@ -196,41 +196,41 @@ def load_embeddings(emb_dir: Union[str, Path]) -> Embeddings:
 
 
 def restrict_to_datasets(emb: Embeddings, dataset_names: Sequence[str], separator: str = "__") -> Embeddings:
-    """Tiene solo le api delle cartelle di dataset indicate (il prefisso dell'image_id).
+    """Keep only the bees from the given dataset folders (the image_id prefix).
 
-    Gli embedding possono essere stati estratti per più cartelle di quelle che si vogliono
-    usare: basta togliere una cartella da ``paths.dataset_dirs`` per escluderne le api.
+    Embeddings may have been extracted for more folders than the ones to be used:
+    removing a folder from ``paths.dataset_dirs`` is enough to exclude its bees.
     """
     prefixes = tuple(f"{name}{separator}" for name in dataset_names)
     keep = [i for i, image_id in enumerate(emb.ids) if image_id.startswith(prefixes)]
     if len(keep) == len(emb.ids):
         return emb
     if not keep:
-        raise ValueError(f"Nessun embedding per le cartelle {list(dataset_names)}: esegui scripts/extract_embeddings.py")
+        raise ValueError(f"No embeddings for the folders {list(dataset_names)}: run scripts/extract_embeddings.py")
     return Embeddings([emb.ids[i] for i in keep], [emb.paths[i] for i in keep],
                       np.ascontiguousarray(emb.X[keep]), {**emb.meta, "datasets": list(dataset_names)})
 
 
 def restrict_embeddings(emb: Embeddings, subset_path: Union[str, Path]) -> Embeddings:
-    """Tiene solo le api elencate in un file ``{"image_ids": [...]}``, nell'ordine degli embedding."""
+    """Keep only the bees listed in a ``{"image_ids": [...]}`` file, in embedding order."""
     path = Path(subset_path)
     if not path.exists():
-        raise FileNotFoundError(f"File del sottoinsieme non trovato: {path}")
+        raise FileNotFoundError(f"Subset file not found: {path}")
     with open(path, "r", encoding="utf-8") as f:
         wanted = set(json.load(f)["image_ids"])
     keep = [i for i, image_id in enumerate(emb.ids) if image_id in wanted]
     if not keep:
-        raise ValueError(f"{path} non elenca nessuna delle api di questo dataset")
+        raise ValueError(f"{path} lists none of the bees in this dataset")
     return Embeddings([emb.ids[i] for i in keep], [emb.paths[i] for i in keep],
                       np.ascontiguousarray(emb.X[keep]), {**emb.meta, "subset": str(path), "subset_of": len(emb)})
 
 
 # --------------------------------------------------------------------------- #
-# Encoder torch (importato solo da chi estrae: l'hub non ne ha bisogno)
+# Torch encoder (imported only by extraction code: the hub does not need it)
 # --------------------------------------------------------------------------- #
 
 def pick_device(device: str = "auto") -> str:
-    """``auto`` sceglie la GPU con più memoria libera, altrimenti la CPU."""
+    """``auto`` picks the GPU with the most free memory, the CPU otherwise."""
     import torch
 
     if device != "auto":
@@ -242,7 +242,7 @@ def pick_device(device: str = "auto") -> str:
 
 
 def build_transform(image_size: int = 224):
-    """Stesso preprocessing di ``dataset_clustering.py``: resize quadrato + normalizzazione ImageNet."""
+    """Same preprocessing as ``dataset_clustering.py``: square resize + ImageNet normalisation."""
     import torchvision.transforms as T
 
     return T.Compose([
@@ -253,7 +253,7 @@ def build_transform(image_size: int = 224):
 
 
 def load_backbone(model_name: str = "dinov2_vits14"):
-    """Modello DINOv2 pre-addestrato via torch.hub (es. ``dinov2_vits14``, ``dinov2_vitb14``)."""
+    """Pretrained DINOv2 model via torch.hub (e.g. ``dinov2_vits14``, ``dinov2_vitb14``)."""
     import torch
 
     return torch.hub.load("facebookresearch/dinov2", model_name)
@@ -266,7 +266,7 @@ def build_torch_encoder(
     num_workers: int = 4,
     device: str = "auto",
 ) -> Encoder:
-    """Avvolge un modello torch congelato in un ``Encoder`` che lavora a batch."""
+    """Wrap a frozen torch model in a batch-wise ``Encoder``."""
     import torch
     from PIL import Image
     from torch.utils.data import DataLoader, Dataset
@@ -285,7 +285,7 @@ def build_torch_encoder(
         def __getitem__(self, i: int):
             try:
                 with Image.open(self.paths[i]) as im:
-                    img = im.convert("RGB")  # scarta l'alpha, come cv2.imread
+                    img = im.convert("RGB")  # drop the alpha channel, like cv2.imread
                 return transform(img), True
             except Exception:
                 return torch.zeros(3, image_size, image_size), False

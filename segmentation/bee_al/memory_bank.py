@@ -1,4 +1,4 @@
-"""Memory bank: tutti gli embedding più le etichette note, con ricerca dei k vicini."""
+"""Memory bank: all embeddings plus the known labels, with k-nearest-neighbour search."""
 from __future__ import annotations
 
 import json
@@ -13,7 +13,7 @@ BACKENDS = ("faiss", "sklearn", "numpy")
 
 
 class NeighborIndex(Protocol):
-    """Interfaccia unica dei backend: similarità coseno decrescenti e indici dei vicini."""
+    """Common backend interface: cosine similarities in decreasing order and neighbour indices."""
 
     def search(self, Q: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]: ...
 
@@ -27,13 +27,13 @@ def faiss_available() -> bool:
 
 
 def resolve_backend(backend: str = "auto") -> str:
-    """``auto`` usa FAISS se installato, altrimenti sklearn."""
+    """``auto`` uses FAISS if installed, sklearn otherwise."""
     if backend == "auto":
         return "faiss" if faiss_available() else "sklearn"
     if backend not in BACKENDS:
-        raise ValueError(f"Backend sconosciuto: {backend}")
+        raise ValueError(f"Unknown backend: {backend}")
     if backend == "faiss" and not faiss_available():
-        raise ImportError("backend 'faiss' richiesto ma faiss non è installato")
+        raise ImportError("backend 'faiss' requested but faiss is not installed")
     return backend
 
 
@@ -81,7 +81,7 @@ class _NumpyIndex:
 
 
 def build_index(X: np.ndarray, backend: str = "auto") -> NeighborIndex:
-    """Indice esatto sui vettori (già normalizzati L2) con il backend scelto."""
+    """Exact index over the (already L2-normalised) vectors with the chosen backend."""
     backend = resolve_backend(backend)
     if backend == "faiss":
         return _FaissIndex(X)
@@ -91,11 +91,11 @@ def build_index(X: np.ndarray, backend: str = "auto") -> NeighborIndex:
 
 
 class MemoryBank:
-    """Embedding di tutte le api e, per quelle etichettate, la label.
+    """Embeddings of all bees and, for the labelled ones, their label.
 
-    Le classi non sono fissate: sono quelle delle etichette presenti in questo momento.
-    ``add_label`` non addestra nulla: aggiorna un dizionario e invalida l'indice
-    delle etichettate, che viene ricostruito alla ricerca successiva.
+    Classes are not fixed: they are those of the labels present at this moment.
+    ``add_label`` trains nothing: it updates a dictionary and invalidates the index
+    of labelled bees, which is rebuilt on the next search.
     """
 
     def __init__(
@@ -106,14 +106,14 @@ class MemoryBank:
         backend: str = "auto",
     ) -> None:
         if len(ids) != len(X):
-            raise ValueError("ids e X hanno lunghezze diverse")
+            raise ValueError("ids and X have different lengths")
         self.ids: list[str] = list(ids)
         self.paths: list[str] = list(paths) if paths is not None else list(ids)
         self.X: np.ndarray = np.ascontiguousarray(X, dtype=np.float32)
         self.backend: str = resolve_backend(backend)
         self._pos: dict[str, int] = {image_id: i for i, image_id in enumerate(self.ids)}
         if len(self._pos) != len(self.ids):
-            raise ValueError("image_id duplicati")
+            raise ValueError("duplicate image_id")
         self._labels: dict[int, str] = {}
         self._unknown: set[int] = set()
         self._full_index: Optional[NeighborIndex] = None
@@ -129,10 +129,10 @@ class MemoryBank:
     def index_of(self, image_id: str) -> int:
         return self._pos[image_id]
 
-    # ------------------------------ etichette ------------------------------ #
+    # -------------------------------- labels -------------------------------- #
 
     def add_label(self, image_id: str, label: str) -> None:
-        """Aggiunge o aggiorna un'etichetta. ``UNKNOWN_LABEL`` mette da parte, ``REMOVED_LABEL`` rimuove."""
+        """Add or update a label. ``UNKNOWN_LABEL`` sets the bee aside, ``REMOVED_LABEL`` removes it."""
         i = self._pos[image_id]
         self._labels.pop(i, None)
         self._unknown.discard(i)
@@ -151,13 +151,13 @@ class MemoryBank:
         self._labeled_index = None
 
     def label_of(self, image_id: str) -> Optional[str]:
-        """Label dell'immagine, ``UNKNOWN_LABEL`` se "Non so", ``None`` se non etichettata."""
+        """Label of the image, ``UNKNOWN_LABEL`` if "Don't know", ``None`` if unlabelled."""
         i = self._pos[image_id]
         return UNKNOWN_LABEL if i in self._unknown else self._labels.get(i)
 
     @property
     def classes(self) -> list[str]:
-        """Classi attuali, in ordine alfabetico ("Non so" non è una classe)."""
+        """Current classes, in alphabetical order ("Don't know" is not a class)."""
         return sorted(set(self._labels.values()))
 
     @property
@@ -179,16 +179,16 @@ class MemoryBank:
             counts[lbl] = counts.get(lbl, 0) + 1
         return dict(sorted(counts.items()))
 
-    # ------------------------------- ricerca ------------------------------- #
+    # -------------------------------- search -------------------------------- #
 
     def search(self, Q: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
-        """k vicini tra tutte le api: (similarità, indici)."""
+        """k neighbours among all bees: (similarities, indices)."""
         if self._full_index is None:
             self._full_index = build_index(self.X, self.backend)
         return self._full_index.search(np.atleast_2d(Q), k)
 
     def search_labeled(self, Q: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
-        """k vicini tra le sole api etichettate: (similarità, indici globali)."""
+        """k neighbours among labelled bees only: (similarities, global indices)."""
         Q = np.atleast_2d(Q)
         if not self._labels:
             return np.empty((len(Q), 0), dtype=np.float32), np.empty((len(Q), 0), dtype=np.int64)
@@ -198,7 +198,7 @@ class MemoryBank:
         sims, local = self._labeled_index.search(Q, k)
         return sims, self._labeled_idx[local]
 
-    # ----------------------------- persistenza ----------------------------- #
+    # ------------------------------ persistence ------------------------------ #
 
     def save(self, out_dir: Union[str, Path]) -> None:
         out = Path(out_dir)

@@ -1,4 +1,4 @@
-"""Active learning + semi-supervised per raggruppare crop di api in cluster."""
+"""Active learning + semi-supervised learning to group bee crops into clusters."""
 
-UNKNOWN_LABEL = "__unknown__"   # pulsante "Scarta ape": tenuta da parte, mai nel kNN, mai riproposta
-REMOVED_LABEL = "__removed__"   # evento di rimozione nel label store
+UNKNOWN_LABEL = "__unknown__"   # "Discard bee" button: set aside, never in the kNN, never proposed again
+REMOVED_LABEL = "__removed__"   # removal event in the label store

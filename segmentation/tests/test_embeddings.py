@@ -7,7 +7,7 @@ from bee_al.embeddings import extract_embeddings, load_embeddings, read_manifest
 
 
 class FakeEncoder:
-    """Embedding deterministico dal nome del file; conta le immagini elaborate."""
+    """Deterministic embedding from the file name; counts the processed images."""
 
     def __init__(self, fail_after=None, bad=()):
         self.seen = []
@@ -43,14 +43,14 @@ def test_extract_saves_normalized_float32_with_ids_and_paths(tmp_path):
 
 def test_extract_resumes_after_interruption(tmp_path):
     paths = _paths(10)
-    enc = FakeEncoder(fail_after=8)  # si interrompe al terzo shard
+    enc = FakeEncoder(fail_after=8)  # interrupted at the third shard
     with pytest.raises(KeyboardInterrupt):
         extract_embeddings(paths, tmp_path, enc, meta={"model": "fake"}, shard_size=4)
     assert len(load_embeddings(tmp_path)) == 8
 
     enc2 = FakeEncoder()
     assert extract_embeddings(paths, tmp_path, enc2, meta={"model": "fake"}, shard_size=4) == 2
-    assert enc2.seen == [p.name for p in paths[8:]]  # le prime 8 non vengono rifatte
+    assert enc2.seen == [p.name for p in paths[8:]]  # the first 8 are not redone
     assert load_embeddings(tmp_path).ids == [p.name for p in paths]
     assert extract_embeddings(paths, tmp_path, FakeEncoder(), meta={"model": "fake"}, shard_size=4) == 0
 
@@ -68,7 +68,7 @@ def test_unreadable_images_are_skipped_and_not_retried(tmp_path):
 
 def test_different_model_in_same_dir_is_refused(tmp_path):
     extract_embeddings(_paths(3), tmp_path, FakeEncoder(), meta={"model": "a"})
-    with pytest.raises(ValueError, match="estratti con"):
+    with pytest.raises(ValueError, match="extracted with"):
         extract_embeddings(_paths(3), tmp_path, FakeEncoder(), meta={"model": "b"})
 
 

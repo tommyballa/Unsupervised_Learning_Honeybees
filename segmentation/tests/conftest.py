@@ -1,4 +1,4 @@
-"""Fixture condivise: dati sintetici, nessuna immagine reale e nessuna GPU."""
+"""Shared fixtures: synthetic data, no real images and no GPU."""
 import sys
 from pathlib import Path
 
@@ -15,7 +15,7 @@ from bee_al.simulation import make_synthetic  # noqa: E402
 
 @pytest.fixture
 def cfg(tmp_path) -> ALConfig:
-    """Config piccola che scrive solo sotto ``tmp_path``."""
+    """Small config that writes only under ``tmp_path``."""
     return config_from_dict(
         {
             "query": {"batch_size": 10, "cold_start_threshold": 10},
@@ -28,7 +28,7 @@ def cfg(tmp_path) -> ALConfig:
 
 @pytest.fixture
 def synth():
-    """300 punti, 4 classi sbilanciate, embedding normalizzati L2."""
+    """300 points, 4 imbalanced classes, L2-normalised embeddings."""
     X, y = make_synthetic(n=300, dim=32, n_classes=4, imbalance=0.6, noise=0.6, seed=0)
     ids = [f"bee_{i:05d}_conf0.90.png" for i in range(len(X))]
     return X, np.asarray(y), ids
@@ -36,7 +36,7 @@ def synth():
 
 @pytest.fixture(scope="session")
 def hub_app(tmp_path_factory):
-    """Importa app.py da una cartella temporanea: il suo ``results`` relativo finisce lì."""
+    """Import app.py from a temporary folder: its relative ``results`` folder ends up there."""
     import os
 
     cwd = os.getcwd()
@@ -51,11 +51,11 @@ def hub_app(tmp_path_factory):
 
 
 def build_colony_dataset(root, folders=None, discard_every=7, seed=0, extra_cfg=None):
-    """Dataset finto completo: frame -> api grezze -> api pulite, con i manifest dei due script.
+    """Complete fake dataset: frames -> raw bees -> cleaned bees, with the manifests of both scripts.
 
-    ``folders``: ``{nome cartella: {nome frame: api grezze}}``. La numerazione riparte da 0 in
-    ogni cartella; la pulizia scarta un'ape ogni ``discard_every`` (senza rinumerare).
-    Restituisce config, embedding sintetici (4 classi), verità per image_id e frame per image_id.
+    ``folders``: ``{folder name: {frame name: raw bees}}``. Numbering restarts from 0 in
+    each folder; cleaning discards one bee every ``discard_every`` (without renumbering).
+    Returns config, synthetic embeddings (4 classes), ground truth per image_id and frame per image_id.
     """
     import json
     from types import SimpleNamespace

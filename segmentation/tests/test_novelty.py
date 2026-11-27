@@ -1,4 +1,4 @@
-"""Api rare mai etichettate: quota novelty nel batch e gruppo delle "non assegnate"."""
+"""Rare, never-labelled bees: novelty share in the batch and the "unassigned" group."""
 from collections import Counter
 
 import numpy as np
@@ -15,7 +15,7 @@ from bee_al.simulation import make_synthetic
 
 @pytest.fixture
 def rare():
-    """300 api di 3 classi comuni più 12 api "malate" in una zona isolata dello spazio."""
+    """300 bees from 3 common classes plus 12 "sick" bees in an isolated region of the space."""
     X, y = make_synthetic(n=300, dim=32, n_classes=3, imbalance=0.7, noise=0.6, seed=3)
     rng = np.random.default_rng(0)
     center = rng.normal(size=32)
@@ -29,7 +29,7 @@ def rare():
 def _bank_without_rare(rare, n_labeled=80):
     X, y, ids = rare
     bank = MemoryBank(ids, X)
-    for i in range(n_labeled):           # si etichettano solo api comuni
+    for i in range(n_labeled):           # only common bees are labelled
         bank.add_label(ids[i], y[i])
     return bank
 
@@ -37,10 +37,10 @@ def _bank_without_rare(rare, n_labeled=80):
 def test_nearest_labeled_similarity(rare):
     X, y, ids = rare
     bank = MemoryBank(ids, X)
-    assert (nearest_labeled_similarity(bank) == 0).all()          # nessuna etichetta
+    assert (nearest_labeled_similarity(bank) == 0).all()          # no labels
     bank.add_label(ids[0], y[0])
     sims = nearest_labeled_similarity(bank)
-    assert sims[0] == 0                                           # un'ape non è vicina di se stessa
+    assert sims[0] == 0                                           # a bee is not its own neighbour
     np.testing.assert_allclose(sims[1:], X[1:] @ X[0], atol=1e-5)
 
 
@@ -48,9 +48,9 @@ def test_unlabeled_rare_bees_look_confident_but_are_novel(rare):
     X, y, ids = rare
     bank = _bank_without_rare(rare)
     sick = np.arange(300, 312)
-    assert "Malata" not in knn_predict(bank).classes               # senza etichette la classe non esiste
+    assert "Malata" not in knn_predict(bank).classes               # without labels the class does not exist
     novelty = 1 - nearest_labeled_similarity(bank)
-    assert novelty[sick].min() > np.percentile(novelty[:300], 95)  # ma sono le più lontane da tutto
+    assert novelty[sick].min() > np.percentile(novelty[:300], 95)  # but they are the farthest from everything
 
 
 def test_novelty_quota_surfaces_rare_bees(rare):
@@ -66,15 +66,15 @@ def test_novelty_quota_surfaces_rare_bees(rare):
     assert Counter(q.query_type for q in batch) == {"uncertainty": 14, "novelty": 4, "random": 2}
     assert len({q.index for q in batch}) == 20
     picked = [q.index for q in batch if q.query_type == NOVELTY]
-    assert sum(i >= 300 for i in picked) >= 3                      # le api malate arrivano all'annotatore
+    assert sum(i >= 300 for i in picked) >= 3                      # the sick bees reach the annotator
 
-    without = select_batch(*args, np.random.default_rng(0))        # senza punteggi la quota va all'incertezza
+    without = select_batch(*args, np.random.default_rng(0))        # without scores the share goes to uncertainty
     assert Counter(q.query_type for q in without) == {"uncertainty": 18, "random": 2}
 
     cold = QueryConfig(batch_size=20, cold_start_threshold=500, novelty_fraction=0.2)
     batch = select_batch(X, bank.labeled_indices(), probs, bank.n_labeled, len(bank.classes), cold,
                          np.random.default_rng(0), novelty=novelty)
-    assert NOVELTY not in {q.query_type for q in batch}            # il cold start resta diversity + random
+    assert NOVELTY not in {q.query_type for q in batch}            # cold start stays diversity + random
 
 
 def test_engine_keeps_far_bees_out_of_clusters(rare, tmp_path):
@@ -87,10 +87,10 @@ def test_engine_keeps_far_bees_out_of_clusters(rare, tmp_path):
         "knn": {"unassigned_fraction": 0.05},
     }, root=tmp_path)
     engine = ALEngine(cfg, Embeddings(ids, list(ids), X))
-    assert engine.status()["n_unassigned"] == 0 and engine.unassigned_samples()["n"] == 0  # nessuna etichetta
+    assert engine.status()["n_unassigned"] == 0 and engine.unassigned_samples()["n"] == 0  # no labels
 
     labeled = 0
-    while labeled < 40:                                            # l'annotatore non riconosce le malate: "Non so"
+    while labeled < 40:                                            # the annotator does not recognise the sick bees: "Don't know"
         item = engine.next_image("a@x.it")
         engine.submit("a@x.it", item.image_id, "non so" if truth[item.image_id] == "Malata" else truth[item.image_id])
         labeled += 1
@@ -102,7 +102,7 @@ def test_engine_keeps_far_bees_out_of_clusters(rare, tmp_path):
     group = engine.unassigned_samples(n=100, order="uncertain")
     shown = [b["image_id"] for b in group["samples"]]
     sick_left = [i for i in ids[300:] if engine.bank.label_of(i) is None and i not in engine.validation_ids]
-    assert set(sick_left) <= set(shown)                            # le malate rimaste stanno nel gruppo a parte
+    assert set(sick_left) <= set(shown)                            # the remaining sick bees are in the separate group
     sims = [b["similarity"] for b in group["samples"]]
     assert sims == sorted(sims) and all(b["nearest_class"] for b in group["samples"])
 
@@ -111,6 +111,6 @@ def test_engine_keeps_far_bees_out_of_clusters(rare, tmp_path):
     assert not set(shown) & in_clusters and not set(shown) & in_samples
     assert "novelty" in {b.query_type for b in engine.batch}
 
-    cfg.knn.unassigned_fraction = 0.0                              # disattivabile da config
+    cfg.knn.unassigned_fraction = 0.0                              # can be disabled from the config
     engine.refresh()
     assert engine.status()["n_unassigned"] == 0

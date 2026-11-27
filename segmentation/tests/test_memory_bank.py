@@ -9,7 +9,7 @@ from bee_al.knn import knn_predict
 from bee_al.memory_bank import MemoryBank, build_index, faiss_available, resolve_backend
 
 BACKENDS = [
-    pytest.param("faiss", marks=pytest.mark.skipif(not faiss_available(), reason="faiss non installato")),
+    pytest.param("faiss", marks=pytest.mark.skipif(not faiss_available(), reason="faiss not installed")),
     "sklearn",
     "numpy",
 ]
@@ -28,7 +28,7 @@ def test_neighbor_search_matches_brute_force(synth, backend):
     ref_sims, ref_idx = _brute(X, X[:20], 5)
     np.testing.assert_array_equal(idx, ref_idx)
     np.testing.assert_allclose(sims, ref_sims, atol=1e-5)
-    assert (idx[:, 0] == np.arange(20)).all()  # il primo vicino è il punto stesso
+    assert (idx[:, 0] == np.arange(20)).all()  # the first neighbour is the point itself
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
@@ -44,7 +44,7 @@ def test_auto_backend_with_and_without_faiss(synth, monkeypatch):
     assert resolve_backend("auto") == "sklearn"
     with pytest.raises(ImportError):
         resolve_backend("faiss")
-    bank = MemoryBank(ids, X)  # senza FAISS la bank funziona comunque
+    bank = MemoryBank(ids, X)  # the bank works even without FAISS
     assert bank.backend == "sklearn"
     assert bank.search(X[:1], 3)[1][0, 0] == 0
     monkeypatch.undo()
@@ -57,7 +57,7 @@ def test_add_label_updates_knn_immediately(synth, backend):
     X, y, ids = synth
     bank = MemoryBank(ids, X, backend=backend)
     assert bank.classes == [] and bank.n_labeled == 0
-    assert knn_predict(bank).probs.shape == (len(X), 0)  # nessuna etichetta, nessuna classe
+    assert knn_predict(bank).probs.shape == (len(X), 0)  # no labels, no classes
 
     for i in range(60):
         bank.add_label(ids[i], y[i])
@@ -67,7 +67,7 @@ def test_add_label_updates_knn_immediately(synth, backend):
     acc = np.mean(np.array(pred.labels) == y[60:])
     assert acc > 0.9
 
-    # correzione: l'etichetta nuova sostituisce la vecchia, senza training
+    # correction: the new label replaces the old one, without training
     bank.add_label(ids[0], "Altro")
     assert bank.label_of(ids[0]) == "Altro" and "Altro" in bank.classes
     assert bank.n_labeled == 60
@@ -79,7 +79,7 @@ def test_add_label_is_fast(synth):
     t0 = time.perf_counter()
     for i in range(200):
         bank.add_label(ids[i], y[i])
-    assert (time.perf_counter() - t0) / 200 < 0.005  # pochi millisecondi per etichetta
+    assert (time.perf_counter() - t0) / 200 < 0.005  # a few milliseconds per label
 
 
 def test_unknown_and_removed_are_not_classes(synth):
@@ -91,11 +91,11 @@ def test_unknown_and_removed_are_not_classes(synth):
     assert bank.label_of(ids[1]) == UNKNOWN_LABEL
     assert bank.unknown_indices().tolist() == [1]
     _, nb = bank.search_labeled(X[:5], 3)
-    assert set(nb.ravel()) == {0}  # "Non so" non entra nel kNN
+    assert set(nb.ravel()) == {0}  # "Don't know" does not enter the kNN
 
     bank.add_label(ids[0], REMOVED_LABEL)
     assert bank.label_of(ids[0]) is None and bank.classes == []
-    bank.add_label(ids[1], y[1])  # un "Non so" può essere corretto in una classe vera
+    bank.add_label(ids[1], y[1])  # a "Don't know" can be corrected into a real class
     assert bank.unknown_indices().size == 0 and bank.classes == [y[1]]
     with pytest.raises(KeyError):
         bank.add_label("non_esiste.png", "X")
