@@ -242,7 +242,7 @@ Share of Ok per batch (`scripts/batch_counts.py`). The shares are over the assig
 
 The bootstrap measures the photo-to-photo variability, **not the model errors**.
 
-**Previous experience (pilot on batches 3+4, archived).** There had been a first run with LangSAM labels, 68,559 bees and the classes Crop Utilizzabile / Ape Incompleta / Crop Non Utilizzabile (usable crop / incomplete bee / unusable crop). There the validation set had been labelled, and it showed that the model let through about 2/3 of the unusable crops. This is why phase 1 exists as a separate step. `[AUTHOR TO CONFIRM: whether to mention the pilot in the thesis]`
+**Previous experience (pilot on batches 3+4, archived).** There had been a first run with LangSAM labels, 68,559 bees and the classes Crop Utilizzabile / Ape Incompleta / Crop Non Utilizzabile (usable crop / incomplete bee / unusable crop). There the validation set had been labelled, and it showed that the model let through about 2/3 of the unusable crops. This is why phase 1 exists as a separate step.
 
 ## 9. Phase 2: demographic profile and disease
 
