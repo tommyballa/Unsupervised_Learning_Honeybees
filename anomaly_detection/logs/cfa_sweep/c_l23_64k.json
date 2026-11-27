@@ -1,0 +1,46 @@
+{
+ "config": {
+  "tag": "c_l23_64k",
+  "img_size": [
+   512,
+   512
+  ],
+  "layers": "2,3",
+  "gamma_c": 4,
+  "gamma_d": 2,
+  "K": 1,
+  "J": 3,
+  "bank": "kmeans",
+  "ppi": 64,
+  "bank_size": 65536,
+  "fg": true,
+  "epochs": 0.36,
+  "bs": 16,
+  "lr": 1e-05,
+  "wd": 0.0005,
+  "sched": "const",
+  "aug": "none",
+  "eval_every": 87,
+  "variants": false,
+  "eval_zero": true,
+  "sigma": 4.0,
+  "score": "max",
+  "seed": 1
+ },
+ "history": [
+  {
+   "step": 0,
+   "epoch": 0.0,
+   "lr": 1e-05,
+   "loss": NaN,
+   "metrics": {
+    "img_roc_auc": 0.9437170092950675,
+    "img_avg_prec": 0.7229323291181484,
+    "img_f1": 0.6746987951807228,
+    "pxl_roc_auc": 0.9987155920243702,
+    "pxl_avg_prec": 0.5344637136486899
+   },
+   "variants": []
+  }
+ ]
+}

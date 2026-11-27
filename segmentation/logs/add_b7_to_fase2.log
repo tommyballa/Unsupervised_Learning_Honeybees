@@ -1,0 +1,37 @@
+Using cache found in /home/tommaso_ballarin/.cache/torch/hub/facebookresearch_dinov2_main
+/home/tommaso_ballarin/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/swiglu_ffn.py:51: UserWarning: xFormers is not available (SwiGLU)
+  warnings.warn("xFormers is not available (SwiGLU)")
+/home/tommaso_ballarin/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/attention.py:33: UserWarning: xFormers is not available (Attention)
+  warnings.warn("xFormers is not available (Attention)")
+/home/tommaso_ballarin/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/block.py:40: UserWarning: xFormers is not available (Block)
+  warnings.warn("xFormers is not available (Block)")
+Modello v003: coseno minimo con gli embedding salvati 1.0000
+0 immagini già fatte, 44810 da estrarre
+  2048/44810
+  4096/44810
+  6144/44810
+  8192/44810
+  10240/44810
+  12288/44810
+  14336/44810
+  16384/44810
+  18432/44810
+  20480/44810
+  22528/44810
+  24576/44810
+  26624/44810
+  28672/44810
+  30720/44810
+  32768/44810
+  34816/44810
+  36864/44810
+  38912/44810
+  40960/44810
+  43008/44810
+  44810/44810
+Api già note: stessa classe dello snapshot nel 98.2% dei casi (con le api nuove nel grafo)
+Api nuove: 44810; per classe: {'Scarta': 8108, 'Ok': 34645}; non assegnate 2057
+Tenute 34645 api su 44810: la fase passa da 138788 a 173433 api
+  predizioni: /mnt/disk1/tommaso_ballarin/bee_al/results_sam3_b3456/added_b7_predictions.csv
+  elenco:     /mnt/disk1/tommaso_ballarin/bee_al/results_fase2_sam3/subset.json
+  config:     config/al_fase2_sam3.yaml

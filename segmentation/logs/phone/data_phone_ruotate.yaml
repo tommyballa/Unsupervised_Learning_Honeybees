@@ -1,0 +1,7 @@
+# Like data_phone.yaml, but with the SAM 3 labels of the 4 photos with EXIF orientation 3 rotated by 180° (see ${WORK_DIR}/phone_captured_labels_ruotate/LEGGIMI.txt).
+train: ${WORK_DIR}/phone_captured_labels_ruotate/images
+val: ${WORK_DIR}/phone_captured_labels_ruotate/images
+test: ${WORK_DIR}/phone_captured_labels_ruotate/images
+
+nc: 1
+names: ['bee']

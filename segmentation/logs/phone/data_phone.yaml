@@ -1,0 +1,7 @@
+# 22 phone photos (batch_6/favi_phone_camera) with SAM 3 labels: never used in YOLO training.
+train: ${BEES_DATA_ROOT}/processed/phone_captured/images
+val: ${BEES_DATA_ROOT}/processed/phone_captured/images
+test: ${BEES_DATA_ROOT}/processed/phone_captured/images
+
+nc: 1
+names: ['bee']

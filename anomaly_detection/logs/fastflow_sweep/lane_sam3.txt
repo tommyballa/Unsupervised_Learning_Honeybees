@@ -1,0 +1,5 @@
+f1_base --img-size 512 --bs 8 --masked-loss 4 --map nll --scales 1,2 --sigma 8 --fg-dilate -8 --lr 3e-4 --steps 300 --eval-steps 50,100,150,200,300
+f2_lr1e4 --img-size 512 --bs 8 --masked-loss 4 --map nll --scales 1,2 --sigma 8 --fg-dilate -8 --lr 1e-4 --steps 400 --eval-steps 100,200,300,400
+f3_ml16 --img-size 512 --bs 8 --masked-loss 16 --map nll --scales 1,2 --sigma 8 --fg-dilate -8 --lr 3e-4 --steps 300 --eval-steps 50,100,150,200,300
+f4_cap --img-size 512 --bs 8 --masked-loss 4 --map nll --scales 1,2 --sigma 8 --fg-dilate -8 --lr 3e-4 --steps 300 --eval-steps 50,100,150,200,300 --flow-steps 4 --hidden-ratio 0.5
+f2b_lr1e4 --img-size 512 --bs 8 --masked-loss 4 --map z2 --scales 0,1,2 --sigma 16 --fg-dilate -24 --lr 1e-4 --steps 400 --eval-steps 100,200,300,400

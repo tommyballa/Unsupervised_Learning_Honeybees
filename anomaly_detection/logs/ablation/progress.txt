@@ -1,0 +1,73 @@
+2026-10-22 11:21:48 GPU1 start stfpm_n500
+2026-10-22 11:21:48 GPU1 start padim_n500
+2026-10-22 11:32:35 riavvio: 4 corsie (GPU1 x2, GPU2 x2) su jobs.txt
+2026-10-22 11:32:35 GPU1 start dinomaly_n500
+2026-10-22 11:32:37 GPU1 start cfa_n500
+2026-10-22 11:32:39 GPU2 start stfpm_n500
+2026-10-22 11:32:42 GPU2 start padim_n500
+2026-10-22 11:39:11 GPU2 end padim_n500 (padim_n500.done)
+2026-10-22 11:39:11 GPU2 start paste_mobilenet_v2
+2026-10-22 11:42:46 GPU2 end stfpm_n500 (stfpm_n500.done)
+2026-10-22 11:42:46 GPU2 start stfpm_mobilenet_v2
+2026-10-22 12:00:24 GPU2 end paste_mobilenet_v2 (paste_mobilenet_v2.done)
+2026-10-22 12:00:24 GPU2 start dinomaly_n5000
+2026-10-22 12:02:52 GPU2 end stfpm_mobilenet_v2 (stfpm_mobilenet_v2.done)
+2026-10-22 12:02:52 GPU2 start dinomaly_n20000
+2026-10-22 12:33:27 GPU1 end cfa_n500 (cfa_n500.done)
+2026-10-22 12:33:27 GPU1 start dinomaly_vit_small_patch14_reg4_dinov2
+2026-10-22 15:19:12 GPU1 end dinomaly_vit_small_patch14_reg4_dinov2 (dinomaly_vit_small_patch14_reg4_dinov2.done)
+2026-10-22 15:19:12 GPU1 start cfa_n5000
+2026-10-22 15:47:33 GPU2 end dinomaly_n20000 (dinomaly_n20000.done)
+2026-10-22 15:47:33 GPU2 start cfa_n20000
+2026-10-22 15:47:35 GPU2 end dinomaly_n5000 (dinomaly_n5000.done)
+2026-10-22 15:47:35 GPU2 start cfa_resnet18
+2026-10-22 16:23:53 GPU1 end cfa_n5000 (cfa_n5000.done)
+2026-10-22 16:23:53 GPU1 start cfa_mobilenet_v2
+2026-10-22 16:36:04 GPU2 end cfa_resnet18 (cfa_resnet18.done)
+2026-10-22 16:36:04 GPU2 start patchcore_n500
+2026-10-22 16:39:05 GPU1 end dinomaly_n500 (dinomaly_n500.done)
+2026-10-22 16:39:05 GPU1 start patchcore_n5000
+2026-10-22 16:42:47 GPU2 end cfa_n20000 (cfa_n20000.done)
+2026-10-22 16:42:47 GPU2 start patchcore_n20000
+2026-10-22 16:52:28 GPU2 end patchcore_n500 (patchcore_n500.done)
+2026-10-22 16:52:28 GPU2 start fastflow_n500
+2026-10-22 17:20:40 GPU2 end fastflow_n500 (fastflow_n500.done)
+2026-10-22 17:20:40 GPU2 start fastflow_n5000
+2026-10-22 17:21:04 GPU2 end patchcore_n20000 (patchcore_n20000.done)
+2026-10-22 17:21:04 GPU2 start fastflow_n20000
+2026-10-22 17:32:30 GPU1 end cfa_mobilenet_v2 (cfa_mobilenet_v2.done)
+2026-10-22 17:32:30 GPU1 start fastflow_resnet18
+2026-10-22 17:38:26 GPU1 end patchcore_n5000 (patchcore_n5000.done)
+2026-10-22 17:38:26 GPU1 start rd4ad_n500
+2026-10-22 17:47:53 GPU2 end fastflow_n5000 (fastflow_n5000.done)
+2026-10-22 17:47:53 GPU2 start rd4ad_n5000
+2026-10-22 17:49:23 GPU2 end fastflow_n20000 (fastflow_n20000.done)
+2026-10-22 17:49:23 GPU2 start rd4ad_n20000
+2026-10-22 17:50:52 GPU1 end fastflow_resnet18 (fastflow_resnet18.done)
+2026-10-22 17:50:52 GPU1 start rd4ad_resnet18
+2026-10-22 18:04:02 GPU1 end rd4ad_resnet18 (rd4ad_resnet18.done)
+2026-10-22 18:04:02 GPU1 start padim_n5000
+2026-10-22 18:13:41 GPU2 end rd4ad_n5000 (rd4ad_n5000.done)
+2026-10-22 18:13:41 GPU2 start padim_n20000
+2026-10-22 18:15:42 GPU2 end rd4ad_n20000 (rd4ad_n20000.done)
+2026-10-22 18:15:42 GPU2 start padim_resnet18
+2026-10-22 18:16:26 GPU1 end padim_n5000 (padim_n5000.done)
+2026-10-22 18:16:26 GPU1 start padim_mobilenet_v2
+2026-10-22 18:16:47 GPU1 end rd4ad_n500 (rd4ad_n500.done)
+2026-10-22 18:16:47 GPU1 start stfpm_n5000
+2026-10-22 18:24:27 GPU2 end padim_n20000 (padim_n20000.done)
+2026-10-22 18:24:27 GPU2 start stfpm_n20000
+2026-10-22 18:25:57 GPU2 end padim_resnet18 (padim_resnet18.done)
+2026-10-22 18:25:57 GPU2 start stfpm_wide_resnet50_2
+2026-10-22 18:40:25 GPU1 end stfpm_n5000 (stfpm_n5000.done)
+2026-10-22 18:40:25 GPU1 start paste_n500
+2026-10-22 18:41:22 GPU1 end padim_mobilenet_v2 (padim_mobilenet_v2.done)
+2026-10-22 18:41:22 GPU1 start paste_n5000
+2026-10-22 18:42:21 GPU2 end stfpm_n20000 (stfpm_n20000.done)
+2026-10-22 18:42:21 GPU2 start paste_n20000
+2026-10-22 18:52:47 GPU2 end stfpm_wide_resnet50_2 (stfpm_wide_resnet50_2.done)
+2026-10-22 18:52:47 GPU2 start paste_wide_resnet50_2
+2026-10-22 18:54:59 GPU2 end paste_n20000 (paste_n20000.done)
+2026-10-22 18:56:03 GPU1 end paste_n500 (paste_n500.done)
+2026-10-22 18:57:59 GPU1 end paste_n5000 (paste_n5000.done)
+2026-10-22 19:09:58 GPU2 end paste_wide_resnet50_2 (paste_wide_resnet50_2.done)

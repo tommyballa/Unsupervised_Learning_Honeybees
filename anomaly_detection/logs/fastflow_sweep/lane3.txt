@@ -1,0 +1,6 @@
+r3_base --masked-loss 4 --fg-dilate 0 --sigma 12
+r3_lr1e4 --masked-loss 4 --fg-dilate 0 --sigma 12 --lr 1e-4
+r3_s512 --masked-loss 4 --fg-dilate -4 --sigma 24 --img-size 512 --bs 8 --lr 3e-4 --steps 1000 --eval-steps 200,400,700,1000
+r3_s384 --masked-loss 4 --fg-dilate 0 --sigma 12 --img-size 384 --sigma 18 --fg-dilate -3
+r3_channel --masked-loss 4 --fg-dilate 0 --sigma 12 --norm channel
+r3_plain --masked-loss 4 --fg-dilate 0 --sigma 12 --norm plain

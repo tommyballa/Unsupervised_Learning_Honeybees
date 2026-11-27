@@ -1,0 +1,4 @@
+r6_lr1e4 --masked-loss 4 --fg-dilate -8 --sigma 12 --img-size 512 --bs 8 --lr 1e-4 --steps 600 --eval-steps 50,100,150,200,300,400,600
+r6_lr3e4 --masked-loss 4 --fg-dilate -8 --sigma 12 --img-size 512 --bs 8 --lr 3e-4 --steps 300 --eval-steps 25,50,75,100,150,200,300
+r6_cap --masked-loss 4 --fg-dilate -8 --sigma 12 --img-size 512 --bs 8 --lr 3e-4 --steps 400 --eval-steps 50,100,150,200,300,400 --flow-steps 4 --hidden-ratio 0.5
+r6_channel --masked-loss 4 --fg-dilate -8 --sigma 12 --img-size 512 --bs 8 --lr 3e-4 --steps 400 --eval-steps 50,100,150,200,300,400 --norm channel

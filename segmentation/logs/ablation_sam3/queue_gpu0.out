@@ -1,0 +1,26 @@
+2026-10-12 16:33:16 base: training (imgsz=1280 )
+2026-10-12 20:27:27 base: test a 1280 e 2048 px
+2026-10-12 20:28:39 base: finita (exit del test 0)
+2026-10-12 20:28:39 coda finita: base
+2026-10-12 20:45:30 img1376: training (imgsz=1376 )
+2026-10-13 01:48:25 img1376: test a 1376 e 2048 px
+2026-10-13 01:48:49 img1376: finita (exit del test 0)
+2026-10-13 01:48:49 img1376_rot: training (imgsz=1376 degrees=180 flipud=0.5)
+2026-10-13 06:37:00 img1376_rot: test a 1376 e 2048 px
+2026-10-13 06:37:24 img1376_rot: finita (exit del test 0)
+2026-10-13 06:37:24 img1376_rot_cp: training (imgsz=1376 degrees=180 flipud=0.5 copy_paste=0.3)
+2026-10-13 12:16:47 img1376_rot_cp: test a 1376 e 2048 px
+2026-10-13 12:17:11 img1376_rot_cp: finita (exit del test 0)
+2026-10-13 12:17:11 coda finita: img1376 img1376_rot img1376_rot_cp
+2026-10-13 12:18:33 img1376_freeze5: training (imgsz=1376  freeze=5)
+2026-10-13 16:04:20 img1376_freeze5: test a 1376 e 2048 px
+2026-10-13 16:04:46 img1376_freeze5: finita (exit del test 0)
+2026-10-13 16:04:46 img1376_freeze10: training (imgsz=1376  freeze=10)
+2026-10-13 18:45:41 img1376_freeze10: training FALLITO (exit 120), vedi logs/train_batch3+4+5+6_SAM3_img1376_freeze10.log
+2026-10-13 18:45:41 img1376_freeze20: training (imgsz=1376  freeze=20)
+2026-10-13 18:45:44 img1376_freeze20: training FALLITO (exit 120), vedi logs/train_batch3+4+5+6_SAM3_img1376_freeze20.log
+2026-10-13 18:45:44 img1376_freeze23: training (imgsz=1376  freeze=23)
+2026-10-13 18:45:46 img1376_freeze23: training FALLITO (exit 120), vedi logs/train_batch3+4+5+6_SAM3_img1376_freeze23.log
+2026-10-13 18:45:46 img1376_seed1: training (imgsz=1376  seed=1)
+2026-10-13 18:45:49 img1376_seed1: training FALLITO (exit 120), vedi logs/train_batch3+4+5+6_SAM3_img1376_seed1.log
+2026-10-13 18:45:49 coda freeze finita: img1376 freeze5 freeze10 freeze20 freeze23 seed1

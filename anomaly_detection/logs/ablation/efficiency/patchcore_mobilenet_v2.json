@@ -1,0 +1,19 @@
+{
+  "model": "patchcore",
+  "tag": "mobilenet_v2",
+  "backbone": "mobilenet_v2",
+  "img_size": [
+    512,
+    512
+  ],
+  "params_M": 4.398784,
+  "size_MB": 16.780029296875,
+  "gflops": 35.904701186,
+  "gpu_latency_ms": 14.933892525732517,
+  "gpu_peak_MB_bs1": 273.849609375,
+  "gpu_model_MB": 10.31298828125,
+  "gpu_throughput_bs32": 108.23486963479253,
+  "gpu": "NVIDIA RTX A6000",
+  "cpu_latency_ms": 1461.9128128979355,
+  "cpu_threads": 4
+}

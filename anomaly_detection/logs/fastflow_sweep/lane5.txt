@@ -1,0 +1,4 @@
+r5_s512 --masked-loss 4 --fg-dilate -4 --sigma 24 --img-size 512 --bs 8 --steps 1000 --eval-steps 100,200,400,700,1000 --lr 3e-4
+r5_s512_lr1e4 --masked-loss 4 --fg-dilate -4 --sigma 24 --img-size 512 --bs 8 --steps 1000 --eval-steps 100,200,400,700,1000 --lr 1e-4
+r5_s512_lr1e3 --masked-loss 4 --fg-dilate -4 --sigma 24 --img-size 512 --bs 8 --steps 1000 --eval-steps 100,200,400,700,1000 --lr 1e-3
+r5_s512_channel --masked-loss 4 --fg-dilate -4 --sigma 24 --img-size 512 --bs 8 --steps 1000 --eval-steps 100,200,400,700,1000 --lr 3e-4 --norm channel

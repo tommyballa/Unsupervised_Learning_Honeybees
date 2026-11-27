@@ -1,0 +1,19 @@
+{
+  "model": "patchcore",
+  "tag": "default",
+  "backbone": "wide_resnet50_2",
+  "img_size": [
+    512,
+    512
+  ],
+  "params_M": 70.983616,
+  "size_MB": 270.781005859375,
+  "gflops": 476.166863106,
+  "gpu_latency_ms": 47.52037511207163,
+  "gpu_peak_MB_bs1": 650.41064453125,
+  "gpu_model_MB": 105.14111328125,
+  "gpu_throughput_bs32": 39.0179606592003,
+  "gpu": "NVIDIA RTX A6000",
+  "cpu_latency_ms": 7586.4017880521715,
+  "cpu_threads": 4
+}

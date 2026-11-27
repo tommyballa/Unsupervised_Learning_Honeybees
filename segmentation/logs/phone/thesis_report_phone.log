@@ -1,0 +1,181 @@
+{
+ "seg_match_iou50": {
+  "sam3": 6959,
+  "yolo_c35": 5768,
+  "tp_c35": 5184,
+  "yolo_c10": 8467,
+  "tp_c10": 5796,
+  "precision_c35": 0.8987517337031901,
+  "recall_c35": 0.7449346170426785,
+  "precision_c10": 0.6845399787409945,
+  "recall_c10": 0.8328782871102169,
+  "iou_medio_c35_mediana_foto": 0.834
+ },
+ "fase1_filtro": {
+  "b7": {
+   "api": 44810,
+   "Scarta": 8108,
+   "Ok": 34645,
+   "non assegnate": 2057,
+   "quota_non_assegnate": 0.045904931934835976,
+   "similarita_mediana": 0.7661724999999999
+  },
+  "phone": {
+   "api": 4689,
+   "Ok": 895,
+   "non assegnate": 3627,
+   "Scarta": 167,
+   "quota_non_assegnate": 0.7735124760076776,
+   "similarita_mediana": 0.625567
+  },
+  "batch3_6_similarita_mediana": 0.763828
+ },
+ "fase1_soglia_non_assegnate": 0.674087,
+ "loo_knn": {
+  "v000": {
+   "classes": [
+    "Adulte",
+    "Giovane",
+    "Malata",
+    "Non Classificabile"
+   ],
+   "accuracy": 0.685,
+   "macro_f1": 0.46854206675201826,
+   "per_class": {
+    "Adulte": {
+     "n": 77,
+     "precision": 0.566,
+     "recall": 0.948,
+     "f1": 0.709
+    },
+    "Giovane": {
+     "n": 18,
+     "precision": 0.333,
+     "recall": 0.056,
+     "f1": 0.095
+    },
+    "Malata": {
+     "n": 11,
+     "precision": 1.0,
+     "recall": 0.182,
+     "f1": 0.308
+    },
+    "Non Classificabile": {
+     "n": 94,
+     "precision": 0.924,
+     "recall": 0.649,
+     "f1": 0.763
+    }
+   },
+   "confusion_rows_true_cols_pred": [
+    [
+     73,
+     1,
+     0,
+     3
+    ],
+    [
+     17,
+     1,
+     0,
+     0
+    ],
+    [
+     7,
+     0,
+     2,
+     2
+    ],
+    [
+     32,
+     1,
+     0,
+     61
+    ]
+   ]
+  },
+  "v002": {
+   "classes": [
+    "Adulte",
+    "Giovane",
+    "Malata",
+    "Non Classificabile"
+   ],
+   "accuracy": 0.72,
+   "macro_f1": 0.5095505649184007,
+   "per_class": {
+    "Adulte": {
+     "n": 77,
+     "precision": 0.613,
+     "recall": 0.948,
+     "f1": 0.745
+    },
+    "Giovane": {
+     "n": 18,
+     "precision": 0.25,
+     "recall": 0.056,
+     "f1": 0.091
+    },
+    "Malata": {
+     "n": 11,
+     "precision": 0.75,
+     "recall": 0.273,
+     "f1": 0.4
+    },
+    "Non Classificabile": {
+     "n": 94,
+     "precision": 0.918,
+     "recall": 0.713,
+     "f1": 0.802
+    }
+   },
+   "confusion_rows_true_cols_pred": [
+    [
+     73,
+     1,
+     0,
+     3
+    ],
+    [
+     15,
+     1,
+     0,
+     2
+    ],
+    [
+     7,
+     0,
+     3,
+     1
+    ],
+    [
+     24,
+     2,
+     1,
+     67
+    ]
+   ]
+  }
+ },
+ "fase1_vs_fase_telefono": {
+  "Ok in phase 1": {
+   "Adulte": 843,
+   "Non Classificabile": 34,
+   "Giovane": 18
+  },
+  "Discard in phase 1": {
+   "Non Classificabile": 96,
+   "Adulte": 68,
+   "Giovane": 2,
+   "non assegnate": 1
+  },
+  "Unassigned in phase 1": {
+   "Adulte": 2204,
+   "Giovane": 67,
+   "Non Classificabile": 1125,
+   "non assegnate": 218,
+   "Malata": 13
+  }
+ }
+}
+Fatto: /mnt/disk1/tommaso_ballarin/bee_al/results_fase2_phone/snapshots/foto_telefono/report_tesi

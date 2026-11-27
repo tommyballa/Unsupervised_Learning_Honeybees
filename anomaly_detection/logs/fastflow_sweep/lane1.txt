@@ -1,0 +1,6 @@
+r1_base --epochs 6
+r1_r18 --epochs 6 --backbone resnet18
+r1_lr1e4 --epochs 6 --lr 1e-4
+r1_s384 --epochs 6 --img-size 384
+r1_plain --epochs 6 --norm plain
+r1_base --epochs 6

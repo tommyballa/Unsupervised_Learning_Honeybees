@@ -1,0 +1,19 @@
+{
+  "model": "dinomaly",
+  "tag": "default",
+  "backbone": "vit_base_patch14_reg4_dinov2",
+  "img_size": [
+    518,
+    518
+  ],
+  "params_M": 148.007424,
+  "size_MB": 564.603515625,
+  "gflops": 424.490745658,
+  "gpu_latency_ms": 58.631043997593224,
+  "gpu_peak_MB_bs1": 108.671875,
+  "gpu_model_MB": 574.005859375,
+  "gpu_throughput_bs32": 18.76062488181439,
+  "gpu": "NVIDIA RTX A6000",
+  "cpu_latency_ms": 1353.5719600040466,
+  "cpu_threads": 4
+}

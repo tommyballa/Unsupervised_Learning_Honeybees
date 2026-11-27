@@ -1,0 +1,187 @@
+# Single active-learning + semi-supervised configuration (read by bee_al/config.py).
+# Relative paths are resolved against the repo root.
+
+seed: 42
+
+paths:
+  # Bee folders, {name: folder}. The image_id of each bee is "<name>__<file>",
+  # because file names (bee_00000_...) repeat from one folder to another.
+  # Since 2026-10-14: all photos of batches 3-6 (train, val and test of the SAM3 split together), bees
+  # extracted at 2048 px with yolo26s_batch3+4+5+6_SAM3_img1376 and cleaned with dataset_cleaning.py v4
+  # (short filter, head up). The previous run (batch3+4, phases 1 and 2) is archived in
+  # ${BEE_AL_WORKDIR}/archivio_<date>_<time>.
+  dataset_dirs:
+    sam3_b3456: ${BEES_DATA_ROOT}/processed/single_bee3+4+5+6_SAM3/cleaned_bees
+  # Labels, embeddings and models live on /mnt/disk1: the system disk is almost full.
+  results_dir: ${BEE_AL_WORKDIR}/results_sam3_b3456   # al_labels.csv, validation_set.json, al_rounds.jsonl
+  embeddings_dir: ${BEE_AL_WORKDIR}/embeddings_sam3_b3456   # embeddings of the frozen extractor (v000)
+  models_dir: ${BEE_AL_WORKDIR}/models_sam3_b3456     # vNNN/ produced by the re-trains
+  subset_file: ""        # JSON {"image_ids": [...]}: if set, the hub works only on those bees (later phases)
+
+stage:
+  # Pipeline phase: the hub shows it at the top of every page, so the annotator knows what they are doing.
+  name: fase1
+  title: "Phase 1 of 2 - segmentation quality"
+  description: "Say whether each bee is well segmented or badly segmented. Age, health and anomalies come in phase 2."
+
+export:
+  # "Save configuration & export clusters" button in /al-status: once the phase is finished it writes the clusters here,
+  # one subfolder per export, with one image folder per class.
+  clusters_dir: ${BEES_DATA_ROOT}/processed/single_bee3+4+5+6_SAM3_clusters
+  mode: copy             # copy | hardlink | symlink
+
+labels:
+  # Classes are NOT defined here: they come from the labels entered in the hub.
+  # Phase 1 of the pipeline: separate well-segmented bees from badly segmented ones. The two classes
+  # below are only suggestions (quick labels and grid colours): others can be used.
+  # Phase 2 (demographic profile, anomaly detection) is prepared with scripts/new_stage.py.
+  classes: ["Segmentata Bene", "Segmentata Male"]   # suggestions only, shown as quick labels
+  label_aliases: {}      # e.g. {"Bad Seg": "Bad_Seg"}: applied on read, the history does not change
+  # Reject classes: crops that cannot be judged. They stay in the kNN (so the model learns to
+  # recognise them) but are excluded from the final clusters and from the prevalence denominator; in the
+  # snapshot they have state "rejected" and in the audit one stratum per class, to estimate how many valid
+  # bees are rejected by mistake.
+  # Example: ["Blurry", "Bad Seg", "Multiple Bees", "No Bee"]
+  # Rule for annotators: if the defect prevents judging the phenotype, it is a reject;
+  # if the phenotype can still be recognised, label the phenotype.
+  reject_classes: []
+
+extractor:
+  model: dinov2_vits14   # or dinov2_vitb14
+  image_size: 224
+  batch_size: 128
+  num_workers: 4
+  shard_size: 2048
+  device: auto           # auto | cuda | cuda:0 | cpu
+
+knn:
+  k: 10
+  temperature: 0.07      # neighbour weight = exp(similarity / temperature)
+  backend: auto          # auto | faiss | sklearn | numpy
+  # The bees farthest from every labelled example (this fraction of the unlabelled ones)
+  # are not forced into a class: they form the "unassigned" group. 0 = disabled.
+  unassigned_fraction: 0.05
+
+propagation:
+  enabled: true
+  n_neighbors: 15
+  alpha: 0.8
+  max_iter: 30
+  tol: 1.0e-4
+
+query:
+  batch_size: 30
+  cold_start_threshold: 50
+  uncertainty: margin              # margin | entropy | least_confidence
+  uncertainty_source: propagation  # knn | propagation
+  candidate_multiplier: 10         # top-M most uncertain, M = candidate_multiplier × batch
+  random_fraction: 0.1
+  novelty_fraction: 0.2            # share of the batch for the bees farthest from every label (normal regime)
+
+validation:
+  size: 100
+  seed: 123
+
+hub:
+  show_suggestion: false      # kNN suggestion hidden to avoid the anchoring effect
+  assignment_timeout_s: 900   # after how long an assigned but unlabelled image becomes free again
+
+retrain:
+  # The "Start re-train" button in /al-status always works.
+  # enabled: true also starts jobs by themselves, following the policy below.
+  enabled: false
+  policy: label_count     # label_count | plateau | either
+  initial_labels: 50      # first job after N new labels...
+  growth_factor: 2.0      # ...then N grows: 50, 100, 200, 400, ...
+  plateau_rounds: 3       # K rounds without improvement of the validation metric
+  metric: macro_f1        # macro_f1 | accuracy
+  min_delta: 0.0
+
+  # --- contrastive trainer (fine-tuning of the extractor) ---
+  trainer: contrastive    # contrastive | stub
+  python: venv/bin/python # interpreter with torch: training runs in a process separate from the hub
+  min_labels: 20          # below this threshold (or with fewer than 2 classes) the re-train does not start
+  require_improvement: true     # if the validation metric gets worse, the new version is rejected
+  pseudo_label_threshold: 0.95  # minimum confidence to use a bee's prediction as a pseudo-label (> 1 = none)
+  unfreeze_blocks: 2      # last ViT blocks to train (0 = all)
+  steps: 300
+  batch_size: 96          # bees per step; each one enters with 2 augmented views
+  labeled_fraction: 0.5   # part of the batch taken from labelled + pseudo-labelled bees; the rest is unlabelled
+  lr_backbone: 1.0e-5
+  lr_head: 1.0e-3
+  temperature: 0.1
+  projection_dim: 128
+  num_workers: 8
+  device: auto
+
+stopping:
+  # Stopping criteria shown in /al-status. Only rounds in which new labels arrived count.
+  window: 3               # number of consecutive rounds over which the three criteria are evaluated
+  max_pred_change: 0.01   # stable predictions: less than 1% of the bees change class from one round to the next
+  f1_min_delta: 0.01      # plateau: the validation macro-F1 does not improve by more than this
+
+frames:
+  # Which frame each bee comes from: derived from the extraction manifest of each folder.
+  # Empty = <cleaned folder>/../raw_bees/_extraction_manifest.json; otherwise {folder name: path}.
+  manifests: {}
+  # Regex with the named groups (?P<session>...) and/or (?P<colony>...) applied to the frame name,
+  # e.g. "(?P<colony>hive\\d+)_(?P<session>\\d{8})". Empty = session = folder name, no hive.
+  frame_pattern: ""
+  # Session = folder containing the original frame. Frames are named DSC_xxxx.JPG and nothing can be
+  # derived from the name: batch_3 is from 12/09/2026, batch_4 from 26/09/2026, same hive, with different flash and zoom.
+  # The 791 photos of the SAM3 dataset are each attributed to a single batch (168 / 241 / 199 / 183).
+  session_dirs:
+    batch_3: ${BEES_DATA_ROOT}/batch_3
+    batch_4: ${BEES_DATA_ROOT}/batch_4
+    batch_5: ${BEES_DATA_ROOT}/batch_5
+    batch_6: ${BEES_DATA_ROOT}/batch_6
+  colony: ""             # hive name for all frames (a single photographed hive); empty = not specified
+
+audit:
+  # Audit sample of a snapshot: stratified by predicted class, labelled blind.
+  # Audit labels never enter the kNN: they are only used to correct the estimates.
+  per_stratum: 40           # bees drawn from each stratum (all of them, if the stratum has fewer)
+  large_stratum: 250        # bees drawn from strata with at least large_threshold bees
+  large_threshold: 5000
+  confidence_bins: [0.9]    # each predicted class is split into confidence bands: <0.9 and >=0.9
+  double_fraction: 0.1      # share of the sample labelled by two different annotators (agreement, kappa)
+  anomaly_split_class: ""   # e.g. "Healthy": its strata are also split by anomaly score, if one is provided
+  anomaly_quantile: 0.9
+  seed: 7
+
+colony:
+  # Colony indicators, computed on the audit-corrected estimates (scripts/audit_report.py).
+  group_by: session           # frame | session | colony | dataset
+  demographic_classes: []     # I1: demographic profile classes, e.g. ["Nurse", "Forager", "Drone"]
+  disease_classes: []         # I2: classes that are signs of disease, e.g. ["Varroa", "Deformed Wing"]
+  min_detected: 3             # I2: human-confirmed bees needed for a sign to be "detected"
+  reference_groups: []        # I3: healthy reference groups; empty = mean of all groups
+  time_order:                 # I5: {hive: [session1, session2, ...]}; "*" = all hives together
+    "*": [batch_3, batch_4, batch_5, batch_6]
+  anomaly_threshold: 0.0      # share of bees with anomaly score above threshold (0 = off)
+  n_boot: 1000
+  seed: 11
+  light_rules: [disease_detected, profile_divergent]   # also: unexplained_high
+  red_min_rules: 2            # rules firing together for red (only one = yellow)
+  max_unexplained: 0.0        # I4 threshold for the unexplained_high rule (0 = off)
+
+review:
+  # Queue of suspicious labels (Review page): hand-labelled bees that their most similar labelled
+  # neighbours strongly assign to another class. A human confirms or corrects; nothing is automatic.
+  # Validation set and audit are never checked: they are used to measure the model.
+  enabled: true
+  k: 0                    # voting neighbours; 0 = knn.k
+  min_disagreement: 0.8   # minimum probability of the suggested class for the label to be suspicious
+  min_class_size: 5       # classes with fewer labels: shown separately, the signal there is weak
+  show_neighbors: 6       # neighbours shown as evidence
+
+simulation:
+  seeds: [0, 1, 2, 3, 4]
+  max_labels: 400
+  threshold_metric: macro_f1
+  threshold: 0.8
+  synthetic_n: 3000
+  synthetic_dim: 64
+  synthetic_classes: 6
+  synthetic_imbalance: 0.6   # each class has 60% of the examples of the previous one
+  synthetic_noise: 2.0
