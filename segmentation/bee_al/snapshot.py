@@ -1,4 +1,4 @@
-"""Snapshot immutabili delle predizioni: il punto fermo da cui partono audit e stime."""
+"""Immutable snapshots of the predictions: the fixed point that the audit and estimates start from."""
 from __future__ import annotations
 
 import csv
@@ -34,7 +34,7 @@ def snapshots_dir(cfg: ALConfig) -> Path:
 
 
 def snapshot_path(cfg: ALConfig, name: str) -> Path:
-    """Cartella di uno snapshot; ``ValueError`` se il nome non è valido."""
+    """Folder of a snapshot; ``ValueError`` if the name is invalid."""
     if not NAME_RE.match(name or ""):
         raise ValueError("snapshot name: use only letters, digits, '_', '-' and '.', and do not start with a dot")
     return snapshots_dir(cfg) / name
@@ -46,14 +46,14 @@ def _fmt(value: float) -> str:
 
 def bee_rows(engine: "ALEngine", maps: Optional[dict[str, Any]] = None,
              grouper: Optional[FrameGrouper] = None) -> tuple[list[dict[str, str]], dict[str, Any]]:
-    """Una riga per ogni ape della bank, più lo stato delle mappe dei frame.
+    """One row for every bee in the bank, plus the state of the frame maps.
 
-    ``status``: ``validation`` (validation set), ``unknown`` ("Non so"), ``labeled`` (etichetta
-    umana non di scarto), ``rejected`` (classe finale di scarto, umana o predetta),
-    ``no_prediction`` (nessuna etichetta la raggiunge), ``unassigned`` (troppo lontana da ogni
-    esempio), ``predicted`` (classe assegnata dal modello). ``final_label`` è l'etichetta umana
-    se c'è, altrimenti quella predetta; resta vuota quando l'ape non appartiene a nessun cluster.
-    ``maps`` e ``grouper`` si possono preparare prima, fuori dal lock: leggerli dal disco è lento.
+    ``status``: ``validation`` (validation set), ``unknown`` ("Scarta ape"), ``labeled`` (non-reject
+    human label), ``rejected`` (final class is a reject class, human or predicted),
+    ``no_prediction`` (no label reaches it), ``unassigned`` (too far from every
+    example), ``predicted`` (class assigned by the model). ``final_label`` is the human label
+    if there is one, otherwise the predicted one; it stays empty when the bee belongs to no cluster.
+    ``maps`` and ``grouper`` can be prepared beforehand, outside the lock: reading them from disk is slow.
     """
     cfg, bank = engine.cfg, engine.bank
     maps = load_frame_maps(cfg) if maps is None else maps
@@ -132,7 +132,7 @@ def bee_rows(engine: "ALEngine", maps: Optional[dict[str, Any]] = None,
 
 
 def frame_rows(cfg: ALConfig, maps: dict[str, Any], grouper: Optional[FrameGrouper] = None) -> list[dict[str, Any]]:
-    """Una riga per frame: api grezze estratte e api accettate/scartate dalla pulizia."""
+    """One row per frame: raw bees extracted and bees accepted/discarded by the cleaning step."""
     folders = dataset_folders(cfg)
     grouper = FrameGrouper(cfg) if grouper is None else grouper
     rows: list[dict[str, Any]] = []
@@ -153,7 +153,7 @@ def frame_rows(cfg: ALConfig, maps: dict[str, Any], grouper: Optional[FrameGroup
 
 
 def _write_csv(path: Path, fields: list[str], rows: list[dict[str, Any]]) -> None:
-    # Prima in memoria e poi una sola scrittura: sul disco NTFS (fuse) tante scritture piccole costano il doppio
+    # Build in memory first, then write once: on the NTFS (fuse) disk many small writes cost twice as much
     buf = io.StringIO(newline="")
     writer = csv.DictWriter(buf, fieldnames=fields)
     writer.writeheader()
@@ -163,14 +163,14 @@ def _write_csv(path: Path, fields: list[str], rows: list[dict[str, Any]]) -> Non
 
 
 def export_snapshot(engine: "ALEngine", name: str, annotator: str) -> Path:
-    """Scrive lo snapshot in ``results_dir/snapshots/<name>/``.
+    """Write the snapshot to ``results_dir/snapshots/<name>/``.
 
-    Il lock dell'engine si tiene solo per leggere lo stato (qualche secondo); la lettura delle
-    cartelle dei frame e la scrittura dei file, che sul disco dei risultati durano minuti,
-    avvengono fuori, così l'hub non si blocca.
-    Gli snapshot sono immutabili: se il nome esiste già si solleva ``FileExistsError``.
-    Si scrive in una cartella temporanea che viene rinominata solo alla fine, così
-    un'esportazione interrotta non lascia uno snapshot a metà.
+    The engine lock is held only to read the state (a few seconds); reading the frame
+    folders and writing the files, which take minutes on the results disk,
+    happen outside it, so the hub does not freeze.
+    Snapshots are immutable: if the name already exists, ``FileExistsError`` is raised.
+    Files are written to a temporary folder that is renamed only at the end, so
+    an interrupted export does not leave a half-written snapshot.
     """
     cfg = engine.cfg
     out = snapshot_path(cfg, name)
@@ -186,7 +186,7 @@ def export_snapshot(engine: "ALEngine", name: str, annotator: str) -> Path:
             "config": cfg.to_dict(), "reject_classes": sorted(engine.reject_classes()),
             "stopping": engine.stopping_status(),
         }
-        # Etichette e validation set copiati com'erano insieme alle predizioni
+        # Labels and validation set copied as they were, together with the predictions
         copies = {src.name: src.read_bytes() for src in (cfg.al_labels_path, cfg.validation_path) if src.exists()}
 
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -228,7 +228,7 @@ def export_snapshot(engine: "ALEngine", name: str, annotator: str) -> Path:
             json.dump(meta, f, indent=2, ensure_ascii=False)
         for filename, data in copies.items():
             (tmp / filename).write_bytes(data)
-        if out.exists():   # creato da un'altra richiesta con lo stesso nome mentre si scriveva
+        if out.exists():   # created by another request with the same name while writing
             raise FileExistsError(f"snapshot '{name}' already exists: snapshots are immutable, pick another name")
         os.rename(tmp, out)
     except BaseException:
@@ -238,7 +238,7 @@ def export_snapshot(engine: "ALEngine", name: str, annotator: str) -> Path:
 
 
 def list_snapshots(cfg: ALConfig) -> list[dict[str, Any]]:
-    """Snapshot esistenti, dal più recente: nome, data, round, modello, numero di api, audit set presente."""
+    """Existing snapshots, most recent first: name, date, round, model, number of bees, whether an audit set exists."""
     base = snapshots_dir(cfg)
     if not base.is_dir():
         return []

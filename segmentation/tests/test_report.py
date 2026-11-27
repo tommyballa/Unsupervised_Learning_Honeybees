@@ -1,4 +1,4 @@
-"""Flusso completo su dati sintetici: etichettatura -> snapshot -> audit -> stime -> indicatori -> report."""
+"""Full workflow on synthetic data: labelling -> snapshot -> audit -> estimates -> indicators -> report."""
 import csv
 import json
 import subprocess
@@ -26,7 +26,7 @@ REJECT = "Class_3"
 
 @pytest.fixture
 def flow(tmp_path):
-    """Dataset più grande, 5 round di etichettatura, snapshot e audit completo fatto da due annotatori."""
+    """Larger dataset, 5 labelling rounds, snapshot and a complete audit done by two annotators."""
     frames = {
         "tr": {"hiveA_s1_001.JPG": 150, "hiveA_s1_002.JPG": 130, "hiveA_s2_003.JPG": 140, "hiveB_s1_004.JPG": 160, "hiveB_s2_005.JPG": 120},
         "te": {"hiveA_s2_006.JPG": 110, "hiveB_s1_007.JPG": 90, "hiveB_s2_008.JPG": 100},
@@ -51,7 +51,7 @@ def flow(tmp_path):
 
 
 def true_shares(flow):
-    """Prevalenze vere tra le api valide dello snapshot (tutte tranne validazione e "Non so")."""
+    """True prevalences among the valid bees of the snapshot (all except validation and "Scarta ape")."""
     rows = read_csv(flow.folder / "predictions.csv")
     truth = Counter(flow.truth[r["image_id"]] for r in rows if r["status"] not in ("validation", "unknown", "no_prediction"))
     valid = sum(n for k, n in truth.items() if k != REJECT)
@@ -75,7 +75,7 @@ def test_end_to_end_estimates_are_close_to_the_truth(flow):
         assert p["ci_boot_low"] <= p["share"] <= p["ci_boot_high"]
     assert sum(p["share"] for p in prevalence.values() if not p["reject"]) == pytest.approx(1.0)
 
-    # blocco E: lo scarto è stimato ma resta fuori dal denominatore, e ha il suo strato di audit
+    # block E: the reject class is estimated but stays out of the denominator, and has its own audit stratum
     assert prevalence[REJECT]["share"] is None and prevalence[REJECT]["n_hat"] == pytest.approx(truth[REJECT], rel=0.25)
     assert est["totals"]["valid_hat"] == pytest.approx(sum(n for k, n in truth.items() if k != REJECT), rel=0.05)
     strata = {s["id"]: s for s in est["strata"]}
@@ -84,10 +84,10 @@ def test_end_to_end_estimates_are_close_to_the_truth(flow):
     assert REJECT not in flow.engine.final_clusters()
     assert REJECT in flow.engine.status()["reject_counts"]
 
-    # accordo: due annotatori che rispondono con lo stesso oracolo
+    # agreement: two annotators answering with the same oracle
     assert est["agreement"]["n_pairs"] == est["audit"]["double"] > 0 and est["agreement"]["kappa"] == pytest.approx(1.0)
 
-    # stime per gruppo a tutti i livelli disponibili
+    # per-group estimates at all available levels
     assert set(est["groups"]) == {"dataset", "session", "colony", "frame", "colony_session"}
     sessions = {g["group"]: g for g in est["groups"]["session"]["groups"]}
     assert set(sessions) == {"s1", "s2"} and all(not g["missing_strata"] for g in sessions.values())
@@ -111,7 +111,7 @@ def test_indicators_are_produced_for_every_group(flow):
         assert g["I4_unexplained"]["share"] == pytest.approx(unexplained / len(mine)) and g["I4_unexplained"]["n_bees"] == len(mine)
         mine_frames = [f for f in frames if f["session"] == g["group"]]
         assert g["strength"]["frames"] == len(mine_frames) and g["strength"]["raw_bees"] == sum(int(f["raw_bees"]) for f in mine_frames)
-        assert g["quality"]["cleaning_discard_rate"] == pytest.approx(1 / 7, abs=0.01)   # la pulizia finta scarta 1 su 7
+        assert g["quality"]["cleaning_discard_rate"] == pytest.approx(1 / 7, abs=0.01)   # the fake cleaning discards 1 in 7
         assert 0 < g["quality"]["reject_share"] < 0.5
     steps = {(t["colony"], t["from"], t["to"]) for t in ind["trend"]}
     assert steps == {("hiveA", "s1", "s2"), ("*", "s1", "s2")}
@@ -137,12 +137,12 @@ def test_report_files_and_cache(flow, monkeypatch):
         assert text in md
     assert "not complete" not in md
 
-    # in cache: una seconda richiesta non ricalcola nulla
-    monkeypatch.setattr(report_module, "estimate_from_input", lambda *a, **k: pytest.fail("doveva usare la cache"))
+    # cached: a second request recomputes nothing
+    monkeypatch.setattr(report_module, "estimate_from_input", lambda *a, **k: pytest.fail("should have used the cache"))
     assert build_report(flow.folder, flow.cfg, store=flow.engine.store) == report
     monkeypatch.undo()
 
-    # una risposta di audit nuova, o una config diversa, invalidano la cache
+    # a new audit answer, or a different config, invalidates the cache
     bee = flow.engine.audit["order"][0]
     flow.engine.submit("a@x.it", bee, "Class_2" if flow.truth[bee] != "Class_2" else "Class_0", mode="audit")
     changed = build_report(flow.folder, flow.cfg, store=flow.engine.store)
@@ -165,7 +165,7 @@ def test_partial_audit_is_reported_as_incomplete(tmp_path):
     label_audit(engine, data.truth, "a@x.it", limit=6)
     est = estimate(data.cfg.results_dir / "snapshots" / "p", data.cfg, n_boot=50, store=engine.store)
     assert est["complete"] is False and est["audit"]["answered"] == 8 and est["totals"]["audit_unknown"] == 2
-    assert est["strata_without_audit"]                                  # qualche strato non ha ancora risposte
+    assert est["strata_without_audit"]                                  # some strata have no answers yet
     report = build_report(data.cfg.results_dir / "snapshots" / "p", data.cfg, store=engine.store)
     assert "not complete" in (data.cfg.results_dir / "snapshots" / "p" / "report" / "report.md").read_text()
     assert report["estimates"]["agreement"]["n_pairs"] == 0
@@ -206,7 +206,7 @@ def test_audit_report_script(flow, tmp_path):
     assert {p.name for p in (flow.folder / "report").iterdir()} == set(REPORT_FILES)
     assert json.loads((flow.folder / "report" / "report.json").read_text())["estimates"]["n_boot"] == 100
     missing = subprocess.run([sys.executable, str(script), "--snapshot", "boh", "--config", str(config_path)], capture_output=True, text=True)
-    assert missing.returncode != 0 and "Report non creato" in missing.stderr
+    assert missing.returncode != 0 and "Report not created" in missing.stderr
 
 
 def test_hub_results_page_and_downloads(flow, hub_app, monkeypatch, tmp_path):
@@ -223,7 +223,7 @@ def test_hub_results_page_and_downloads(flow, hub_app, monkeypatch, tmp_path):
                  "Demographic profile (I1)", "Disease signs (I2)", "Trend between sessions (I5)", "Cohen", "Class_2", "reject"):
         assert text in html, text
     assert "not complete" not in html
-    assert c.get("/al-audit-results").status_code == 200                # senza nome: l'audit attivo
+    assert c.get("/al-audit-results").status_code == 200                # without a name: the active audit
     assert "results</a>" in c.get("/al-status").get_data(as_text=True)
 
     for name in REPORT_FILES:
@@ -235,7 +235,7 @@ def test_hub_results_page_and_downloads(flow, hub_app, monkeypatch, tmp_path):
 
 
 def test_sessions_from_folders_drive_group_estimates_and_trend(tmp_path):
-    """Due sessioni che attraversano le cartelle di dataset: stime e trend sono per sessione, non per cartella."""
+    """Two sessions spanning the dataset folders: estimates and trends are per session, not per folder."""
     from test_frames import _session_dirs
 
     data = build_colony_dataset(tmp_path, extra_cfg={"audit": {"per_stratum": 10},
@@ -248,7 +248,7 @@ def test_sessions_from_folders_drive_group_estimates_and_trend(tmp_path):
     rows = read_csv(out / "predictions.csv")
     expected = {i: ("giorno1" if int(f[-7:-4]) % 2 else "giorno2") for i, f in data.frame_of.items()}
     assert {r["image_id"]: r["session"] for r in rows} == expected
-    assert {r["dataset"] for r in rows if r["session"] == "giorno1"} == {"tr", "te"}      # le sessioni attraversano le cartelle
+    assert {r["dataset"] for r in rows if r["session"] == "giorno1"} == {"tr", "te"}      # the sessions span the folders
     meta = json.loads((out / "meta.json").read_text())
     assert meta["bees_per_session"] == dict(Counter(expected.values())) and meta["session_dirs_missing"] == []
     assert {f["session"] for f in read_csv(out / "frames.csv")} == {"giorno1", "giorno2"}
@@ -259,7 +259,7 @@ def test_sessions_from_folders_drive_group_estimates_and_trend(tmp_path):
     report = build_report(out, data.cfg, store=engine.store)
     sessions = {g["group"]: g for g in report["estimates"]["groups"]["session"]["groups"]}
     assert set(sessions) == {"giorno1", "giorno2"}
-    for name, g in sessions.items():                                                        # stima di ogni sessione vicina alla sua verità
+    for name, g in sessions.items():                                                        # the estimate of each session is close to its truth
         truth = Counter(data.truth[r["image_id"]] for r in rows if r["session"] == name and r["status"] not in ("validation", "unknown", "no_prediction"))
         for label, stats in g["classes"].items():
             assert stats["share"] == pytest.approx(truth[label] / sum(truth.values()), abs=0.1), (name, label)

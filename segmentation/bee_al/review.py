@@ -1,9 +1,9 @@
-"""Revisione delle etichette sospette: api etichettate a mano che i vicini smentiscono.
+"""Review of suspicious labels: hand-labelled bees that their neighbours contradict.
 
-Idea del *confident learning* (Northcutt et al., 2021): un'etichetta è sospetta quando il
-modello, senza poterla guardare, assegna con forza un'altra classe a quell'ape. Qui il
-"modello" è il k-NN sulle altre api etichettate. Le sospette vengono mostrate a un umano,
-che conferma o corregge: niente viene corretto in automatico.
+Idea from *confident learning* (Northcutt et al., 2021): a label is suspicious when the
+model, without being able to see it, confidently assigns a different class to that bee. Here the
+"model" is the k-NN over the other labelled bees. Suspects are shown to a human,
+who confirms or corrects them: nothing is corrected automatically.
 """
 from __future__ import annotations
 
@@ -20,48 +20,48 @@ from .label_store import LabelStore, is_training_event
 from .memory_bank import MemoryBank
 
 DECISIONS = ("confirmed", "corrected", "set_aside")
-CONFIDENCE_ORDER = {"Low": 0, "Medium": 1}   # le etichette date con poca sicurezza si rivedono per prime
+CONFIDENCE_ORDER = {"Low": 0, "Medium": 1}   # labels given with low confidence are reviewed first
 
 
 @dataclass
 class Suspect:
     image_id: str
     index: int
-    label: str                 # etichetta umana corrente
-    suggested: str             # classe più votata dai vicini, diversa da label
-    p_suggested: float         # probabilità k-NN della classe suggerita
-    p_label: float             # probabilità k-NN dell'etichetta umana
+    label: str                 # current human label
+    suggested: str             # class most voted by the neighbours, different from label
+    p_suggested: float         # k-NN probability of the suggested class
+    p_label: float             # k-NN probability of the human label
     annotator: str
-    confidence: str            # confidenza dichiarata dall'annotatore (High/Medium/Low/"")
+    confidence: str            # confidence declared by the annotator (High/Medium/Low/"")
     query_type: str
     timestamp: str
-    neighbors: list[dict]      # i vicini etichettati più simili: image_id, label, similarità
-    rare_class: bool           # label ha meno di review.min_class_size etichette umane
+    neighbors: list[dict]      # the most similar labelled neighbours: image_id, label, similarity
+    rare_class: bool           # label has fewer than review.min_class_size human labels
 
 
 def find_suspects(bank: MemoryBank, store: LabelStore, cfg: ALConfig, exclude_ids: Iterable[str] = ()) -> list[Suspect]:
-    """Etichette di training che i vicini etichettati più simili smentiscono.
+    """Training labels contradicted by the most similar labelled neighbours.
 
-    Si controllano **solo le etichette di training**: le api con un'etichetta umana nella
-    memory bank, comprese quelle di classi di scarto. Restano fuori, apposta:
+    **Only training labels** are checked: bees with a human label in the
+    memory bank, including those of reject classes. Deliberately left out:
 
-    - **validation set e audit**: servono a misurare il modello. Correggerli guardando
-      l'opinione del modello li avvicinerebbe alle sue predizioni e lo farebbe sembrare
-      migliore di quanto è. Per loro l'unico controllo ammesso è l'accordo tra annotatori,
-      già previsto nell'audit;
-    - le api messe da parte con "Scarta ape": non hanno una classe da verificare.
+    - **validation set and audit**: they are used to measure the model. Correcting them based on
+      the model's opinion would pull them towards its predictions and make it look
+      better than it is. For them the only check allowed is inter-annotator agreement,
+      already built into the audit;
+    - bees set aside with "Scarta ape": they have no class to verify.
 
-    Per ogni ape etichettata si vota con i ``review.k`` vicini etichettati (``knn.k`` se 0),
-    pesati con ``exp(similarità / knn.temperature)`` come nel k-NN dell'hub, **esclusa l'ape
-    stessa**. È sospetta se la classe più votata è diversa dalla sua etichetta e ha
-    probabilità almeno ``review.min_disagreement``.
+    For each labelled bee, the ``review.k`` labelled neighbours vote (``knn.k`` if 0),
+    weighted by ``exp(similarity / knn.temperature)`` as in the hub's k-NN, **excluding the bee
+    itself**. It is suspicious if the most-voted class differs from its label and has
+    probability at least ``review.min_disagreement``.
 
-    Le classi con meno di ``review.min_class_size`` etichette vanno lette a parte
-    (``rare_class``): i loro vicini sono quasi tutti di altre classi anche quando l'etichetta
-    è giusta, ed è proprio il caso dei fenotipi rari appena scoperti.
+    Classes with fewer than ``review.min_class_size`` labels should be read separately
+    (``rare_class``): their neighbours are almost all from other classes even when the label
+    is correct, which is exactly the case of newly discovered rare phenotypes.
 
-    Ordine: prima le etichette date con confidenza ``Low``, poi ``Medium``, poi le altre;
-    a parità, disaccordo decrescente; poi ``image_id``. Tutto con una sola ricerca dei vicini.
+    Order: first labels given with ``Low`` confidence, then ``Medium``, then the rest;
+    ties broken by decreasing disagreement, then by ``image_id``. All with a single neighbour search.
     """
     r = cfg.review
     excluded = set(exclude_ids)
@@ -71,7 +71,7 @@ def find_suspects(bank: MemoryBank, store: LabelStore, cfg: ALConfig, exclude_id
         return []
     k = r.k or cfg.knn.k
     sims, nb = bank.search_labeled(bank.X[idx], max(k, r.show_neighbors) + 1)
-    sims = np.where(nb == idx[:, None], -np.inf, sims.astype(np.float64))   # un'ape non vota per se stessa
+    sims = np.where(nb == idx[:, None], -np.inf, sims.astype(np.float64))   # a bee does not vote for itself
     order = np.argsort(-sims, axis=1, kind="stable")
     sims, nb = np.take_along_axis(sims, order, axis=1), np.take_along_axis(nb, order, axis=1)
 
@@ -116,7 +116,7 @@ def find_suspects(bank: MemoryBank, store: LabelStore, cfg: ALConfig, exclude_id
 
 
 def read_log(path: Union[str, Path]) -> list[dict[str, Any]]:
-    """Decisioni di revisione, nell'ordine in cui sono state prese."""
+    """Review decisions, in the order they were made."""
     path = Path(path)
     if not path.exists():
         return []
@@ -132,9 +132,9 @@ def append_log(path: Union[str, Path], row: dict[str, Any]) -> None:
 
 
 def confirmations(log: list[dict[str, Any]]) -> dict[str, tuple[str, str]]:
-    """Conferme ancora valide: ``{image_id: (etichetta confermata, classe che veniva suggerita)}``.
+    """Confirmations still valid: ``{image_id: (confirmed label, class that was suggested)}``.
 
-    Una correzione o un "Scarta ape" successivi annullano la conferma di quell'ape.
+    A later correction or "Scarta ape" cancels the confirmation for that bee.
     """
     out: dict[str, tuple[str, str]] = {}
     for row in log:

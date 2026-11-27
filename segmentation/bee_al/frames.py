@@ -1,11 +1,11 @@
-"""Collegamento ape → frame di origine, dai manifest dell'estrazione e della pulizia.
+"""Link from each bee to its source frame, from the extraction and cleaning manifests.
 
-``extract_anomaly_dataset.py`` numera i crop con un contatore che cresce di 1 per ogni ape,
-frame dopo frame, e annota in ``raw_bees/_extraction_manifest.json`` quante api ha salvato
-per ogni frame (``processed_sources``, in ordine di elaborazione) e il prossimo id libero
-(``next_bee_id``). Sommando i conteggi nell'ordine del file si ricava, per ogni frame,
-l'intervallo ``[start, end)`` degli id delle sue api. ``dataset_cleaning.py`` scarta dei crop
-ma non li rinumera, quindi il nome del file pulito basta per risalire al frame.
+``extract_anomaly_dataset.py`` numbers the crops with a counter that increases by 1 for each bee,
+frame after frame, and records in ``raw_bees/_extraction_manifest.json`` how many bees it saved
+for each frame (``processed_sources``, in processing order) and the next free id
+(``next_bee_id``). Summing the counts in file order gives, for each frame, the
+``[start, end)`` range of its bees' ids. ``dataset_cleaning.py`` discards some crops
+but does not renumber them, so the cleaned file name is enough to trace the frame.
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ CLEANING_MANIFEST = "_cleaning_manifest.json"
 
 @dataclass
 class FrameMap:
-    """Intervalli di id delle api per ogni frame di una cartella di dataset."""
+    """Bee id ranges for each frame of a dataset folder."""
 
     frames: list[str] = field(default_factory=list)
     starts: list[int] = field(default_factory=list)
@@ -35,10 +35,10 @@ class FrameMap:
     path: str = ""
 
     def frame_of(self, filename: str) -> Optional[str]:
-        """Frame da cui viene il crop ``bee_<id>_...``.
+        """Frame the crop ``bee_<id>_...`` comes from.
 
-        ``None`` se il nome non ha quella forma, se l'id è fuori da tutti gli intervalli
-        o se la mappa non è affidabile: in quel caso non si tira a indovinare.
+        ``None`` if the name does not have that form, if the id is outside every range
+        or if the map is unreliable: in that case there is no guessing.
         """
         m = BEE_ID_RE.match(Path(filename).name)
         if m is None or not self.reliable:
@@ -50,16 +50,16 @@ class FrameMap:
         return self.frames[i]
 
     def raw_bees_per_frame(self) -> dict[str, int]:
-        """Api grezze (prima della pulizia) estratte da ogni frame."""
+        """Raw bees (before cleaning) extracted from each frame."""
         return {f: e - s for f, s, e in zip(self.frames, self.starts, self.ends)}
 
 
 def load_frame_map(manifest_path: Union[str, Path]) -> FrameMap:
-    """Costruisce gli intervalli di id scorrendo ``processed_sources`` nell'ordine del file.
+    """Build the id ranges by walking ``processed_sources`` in file order.
 
-    Se la somma dei conteggi non coincide con ``next_bee_id`` la numerazione non è quella
-    attesa (manifest modificato a mano, estrazioni mescolate, ...): la mappa viene marcata
-    ``reliable = False`` con un warning e ``frame_of`` non restituisce più nulla.
+    If the sum of the counts does not match ``next_bee_id`` the numbering is not the expected
+    one (manifest edited by hand, mixed extractions, ...): the map is marked
+    ``reliable = False`` with a warning and ``frame_of`` no longer returns anything.
     """
     path = Path(manifest_path)
     with open(path, "r", encoding="utf-8") as f:
@@ -76,18 +76,18 @@ def load_frame_map(manifest_path: Union[str, Path]) -> FrameMap:
     if expected is None or int(expected) != cursor:
         fmap.reliable = False
         warnings.warn(
-            f"{path}: la somma delle api per frame ({cursor}) non coincide con next_bee_id ({expected}); "
-            "il collegamento ape -> frame di questa cartella non viene usato.",
+            f"{path}: the sum of bees per frame ({cursor}) does not match next_bee_id ({expected}); "
+            "the bee -> frame link for this folder is not used.",
             stacklevel=2,
         )
     return fmap
 
 
 def discards_per_frame(cleaning_manifest_path: Union[str, Path], frame_map: FrameMap) -> dict[str, dict[str, Any]]:
-    """Per ogni frame: crop accettati e scartati dalla pulizia, e i motivi di scarto.
+    """For each frame: crops accepted and discarded by the cleaning step, and the discard reasons.
 
-    Restituisce ``{frame: {"accepted": n, "discarded": n, "reasons": {motivo: n}}}``;
-    dizionario vuoto se il manifest della pulizia non esiste.
+    Returns ``{frame: {"accepted": n, "discarded": n, "reasons": {reason: n}}}``;
+    an empty dict if the cleaning manifest does not exist.
     """
     path = Path(cleaning_manifest_path)
     if not path.exists():
@@ -111,7 +111,7 @@ def discards_per_frame(cleaning_manifest_path: Union[str, Path], frame_map: Fram
 
 
 def dataset_folders(cfg: ALConfig) -> dict[str, Path]:
-    """Cartelle del dataset per nome: quello di ``paths.dataset_dirs``, o il nome della cartella se è una sola."""
+    """Dataset folders by name: the one in ``paths.dataset_dirs``, or the folder name if there is only one."""
     if cfg.paths.dataset_dirs:
         return {name: cfg.resolve(d) for name, d in cfg.paths.dataset_dirs.items()}
     folder = cfg.dataset_dir
@@ -119,7 +119,7 @@ def dataset_folders(cfg: ALConfig) -> dict[str, Path]:
 
 
 def dataset_of(image_id: str, cfg: ALConfig) -> str:
-    """Nome della cartella di dataset a cui appartiene un image_id."""
+    """Name of the dataset folder an image_id belongs to."""
     if cfg.paths.dataset_dirs:
         name, sep, _ = image_id.partition(ID_SEPARATOR)
         if sep and name in cfg.paths.dataset_dirs:
@@ -129,14 +129,14 @@ def dataset_of(image_id: str, cfg: ALConfig) -> str:
 
 
 def extraction_manifest_path(cfg: ALConfig, dataset: str, folder: Path) -> Path:
-    """Manifest dell'estrazione: quello in ``frames.manifests``, altrimenti ``<cartella pulita>/../raw_bees/``."""
+    """Extraction manifest: the one in ``frames.manifests``, otherwise ``<cleaned folder>/../raw_bees/``."""
     if dataset in cfg.frames.manifests:
         return cfg.resolve(cfg.frames.manifests[dataset])
     return folder.parent / "raw_bees" / EXTRACTION_MANIFEST
 
 
 def load_frame_maps(cfg: ALConfig) -> dict[str, Optional[FrameMap]]:
-    """Una ``FrameMap`` per cartella di dataset; ``None`` dove il manifest non si trova."""
+    """One ``FrameMap`` per dataset folder; ``None`` where the manifest cannot be found."""
     maps: dict[str, Optional[FrameMap]] = {}
     for dataset, folder in dataset_folders(cfg).items():
         path = extraction_manifest_path(cfg, dataset, folder)
@@ -145,12 +145,12 @@ def load_frame_maps(cfg: ALConfig) -> dict[str, Optional[FrameMap]]:
 
 
 class FrameGrouper:
-    """Sessione e alveare di ogni frame, secondo la config ``frames``.
+    """Session and hive of every frame, according to the ``frames`` config.
 
-    Ordine di precedenza per la sessione: gruppo ``session`` della regex, poi la cartella di
-    ``session_dirs`` che contiene il frame, poi il nome della cartella di dataset. Per
-    l'alveare: gruppo ``colony`` della regex, poi ``frames.colony``. Un nome di file presente
-    in più cartelle di sessione è ambiguo e non viene assegnato a nessuna.
+    Precedence for the session: the regex ``session`` group, then the ``session_dirs``
+    folder that contains the frame, then the dataset folder name. For
+    the hive: the regex ``colony`` group, then ``frames.colony``. A file name present
+    in several session folders is ambiguous and is assigned to none of them.
     """
 
     def __init__(self, cfg: ALConfig) -> None:
@@ -173,11 +173,11 @@ class FrameGrouper:
         for name in self.ambiguous:
             del self.session_of[name]
         if self.ambiguous:
-            warnings.warn(f"{len(self.ambiguous)} frame compaiono in più cartelle di sessione (es. {sorted(self.ambiguous)[0]}): "
-                          "restano senza sessione.", stacklevel=2)
+            warnings.warn(f"{len(self.ambiguous)} frames appear in several session folders (e.g. {sorted(self.ambiguous)[0]}): "
+                          "they are left without a session.", stacklevel=2)
 
     def groups(self, frame: str, dataset: str) -> tuple[str, str]:
-        """``(session, colony)`` di un frame."""
+        """``(session, colony)`` of a frame."""
         session, colony = frame_groups(frame, dataset, self.pattern)
         if session == dataset and frame in self.session_of:
             session = self.session_of[frame]
@@ -185,11 +185,11 @@ class FrameGrouper:
 
 
 def frame_groups(frame: str, dataset: str, pattern: str = "") -> tuple[str, str]:
-    """Sessione e alveare di un frame: ``(session, colony)``.
+    """Session and hive of a frame: ``(session, colony)``.
 
-    ``pattern`` è una regex con i gruppi nominati ``session`` e/o ``colony`` cercata nel nome
-    del frame. Senza regex, o se non corrisponde, la sessione è il nome della cartella di
-    dataset e l'alveare è vuoto: dai soli nomi dei file non si inventa nulla.
+    ``pattern`` is a regex with the named groups ``session`` and/or ``colony``, searched in the
+    frame name. Without a regex, or if it does not match, the session is the dataset folder
+    name and the hive is empty: nothing is invented from file names alone.
     """
     session, colony = dataset, ""
     if pattern and frame:

@@ -1,113 +1,114 @@
-# bee_al — dai cluster alle stime sulle colonie
+# bee_al — from clusters to colony estimates
 
-`bee_al` è l'hub di active learning sui crop di singole api: DINOv2 congelato → memory bank →
-k-NN pesato + label propagation → batch di query → etichettatura nell'hub → cluster finali.
-Questo documento descrive il flusso che porta dai cluster a stime affidabili della
-composizione delle colonie.
+`bee_al` is the active-learning hub for crops of individual bees: frozen DINOv2 → memory bank →
+weighted k-NN + label propagation → query batches → labelling in the hub → final clusters.
+This document describes the workflow that takes the clusters to reliable estimates of
+colony composition.
 
 ```
-etichettatura ──► criteri di stop ──► snapshot ──► audit alla cieca ──► stime corrette ──► indicatori di colonia
+labelling ──► stopping criteria ──► snapshot ──► blind audit ──► corrected estimates ──► colony indicators
 ```
 
-Perché serve: contare le api che il modello assegna a ogni classe ("classify and count") dà
-numeri distorti, soprattutto per le classi rare. Se il 5% delle api sane viene scambiato per
-malato e le malate vere sono il 2%, il conteggio grezzo dice 5,6%. L'audit misura gli errori
-del modello su un campione mai visto e li usa per correggere il conteggio.
+Why it is needed: counting the bees the model assigns to each class ("classify and count") gives
+biased numbers, especially for rare classes. If 5% of healthy bees are mistaken for diseased ones
+and the truly diseased bees are 2%, the raw count says 5.6%. The audit measures the model's errors
+on a sample it has never seen and uses them to correct the count.
 
-## Pipeline a fasi
+## Phased pipeline
 
-L'etichettatura si fa in più fasi, ognuna con la propria config, le proprie etichette e i propri modelli:
+Labelling is done in several phases, each with its own config, labels and models:
 
-1. **Fase 1 – qualità della segmentazione.** Su tutte le api si separano quelle segmentate bene da
-   quelle segmentate male (`labels.classes` suggerisce `Segmentata Bene` e `Segmentata Male`).
-2. **Fase 2 – profilo demografico e anomaly detection.** Si lavora solo sulle api che la fase 1 ha
-   tenuto. Si prepara da uno snapshot della fase 1:
+1. **Phase 1 – segmentation quality.** All bees are split into well-segmented and poorly segmented
+   ones (`labels.classes` suggests `Segmentata Bene` and `Segmentata Male`).
+2. **Phase 2 – demographic profile and anomaly detection.** Only the bees kept by phase 1 are
+   used. It is prepared from a phase 1 snapshot:
 
 ```
 python scripts/new_stage.py --snapshot fase1_finale --keep "Segmentata Bene" --name fase2
 cd active_learning_tool && BEE_AL_CONFIG=config/al_fase2.yaml ../venv/bin/python -u app.py
 ```
 
-Lo script scrive l'elenco delle api tenute (`results_fase2/subset.json`) e `config/al_fase2.yaml`, con
-`paths.subset_file` che punta all'elenco. La fase 1 resta intatta: per tornarci basta avviare l'hub
-senza `BEE_AL_CONFIG`. Con `--min-confidence` si lasciano fuori le api assegnate dal modello con poca
-sicurezza.
+The script writes the list of kept bees (`results_fase2/subset.json`) and `config/al_fase2.yaml`, with
+`paths.subset_file` pointing to the list. Phase 1 is left untouched: to go back to it, just start the hub
+without `BEE_AL_CONFIG`. `--min-confidence` leaves out the bees the model assigned with low
+confidence.
 
-## Etichettatura a griglia
+## Grid labelling
 
-`/al-grid` mostra 12 api alla volta (4 × 3, a sinistra) e i comandi a destra. Ogni colore è un
-gruppo con la sua classe: si sceglie un colore, si cliccano le api di quella classe, si passa a un
-altro colore e si salva tutto insieme. I tasti 1–6 scelgono il colore, 0 sceglie "Scarta ape". Le api
-lasciate senza colore tornano nella griglia successiva. `/al-grid?mode=validation` fa lo stesso sul
+`/al-grid` shows 12 bees at a time (4 × 3, on the left) and the controls on the right. Each colour is a
+group with its own class: pick a colour, click the bees of that class, switch to another
+colour and save everything together. Keys 1–6 pick the colour, 0 picks "Scarta ape" (discard bee). Bees
+left without a colour come back in the next grid. `/al-grid?mode=validation` does the same on the
 validation set.
 
-Il pulsante **Shuffle: propose other bees** (griglia e pagina singola, non in validation né in audit)
-sostituisce le api del batch non ancora etichettate con altre, scelte dalla stessa strategia di query e
-dallo stesso modello: non parte un round nuovo e le etichette già date restano. Le api tolte non vengono
-riproposte fino al round successivo; quelle che un altro annotatore sta guardando restano sue. Va usato
-con parsimonia: saltare di proposito le api difficili toglie al modello proprio gli esempi più utili.
+The **Shuffle: propose other bees** button (grid and single page, not in validation or audit mode)
+replaces the not-yet-labelled bees of the batch with others, chosen by the same query strategy and
+the same model: no new round starts and labels already given are kept. Removed bees are not
+proposed again until the next round; those another annotator is looking at stay theirs. Use it
+sparingly: deliberately skipping hard bees deprives the model of exactly the most useful examples.
 
-## Ispezione dei cluster
+## Cluster inspection
 
-`/al-clusters` mostra **un gruppo alla volta**, scelto da un menù a tendina: i cluster assegnati dal
-modello, le "non assegnate" e le classi etichettate a mano. Le api sono grandi come nella griglia di
-etichettatura, dodici per volta su tre righe:
+`/al-clusters` shows **one group at a time**, chosen from a drop-down menu: the clusters assigned by the
+model, the "unassigned" bees and the hand-labelled classes. Bees are as large as in the labelling
+grid, twelve at a time on three rows:
 
-| Riga | Api |
+| Row | Bees |
 |---|---|
-| 1 | le più simili al centro del gruppo |
-| 2 | quelle intorno alla mediana |
-| 3 | le meno simili |
+| 1 | the most similar to the group centre |
+| 2 | those around the median |
+| 3 | the least similar |
 
-La similarità è il coseno tra l'embedding dell'ape e il centro (la media) del gruppo; per le "non
-assegnate" è quella con l'esempio etichettato più vicino. *Other bees* passa alle dodici successive: le
-seguenti dall'alto, dal basso e accanto alla mediana, senza mai ripetere un'ape. Le correzioni si fanno
-con i colori, come nella griglia; tra le etichette date a mano c'è anche *Remove label*.
+Similarity is the cosine between the bee's embedding and the centre (the mean) of the group; for the
+"unassigned" bees it is the similarity to the nearest labelled example. *Other bees* moves to the next
+twelve: the following ones from the top, from the bottom and around the median, never repeating a bee.
+Corrections are made with the colours, as in the grid; the hand-given labels also include *Remove label*.
 
-Due menù scelgono quante api vedere (12, 24, 48 o 96) e in che ordine: le tre fasce (default), dalla
-più o dalla meno simile, dalla più o dalla meno sicura per il modello (solo per i cluster predetti) o un
-campione casuale. La scelta resta valida cambiando gruppo.
+Two menus choose how many bees to show (12, 24, 48 or 96) and in which order: the three bands (default),
+from most or least similar, from most or least confident for the model (predicted clusters only) or a
+random sample. The choice persists when switching group.
 
-Con più batch, il menù **Batch** mostra solo le api di un batch (la sessione di `frames.session_dirs`,
-ricavata dal frame di origine; senza mappa dei frame è la cartella di dataset). I conteggi del menù dei
-gruppi e il centro del gruppo seguono il filtro.
+With several batches, the **Batch** menu shows only the bees of one batch (the session from
+`frames.session_dirs`, derived from the source frame; without a frame map it is the dataset folder). The
+counts in the group menu and the group centre follow the filter.
 
-## Batch tenuto da parte per la validazione
+## Batch held out for validation
 
-Un batch nuovo si può tenere fuori dall'addestramento per misurare il modello su foto mai viste:
+A new batch can be kept out of training to measure the model on never-seen photos:
 
 ```
 python scripts/add_dataset_to_stage.py --snapshot fase1_finale_okvsscarta --stage-config config/al_fase2_sam3.yaml \
-    --name b7 --dir /percorso/single_bee7_SAM3/cleaned_bees --keep Ok      # filtro della fase 1
-python scripts/extend_stage_embeddings.py --config config/al_fase2_sam3.yaml --name b7   # embedding del modello corrente
+    --name b7 --dir /percorso/single_bee7_SAM3/cleaned_bees --keep Ok      # phase 1 filter
+python scripts/extend_stage_embeddings.py --config config/al_fase2_sam3.yaml --name b7   # embeddings from the current model
 ```
 
-e in config `validation.holdout_datasets: [b7]`. Le api di quella cartella vengono predette (sono nel
-grafo della propagazione come api non etichettate) ma non vengono mai proposte, non entrano nel re-train
-nemmeno come non etichettate e non spostano la soglia delle "non assegnate". Le correzioni fatte su di
-loro nella pagina dei cluster diventano eventi `holdout`, che non addestrano nulla; nella griglia hanno
-la scritta *held out*. Le misure per la tesi vengono dall'audit alla cieca limitato al batch
-(`audit.datasets: [b7]`, sezione 3).
+and in the config `validation.holdout_datasets: [b7]`. The bees in that folder are predicted (they are in
+the propagation graph as unlabelled bees) but are never proposed, never enter re-training, not even
+as unlabelled bees, and do not move the "unassigned" threshold. Corrections made to them on the
+clusters page become `holdout` events, which train nothing; in the grid they are marked
+*held out*. The thesis measurements come from the blind audit restricted to the batch
+(`audit.datasets: [b7]`, section 3).
 
-La home dell'hub elenca solo le pagine di active learning; gli strumenti precedenti sono raccolti
-sotto il tasto *Old tools*.
+The hub home page lists only the active-learning pages; the older tools are grouped
+under the *Old tools* button.
 
-## 1. Etichettatura e criteri di stop
+## 1. Labelling and stopping criteria
 
-Si etichetta come sempre da `/al-labeling`. Per le api su cui si è in dubbio conviene dichiarare la
-confidenza *Low*: sono le prime a finire nella revisione delle etichette sospette (vedi sotto). La pagina `/al-status` mostra tre criteri di stop,
-valutati sugli ultimi `stopping.window` round che hanno ricevuto etichette nuove:
+Label as usual from `/al-labeling`. For bees you are unsure about, it is worth declaring
+*Low* confidence: they are the first to end up in the review of suspicious labels (see below). The
+`/al-status` page shows three stopping criteria, evaluated over the last `stopping.window` rounds that
+received new labels:
 
-| Criterio | Significato |
+| Criterion | Meaning |
 |---|---|
-| `f1_plateau` | la macro-F1 di validazione non migliora più di `f1_min_delta` |
-| `predictions_stable` | meno di `max_pred_change` delle api cambia classe da un round all'altro |
-| `no_new_classes` | nessuna classe nuova da almeno `window` round |
+| `f1_plateau` | the validation macro-F1 does not improve by more than `f1_min_delta` |
+| `predictions_stable` | less than `max_pred_change` of the bees change class from one round to the next |
+| `no_new_classes` | no new class for at least `window` rounds |
 
-Sono un'indicazione: niente si ferma da solo. Un riavvio dell'hub o un ricalcolo senza
-etichette nuove creano un round ma non contano. Dopo un re-train le predizioni non sono
-confrontabili con il round precedente, e quel round è escluso dal criterio di stabilità.
-Senza etichette nel validation set il primo criterio resta "non ancora noto".
+They are guidance only: nothing stops on its own. A hub restart or a recomputation without
+new labels creates a round but does not count. After a re-train the predictions are not
+comparable with the previous round, and that round is excluded from the stability criterion.
+Without labels in the validation set, the first criterion stays "not yet known".
 
 ```yaml
 stopping:
@@ -116,73 +117,73 @@ stopping:
   f1_min_delta: 0.01
 ```
 
-## 2. Freeze dello snapshot
+## 2. Freezing a snapshot
 
-Uno snapshot congela le predizioni di ogni ape. Non cambia più: audit e stime si calcolano
-su di lui, anche se nel frattempo l'etichettatura continua.
+A snapshot freezes the predictions for every bee. It never changes again: the audit and the estimates
+are computed on it, even if labelling continues in the meantime.
 
-- Dall'hub: `/al-status` → **Freeze snapshot**.
-- Da riga di comando, senza avviare l'hub e senza aggiungere round:
+- From the hub: `/al-status` → **Freeze snapshot**.
+- From the command line, without starting the hub and without adding rounds:
 
 ```
 python scripts/export_snapshot.py --name 2026-10-05_round42
 ```
 
-In `<results_dir>/snapshots/<nome>/`:
+In `<results_dir>/snapshots/<name>/`:
 
-| File | Contenuto |
+| File | Contents |
 |---|---|
-| `predictions.csv` | una riga per ape: stato, classe finale, predizioni (propagazione e k-NN), frame, sessione, alveare |
-| `frames.csv` | una riga per frame: api grezze estratte, accettate e scartate dalla pulizia, motivi di scarto |
-| `meta.json` | round, modello, config completa, conteggi, metriche di validazione, criteri di stop, affidabilità delle mappe dei frame |
-| `al_labels.csv`, `validation_set.json` | copie dello stato al momento del freeze |
+| `predictions.csv` | one row per bee: status, final class, predictions (propagation and k-NN), frame, session, hive |
+| `frames.csv` | one row per frame: raw bees extracted, accepted and rejected by the cleaning step, rejection reasons |
+| `meta.json` | round, model, full config, counts, validation metrics, stopping criteria, reliability of the frame maps |
+| `al_labels.csv`, `validation_set.json` | copies of the state at freeze time |
 
-Stato di un'ape (`status`): `labeled` (etichetta umana), `predicted` (assegnata dal modello),
-`rejected` (classe finale di scarto), `unassigned` (troppo lontana da ogni esempio), `unknown`
+Status of a bee (`status`): `labeled` (human label), `predicted` (assigned by the model),
+`rejected` (final class is a reject class), `unassigned` (too far from every example), `unknown`
 ("Scarta ape"), `validation`, `no_prediction`.
 
-### Da quale frame viene ogni ape
+### Which frame each bee comes from
 
-Il collegamento si ricava dal manifest dell'estrazione (`raw_bees/_extraction_manifest.json`):
-gli id delle api crescono di 1 frame dopo frame, quindi i conteggi per frame danno gli
-intervalli di id. Se la somma dei conteggi non coincide con `next_bee_id` la mappa di quella
-cartella viene dichiarata non affidabile e non usata: non si tira a indovinare.
+The link is derived from the extraction manifest (`raw_bees/_extraction_manifest.json`):
+bee ids increase by 1 frame after frame, so the per-frame counts give the
+id ranges. If the sum of the counts does not match `next_bee_id`, the map for that
+folder is declared unreliable and not used: no guessing.
 
-Sessione e alveare si ricavano dal nome del frame con una regex. Senza regex, o se non
-corrisponde, la sessione è il nome della cartella di dataset e l'alveare resta vuoto.
+Session and hive are derived from the frame name with a regex. Without a regex, or if it does not
+match, the session is the name of the dataset folder and the hive is left empty.
 
 ```yaml
 frames:
-  manifests: {}        # {nome cartella: percorso del manifest}; vuoto = <cartella pulita>/../raw_bees/
-  frame_pattern: ""    # es. "(?P<colony>hive\\d+)_(?P<session>\\d{8})"
+  manifests: {}        # {folder name: manifest path}; empty = <cleaned folder>/../raw_bees/
+  frame_pattern: ""    # e.g. "(?P<colony>hive\\d+)_(?P<session>\\d{8})"
 ```
 
-## 3. Creazione ed etichettatura dell'audit
+## 3. Creating and labelling the audit
 
-Da `/al-status`, nella riga dello snapshot: **Create audit set** (una volta sola per snapshot,
-come il validation set). Il campione è estratto tra le api assegnate dal modello e mai
-etichettate a mano, diviso in strati:
+From `/al-status`, in the snapshot row: **Create audit set** (only once per snapshot,
+like the validation set). The sample is drawn from the bees assigned by the model and never
+hand-labelled, split into strata:
 
-- classe predetta × fascia di confidenza (`confidence_bins`);
-- uno strato per ogni classe di scarto predetta;
-- uno strato per le non assegnate;
-- se si carica un CSV `image_id,score`, gli strati di `anomaly_split_class` si dividono anche
-  per anomaly score.
+- predicted class × confidence band (`confidence_bins`);
+- one stratum for each predicted reject class;
+- one stratum for the unassigned bees;
+- if a CSV `image_id,score` is loaded, the strata of `anomaly_split_class` are also split
+  by anomaly score.
 
-Da ogni strato si estraggono `per_stratum` api (tutte, se lo strato ne ha meno; `large_stratum`
-se ne ha almeno `large_threshold`). Una quota `double_fraction` va etichettata da due
-annotatori diversi, per misurare l'accordo.
+From each stratum `per_stratum` bees are drawn (all of them, if the stratum has fewer; `large_stratum`
+if it has at least `large_threshold`). A `double_fraction` share must be labelled by two
+different annotators, to measure agreement.
 
-L'audit si etichetta dal menu **Audit** (`/al-labeling?mode=audit`), alla cieca: nessun
-suggerimento, nessuna classe predetta, nessuno strato. Le api sono mescolate.
+The audit is labelled from the **Audit** menu (`/al-labeling?mode=audit`), blind: no
+suggestions, no predicted class, no stratum. The bees are shuffled.
 
-Regole che il codice garantisce:
+Rules guaranteed by the code:
 
-- le etichette di audit non entrano mai nella memory bank, nel k-NN, nella propagazione, nel
-  re-train né nelle metriche di validazione;
-- le api dell'audit attivo non vengono più proposte in modalità normale e non si possono
-  modificare dalla pagina dei cluster;
-- lo stesso annotatore non riceve due volte la stessa ape.
+- audit labels never enter the memory bank, the k-NN, the propagation,
+  re-training or the validation metrics;
+- bees in the active audit are no longer proposed in normal mode and cannot be
+  modified from the clusters page;
+- the same annotator never gets the same bee twice.
 
 ```yaml
 audit:
@@ -196,10 +197,10 @@ audit:
   seed: 7
 ```
 
-## 4. Report e indicatori
+## 4. Report and indicators
 
-- Dall'hub: `/al-status` → **results**, oppure `/al-audit-results?snapshot=NOME`.
-- Da riga di comando:
+- From the hub: `/al-status` → **results**, or `/al-audit-results?snapshot=NOME`.
+- From the command line:
 
 ```
 python scripts/audit_report.py --snapshot 2026-10-05_round42
@@ -208,9 +209,9 @@ python scripts/audit_report.py --snapshot NOME --anomaly-scores scores.csv
 
 In `<snapshot>/report/`: `strata.csv`, `prevalence.csv`, `groups.csv`,
 `colony_indicators.json`, `colony_indicators.csv`, `agreement.json`, `report.md`.
-Il risultato resta in cache finché non arrivano nuove risposte di audit.
+The result is cached until new audit answers arrive.
 
-Senza audit, i soli conteggi del modello per batch (quote con bootstrap sulle foto, api per foto):
+Without an audit, only the model's per-batch counts (shares with a bootstrap over photos, bees per photo):
 
 ```
 python scripts/batch_counts.py --snapshot NOME --config config/al_fase2_sam3.yaml
@@ -218,58 +219,58 @@ python scripts/batch_counts.py --snapshot NOME --config config/al_fase2_sam3.yam
 
 In `<snapshot>/batch_counts/`: `batch_counts.csv`, `photo_counts.csv`, `batch_counts.png`.
 
-### Stime
+### Estimates
 
-Per lo strato `h`: `N_h` api nella popolazione, `n_h` risposte di audit (i "Scarta ape" sono
-contati a parte), `r_hk` quota di risposte di classe `k`. `H_k` sono le api etichettate a mano
-come `k`: contano esatte e non vengono ricorrette.
+For stratum `h`: `N_h` bees in the population, `n_h` audit answers ("Scarta ape" answers are
+counted separately), `r_hk` share of answers of class `k`. `H_k` are the bees hand-labelled
+as `k`: they count exactly and are not corrected.
 
-| Quantità | Formula |
+| Quantity | Formula |
 |---|---|
-| Precisione di uno strato | `r_h,c` per la classe predetta `c`, con intervallo di Wilson |
-| Totale stimato | `Ñ_k = Σ_h N_h · r_hk + H_k` |
-| Prevalenza | `p_k = Ñ_k / Σ_{j non di scarto} Ñ_j` |
-| Varianza | `Var(Ñ_k) = Σ_h N_h² (1 − n_h/N_h) r_hk (1 − r_hk) / (n_h − 1)` |
-| Classe mai vista in uno strato | limite superiore `≈ 3 / n_h` (regola del tre) |
-| Per gruppo `g` | `Ñ_g,k = Σ_h N_g,h · r_hk + H_g,k` |
+| Precision of a stratum | `r_h,c` for the predicted class `c`, with Wilson interval |
+| Estimated total | `Ñ_k = Σ_h N_h · r_hk + H_k` |
+| Prevalence | `p_k = Ñ_k / Σ_{j not a reject class} Ñ_j` |
+| Variance | `Var(Ñ_k) = Σ_h N_h² (1 − n_h/N_h) r_hk (1 − r_hk) / (n_h − 1)` |
+| Class never seen in a stratum | upper bound `≈ 3 / n_h` (rule of three) |
+| Per group `g` | `Ñ_g,k = Σ_h N_g,h · r_hk + H_g,k` |
 
-Gli intervalli principali vengono da un bootstrap: a ogni replica si ricampionano le risposte
-di audit dentro ogni strato e, per i gruppi, i frame del gruppo.
+The main intervals come from a bootstrap: in each replicate the audit answers are resampled
+within each stratum and, for groups, the frames of the group.
 
-Cose da sapere quando si leggono i numeri:
+Things to keep in mind when reading the numbers:
 
-- **Le stime per gruppo assumono che gli errori del modello dentro uno strato siano uguali in
-  tutti i gruppi.** Se un alveare ha api "strane" che il modello sbaglia più spesso, la stima di
-  quel gruppo non lo vede.
-- Se uno strato non ha ancora risposte di audit, per quello strato si usa la classe predetta
-  così com'è, e il report lo segnala.
-- Il bootstrap ricampiona da frequenze leggermente lisciate (una pseudo-osservazione per
-  strato). Senza, una classe rara mai vista in uno strato grande avrebbe incertezza zero e
-  l'intervallo coprirebbe il valore vero circa il 77% delle volte invece del 95%.
-- Per le api doppie vale la risposta del primo annotatore; la seconda serve solo al kappa.
-- Con pochi frame per gruppo (due o tre) il ricampionamento dei frame sottostima la variabilità:
-  gli intervalli per gruppo e i trend "significant" vanno presi con cautela.
-- Le api di validazione, i "Scarta ape" e quelle senza predizione restano fuori dalle stime.
+- **Per-group estimates assume that the model's errors within a stratum are the same in
+  all groups.** If a hive has "unusual" bees that the model gets wrong more often, that
+  group's estimate does not see it.
+- If a stratum has no audit answers yet, the predicted class is used as-is for that
+  stratum, and the report flags it.
+- The bootstrap resamples from slightly smoothed frequencies (one pseudo-observation per
+  stratum). Without it, a rare class never seen in a large stratum would have zero uncertainty and
+  the interval would cover the true value about 77% of the time instead of 95%.
+- For double-labelled bees the first annotator's answer counts; the second is used only for kappa.
+- With few frames per group (two or three), frame resampling underestimates the variability:
+  per-group intervals and "significant" trends should be taken with caution.
+- Validation bees, "Scarta ape" bees and bees without a prediction are left out of the estimates.
 
-### Indicatori di colonia
+### Colony indicators
 
-Calcolati per gruppo (`colony.group_by`: `frame`, `session`, `colony` o `dataset`).
+Computed per group (`colony.group_by`: `frame`, `session`, `colony` or `dataset`).
 
-| Indicatore | Contenuto |
+| Indicator | Contents |
 |---|---|
-| I1 – profilo demografico | quote corrette, con intervallo, delle `demographic_classes` |
-| I2 – segni di malattia | per ogni classe di `disease_classes`: `detected`, `uncertain` o `not_detected` (con limite superiore) |
-| I3 – divergenza di Jensen–Shannon | distanza del profilo del gruppo dal profilo di riferimento, in [0, 1] |
-| I4 – quota non spiegata | (non assegnate + "Scarta ape") / api del gruppo |
-| I5 – trend | differenza tra sessioni consecutive di I1, I2, I3, con intervallo |
-| Forza della colonia | api grezze per frame |
-| Qualità | quota di scarto stimata e scarti della pulizia automatica |
-| Semaforo | verde, giallo o rosso, con l'elenco delle regole scattate |
+| I1 – demographic profile | corrected shares, with interval, of the `demographic_classes` |
+| I2 – disease signs | for each class in `disease_classes`: `detected`, `uncertain` or `not_detected` (with upper bound) |
+| I3 – Jensen–Shannon divergence | distance of the group profile from the reference profile, in [0, 1] |
+| I4 – unexplained share | (unassigned + "Scarta ape") / bees in the group |
+| I5 – trend | difference between consecutive sessions of I1, I2, I3, with interval |
+| Colony strength | raw bees per frame |
+| Quality | estimated reject share and rejections by the automatic cleaning |
+| Traffic light | green, yellow or red, with the list of rules triggered |
 
-Un segno di malattia è `detected` quando il limite inferiore dell'intervallo è sopra zero e
-almeno `min_detected` api del gruppo sono state confermate da un umano (risposte di audit più
-etichette date a mano). La soglia di I3 è media + 2 deviazioni standard della divergenza dei
-gruppi di riferimento: con pochi gruppi è poco informativa.
+A disease sign is `detected` when the lower bound of the interval is above zero and
+at least `min_detected` bees of the group have been confirmed by a human (audit answers plus
+hand-given labels). The I3 threshold is the mean + 2 standard deviations of the divergence of the
+reference groups: with few groups it is not very informative.
 
 ```yaml
 colony:
@@ -277,56 +278,58 @@ colony:
   demographic_classes: []
   disease_classes: []
   min_detected: 3
-  reference_groups: []        # vuoto = media di tutti i gruppi
-  time_order: {}              # {alveare: [sessione1, sessione2, ...]}; "*" = tutti gli alveari insieme
-  anomaly_threshold: 0.0      # 0 = spento
+  reference_groups: []        # empty = mean of all groups
+  time_order: {}              # {hive: [session1, session2, ...]}; "*" = all hives together
+  anomaly_threshold: 0.0      # 0 = off
   n_boot: 1000
   seed: 11
-  light_rules: [disease_detected, profile_divergent]   # anche: unexplained_high
+  light_rules: [disease_detected, profile_divergent]   # also: unexplained_high
   red_min_rules: 2
   max_unexplained: 0.0
 ```
 
-## Revisione delle etichette sospette
+## Review of suspicious labels
 
-Un'etichetta sbagliata pesa molto: le etichette sono poche, le query per incertezza scelgono proprio
-le api ambigue, e nella propagazione le etichette umane sono bloccate, quindi un errore si diffonde alle
-api simili senza che il grafo lo corregga. La pagina **Review** (`/al-review`) mostra le etichette che
-vale la pena riguardare. Niente viene corretto in automatico.
+A wrong label weighs a lot: labels are few, uncertainty queries pick precisely the
+ambiguous bees, and in the propagation human labels are clamped, so an error spreads to
+similar bees without the graph correcting it. The **Review** page (`/al-review`) shows the labels that
+are worth a second look. Nothing is corrected automatically.
 
-**Come vengono trovate.** Per ogni ape etichettata a mano si fa votare il k-NN sulle *altre* api
-etichettate (l'ape non vota per sé), con gli stessi pesi dell'hub. L'etichetta è sospetta se la classe
-più votata è un'altra e raccoglie almeno `review.min_disagreement` del voto (default 80%). È l'idea del
-*confident learning* (Northcutt et al., 2021). La coda si ricalcola a ogni ricalcolo delle predizioni;
-prima vengono le etichette date con confidenza *Low*, poi *Medium*, poi le altre.
+**How they are found.** For each hand-labelled bee, the k-NN votes using the *other* labelled
+bees (the bee does not vote for itself), with the same weights as the hub. The label is suspicious if
+the most-voted class is a different one and collects at least `review.min_disagreement` of the vote
+(default 80%). This is the idea behind *confident learning* (Northcutt et al., 2021). The queue is
+recomputed whenever the predictions are recomputed; labels given with *Low* confidence come first,
+then *Medium*, then the rest.
 
-**Perché validation set e audit sono esclusi.** Servono a misurare il modello. Correggerli guardando
-l'opinione del modello li avvicinerebbe alle sue predizioni e lo farebbe sembrare migliore di quanto è.
-Per loro l'unico controllo ammesso è l'accordo tra annotatori, già previsto nell'audit. Restano fuori
-anche le api messe da parte con "Scarta ape".
+**Why the validation set and the audit are excluded.** They are used to measure the model. Correcting
+them based on the model's opinion would pull them towards its predictions and make it look better than
+it is. For them the only check allowed is inter-annotator agreement, already built into the audit. Bees
+set aside with "Scarta ape" are also left out.
 
-**Le tre decisioni.** Accanto all'ape si vedono l'etichetta attuale, chi l'ha data e con che
-confidenza, la classe suggerita e le api etichettate più simili, che sono l'evidenza.
+**The three decisions.** Next to the bee you see the current label, who gave it and with what
+confidence, the suggested class and the most similar labelled bees, which are the evidence.
 
-| Decisione | Effetto |
+| Decision | Effect |
 |---|---|
-| Keep (*confirm*) | l'etichetta è giusta: nessun evento nuovo; l'ape non torna in coda finché restano uguali la sua etichetta e la classe suggerita |
-| Change (*correct*) | la classe giusta è un'altra, quella suggerita o una a scelta: è una normale correzione in `al_labels.csv`, e le predizioni si ricalcolano |
-| Scarta ape (*set aside*) | l'ape non è giudicabile: viene messa da parte |
+| Keep (*confirm*) | the label is correct: no new event; the bee does not come back into the queue as long as its label and the suggested class stay the same |
+| Change (*correct*) | the correct class is a different one, the suggested one or another of your choice: it is a normal correction in `al_labels.csv`, and the predictions are recomputed |
+| Scarta ape (*set aside*) | the bee cannot be judged: it is set aside |
 
-Ogni decisione è una riga di `review_log.jsonl`, in sola aggiunta; al riavvio le conferme si
-ricostruiscono da lì.
+Each decision is a row of `review_log.jsonl`, append-only; on restart the confirmations are
+rebuilt from it.
 
-**Classi rare.** Una classe con meno di `review.min_class_size` etichette (default 5) ha vicini quasi
-tutti di altre classi anche quando l'etichetta è giusta: è proprio come appare un fenotipo raro appena
-scoperto. Queste api stanno in una sezione separata, in fondo alla pagina: vanno guardate, ma ci si
-aspetta che siano in gran parte corrette. Il segnale diventa utile quando la classe ha più esempi.
+**Rare classes.** A class with fewer than `review.min_class_size` labels (default 5) has neighbours
+almost all from other classes even when the label is correct: this is exactly what a newly discovered
+rare phenotype looks like. These bees are listed in a separate section at the bottom of the page: they
+should be looked at, but they are expected to be mostly correct. The signal becomes useful once the
+class has more examples.
 
-**Numeri da riportare.** In `/al-status`, riquadro *Label review* (e in `review_report.csv`, una riga per
-decisione): etichette controllate, sospette trovate, quante confermate, corrette e scartate, le
-correzioni per coppia di classi (vecchia → nuova), e la quota di sospette per confidenza dichiarata. Se
-le *Low* sono sospette molto più spesso delle *High*, la confidenza dichiarata è informativa. Ogni riga
-di `al_rounds.jsonl` ha anche `n_suspects`.
+**Numbers to report.** In `/al-status`, the *Label review* panel (and in `review_report.csv`, one row per
+decision): labels checked, suspects found, how many were confirmed, corrected and set aside, the
+corrections per class pair (old → new), and the share of suspects per declared confidence. If
+*Low* labels are suspicious much more often than *High* ones, the declared confidence is informative.
+Each row of `al_rounds.jsonl` also has `n_suspects`.
 
 ```yaml
 review:
@@ -337,57 +340,57 @@ review:
   show_neighbors: 6
 ```
 
-## Classi di scarto
+## Reject classes
 
-`labels.reject_classes` elenca le classi dei crop che non si possono giudicare (sfocati,
-tagliati male, più api, nessuna ape). Regola per gli annotatori: **se il difetto impedisce di
-giudicare il fenotipo è scarto; se il fenotipo si riconosce comunque si etichetta il fenotipo.**
+`labels.reject_classes` lists the classes of crops that cannot be judged (blurred,
+badly cropped, several bees, no bee). Rule for annotators: **if the defect prevents
+judging the phenotype it is a reject; if the phenotype can still be recognised, label the phenotype.**
 
-| Dove | Cosa succede alle api di scarto |
+| Where | What happens to reject bees |
 |---|---|
-| k-NN e propagazione | restano, così il modello impara a riconoscerle |
-| Cluster finali | escluse |
-| Snapshot | stato `rejected`, sia se scartate a mano sia dal modello |
-| Audit | uno strato per classe di scarto predetta: misura quante api valide vengono scartate per errore |
-| Stime | stimate come le altre classi, poi escluse dal denominatore delle prevalenze |
-| Report | quota di scarto stimata per gruppo, accanto agli scarti della pulizia automatica |
-| `/al-status` | conteggio per classe: etichettate a mano e assegnate dal modello |
+| k-NN and propagation | they stay, so the model learns to recognise them |
+| Final clusters | excluded |
+| Snapshot | status `rejected`, whether rejected by hand or by the model |
+| Audit | one stratum per predicted reject class: measures how many valid bees are rejected by mistake |
+| Estimates | estimated like the other classes, then excluded from the prevalence denominator |
+| Report | estimated reject share per group, next to the rejections by the automatic cleaning |
+| `/al-status` | count per class: hand-labelled and assigned by the model |
 
-## File del pacchetto
+## Package files
 
-| File | Ruolo |
+| File | Role |
 |---|---|
-| `engine.py` | stato dell'hub: batch, round, criteri di stop, snapshot, audit |
-| `frames.py` | collegamento ape → frame dai manifest |
-| `snapshot.py` | scrittura e lettura degli snapshot |
-| `audit.py` | campionamento stratificato e stime corrette |
-| `colony.py` | indicatori di colonia |
-| `report.py` | file del report e cache |
-| `review.py` | coda delle etichette sospette |
-| `export.py` | chiusura di una fase: cluster su disco |
-| `hub.py` | pagine Flask |
+| `engine.py` | hub state: batches, rounds, stopping criteria, snapshots, audit |
+| `frames.py` | bee → frame link from the manifests |
+| `snapshot.py` | writing and reading snapshots |
+| `audit.py` | stratified sampling and corrected estimates |
+| `colony.py` | colony indicators |
+| `report.py` | report files and cache |
+| `review.py` | queue of suspicious labels |
+| `export.py` | closing a phase: clusters on disk |
+| `hub.py` | Flask pages |
 
-I test si lanciano con `venv/bin/python -m pytest tests`.
+Run the tests with `venv/bin/python -m pytest tests`.
 
-## Fase corrente e chiusura della fase
+## Current phase and closing a phase
 
-La sezione `stage` della config dice in che fase si è (`name`, `title`, `description`): l'hub la mostra
-in una fascia blu in cima a ogni pagina, così chi etichetta sa che cosa deve giudicare.
+The `stage` section of the config says which phase you are in (`name`, `title`, `description`): the hub
+shows it in a blue band at the top of every page, so whoever is labelling knows what they have to judge.
 
-A fase finita, in `/al-status` il pulsante **Save configuration & export clusters** congela uno
-snapshot e scrive i cluster su disco in `export.clusters_dir/<nome>/`:
+When the phase is finished, the **Save configuration & export clusters** button in `/al-status` freezes a
+snapshot and writes the clusters to disk in `export.clusters_dir/<name>/`:
 
-| Contenuto | Descrizione |
+| Contents | Description |
 |---|---|
-| una cartella per classe | le immagini delle api di quella classe, etichettate a mano o assegnate dal modello |
-| `clusters.csv` | tutte le api: cluster, stato, origine, confidenza, frame, sessione, percorso originale |
-| `config.yaml` | la configurazione con cui la fase è stata fatta |
-| `meta.json` | fase, data, chi ha esportato, api per cluster, snapshot di partenza |
+| one folder per class | the images of the bees of that class, hand-labelled or assigned by the model |
+| `clusters.csv` | all bees: cluster, status, origin, confidence, frame, session, original path |
+| `config.yaml` | the configuration the phase was run with |
+| `meta.json` | phase, date, who exported, bees per cluster, source snapshot |
 
-Le api scartate ("Scarta ape"), quelle non assegnate e quelle di validazione restano solo nel CSV.
-`export.mode` sceglie tra copia dei file (`copy`), `hardlink` e `symlink`. L'esportazione gira in
-background e non ferma l'etichettatura. Quali cluster portare nella fase successiva si decide dopo,
-con `scripts/new_stage.py --keep ...`.
+Discarded bees ("Scarta ape"), unassigned bees and validation bees stay only in the CSV.
+`export.mode` chooses between copying the files (`copy`), `hardlink` and `symlink`. The export runs in
+the background and does not stop labelling. Which clusters to carry into the next phase is decided
+later, with `scripts/new_stage.py --keep ...`.
 
-L'hub lavora solo sulle cartelle elencate in `paths.dataset_dirs`: togliere una cartella (per esempio
-il test set) esclude le sue api anche se i loro embedding sono già stati estratti.
+The hub works only on the folders listed in `paths.dataset_dirs`: removing a folder (for example
+the test set) excludes its bees even if their embeddings have already been extracted.

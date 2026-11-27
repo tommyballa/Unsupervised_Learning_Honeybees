@@ -1,8 +1,8 @@
-"""Audit: campione di controllo stratificato per cluster predetto, etichettato alla cieca.
+"""Audit: a control sample stratified by predicted cluster, labelled blind.
 
-Lo snapshot dice cosa il modello ha assegnato a ogni ape; l'audit misura quanto spesso ha
-ragione, strato per strato, su api che nessuno aveva mai etichettato. Le etichette di audit
-non entrano mai nella memory bank: servono solo a correggere le stime (vedi ``estimate``).
+The snapshot says what the model assigned to each bee; the audit measures how often it is
+right, stratum by stratum, on bees nobody had ever labelled. Audit labels never enter the
+memory bank: they are used only to correct the estimates (see ``estimate``).
 """
 from __future__ import annotations
 
@@ -27,13 +27,13 @@ POPULATION_STATUSES = ("predicted", "unassigned", "rejected")
 
 
 def class_normalizer(cfg: ALConfig) -> Callable[[str], str]:
-    """Stessa normalizzazione e stessi alias delle etichette, per i nomi di classe scritti in config."""
+    """Same normalisation and aliases as the labels, for class names written in the config."""
     store = LabelStore(cfg.al_labels_path, cfg.labels.label_aliases)
     return lambda name: store.resolve(store.normalize_label(name))
 
 
 def confidence_bin(confidence: float, bins: list[float]) -> str:
-    """Fascia di confidenza: con soglie ``[0.9]`` restituisce ``<0.9`` oppure ``>=0.9``."""
+    """Confidence band: with thresholds ``[0.9]`` returns ``<0.9`` or ``>=0.9``."""
     edges = sorted(bins)
     if not edges:
         return ""
@@ -44,7 +44,7 @@ def confidence_bin(confidence: float, bins: list[float]) -> str:
 
 
 def parse_scores(text: str) -> dict[str, float]:
-    """Legge un CSV ``image_id,score`` (con intestazione)."""
+    """Read an ``image_id,score`` CSV (with header)."""
     reader = csv.DictReader(io.StringIO(text))
     if not reader.fieldnames or not {"image_id", "score"} <= set(reader.fieldnames):
         raise ValueError("anomaly scores: expected a CSV with the columns image_id,score")
@@ -62,21 +62,21 @@ def read_scores(path: Union[str, Path]) -> dict[str, float]:
 
 
 def in_population(row: dict[str, str]) -> bool:
-    """Popolazione dell'audit: api assegnate dal modello (o non assegnate), mai etichettate a mano."""
+    """Audit population: bees assigned by the model (or unassigned), never hand-labelled."""
     return row["status"] in POPULATION_STATUSES and row["source"] != "human"
 
 
 def assign_strata(
     rows: list[dict[str, str]], audit: AuditConfig, split_class: str = "", anomaly_scores: Optional[dict[str, float]] = None
 ) -> tuple[dict[str, str], dict[str, dict[str, Any]]]:
-    """Strato di ogni ape della popolazione: ``({image_id: id strato}, {id strato: descrizione})``.
+    """Stratum of every bee in the population: ``({image_id: stratum id}, {stratum id: description})``.
 
-    - classe predetta non di scarto: classe × fascia di confidenza;
-    - classe di scarto predetta: uno strato per classe, senza fasce;
-    - non assegnate: un solo strato ``__unassigned__``;
-    - se ci sono gli anomaly score, gli strati di ``split_class`` si dividono ancora in
-      score sopra/sotto il quantile ``anomaly_quantile`` (calcolato sulle api di quella classe;
-      un'ape senza score sta sotto).
+    - predicted non-reject class: class × confidence band;
+    - predicted reject class: one stratum per class, without bands;
+    - unassigned: a single ``__unassigned__`` stratum;
+    - if anomaly scores are available, the strata of ``split_class`` are further split into
+      score above/below the ``anomaly_quantile`` quantile (computed on the bees of that class;
+      a bee without a score goes below).
     """
     population = [r for r in rows if in_population(r) and (not audit.datasets or r["dataset"] in audit.datasets)]
     threshold: Optional[float] = None
@@ -112,7 +112,7 @@ def assign_strata(
 
 
 def allocation(n_stratum: int, audit: AuditConfig) -> int:
-    """Api da campionare in uno strato di ``n_stratum`` api."""
+    """Number of bees to sample from a stratum of ``n_stratum`` bees."""
     if n_stratum <= audit.per_stratum:
         return n_stratum
     return min(n_stratum, audit.large_stratum if n_stratum >= audit.large_threshold else audit.per_stratum)
@@ -128,14 +128,14 @@ def _write_json_atomic(path: Path, data: Any) -> None:
 def create_audit_set(
     snapshot_dir: Union[str, Path], cfg: ALConfig, anomaly_scores: Optional[dict[str, float]] = None
 ) -> Path:
-    """Estrae il campione di controllo di uno snapshot e lo salva in ``audit_set.json``.
+    """Draw the control sample of a snapshot and save it to ``audit_set.json``.
 
-    Si crea una volta sola, come il validation set: se esiste già si solleva ``FileExistsError``.
-    Dentro ogni strato l'estrazione è casuale uniforme senza reinserimento, con il seed di
-    ``audit.seed``; una frazione ``double_fraction`` delle api estratte (almeno una per strato)
-    va etichettata da due annotatori diversi; l'ordine di presentazione è una permutazione
-    fissa che mescola gli strati. Accanto si salva ``audit_strata.csv`` con lo strato di ogni
-    ape della popolazione, che serve alle stime, e gli anomaly score se sono stati forniti.
+    It is created only once, like the validation set: if it already exists, ``FileExistsError`` is raised.
+    Within each stratum the draw is uniform random without replacement, seeded with
+    ``audit.seed``; a ``double_fraction`` share of the drawn bees (at least one per stratum)
+    must be labelled by two different annotators; the presentation order is a fixed
+    permutation that mixes the strata. Alongside it, ``audit_strata.csv`` is saved with the stratum
+    of every bee in the population (needed by the estimates), plus the anomaly scores if provided.
     """
     snap = Path(snapshot_dir)
     out = snap / AUDIT_FILE
@@ -194,19 +194,19 @@ def load_audit_set(snapshot_dir: Union[str, Path]) -> dict[str, Any]:
 
 
 def batch_id_of(snapshot_name: str) -> str:
-    """``batch_id`` degli eventi di audit di uno snapshot in ``al_labels.csv``."""
+    """``batch_id`` of a snapshot's audit events in ``al_labels.csv``."""
     return f"audit:{snapshot_name}"
 
 
 # --------------------------------------------------------------------------- #
-# Stime corrette dall'audit
+# Audit-corrected estimates
 # --------------------------------------------------------------------------- #
 
 GROUP_LEVELS = ("dataset", "session", "colony", "frame", "colony_session")
 
 
 def group_key(row: dict[str, str], level: str) -> str:
-    """Gruppo di un'ape (o di un frame) a un certo livello; vuoto se l'informazione manca."""
+    """Group of a bee (or of a frame) at a given level; empty if the information is missing."""
     if level == "frame":
         return f"{row['dataset']}/{row['frame']}" if row.get("frame") else ""
     if level == "colony_session":
@@ -215,7 +215,7 @@ def group_key(row: dict[str, str], level: str) -> str:
 
 
 def wilson(k: float, n: float, z: float = 1.96) -> tuple[Optional[float], Optional[float]]:
-    """Intervallo di Wilson per una proporzione ``k / n``; ``(None, None)`` se ``n == 0``."""
+    """Wilson interval for a proportion ``k / n``; ``(None, None)`` if ``n == 0``."""
     if n <= 0:
         return None, None
     p = k / n
@@ -226,12 +226,12 @@ def wilson(k: float, n: float, z: float = 1.96) -> tuple[Optional[float], Option
 
 
 def cohen_kappa(pairs: list[tuple[str, str]]) -> dict[str, Any]:
-    """Accordo tra due annotatori sulle api doppie.
+    """Agreement between two annotators on the double-labelled bees.
 
-    ``kappa = (p_o - p_e) / (1 - p_e)``, con ``p_o`` quota di coppie concordi e ``p_e`` accordo
-    atteso per caso dai margini dei due annotatori. Per classe si usa lo stesso indice sul
-    problema binario "questa classe contro tutte le altre". ``None`` quando non è definito
-    (nessuna coppia, o entrambi hanno usato una sola categoria).
+    ``kappa = (p_o - p_e) / (1 - p_e)``, with ``p_o`` the share of agreeing pairs and ``p_e`` the
+    agreement expected by chance from the two annotators' marginals. Per class, the same index is
+    used on the binary problem "this class versus all the others". ``None`` when undefined
+    (no pairs, or both annotators used a single category).
     """
     def kappa(a: np.ndarray, b: np.ndarray) -> Optional[float]:
         if len(a) == 0:
@@ -255,17 +255,17 @@ def cohen_kappa(pairs: list[tuple[str, str]]) -> dict[str, Any]:
 
 
 class EstimationInput:
-    """Tutto ciò che serve alle stime, già ridotto a conteggi.
+    """Everything the estimates need, already reduced to counts.
 
-    - ``classes``: tutte le classi (predette, date a mano o viste nell'audit); ``reject``: quelle di scarto.
-    - ``strata``: descrizione degli strati (id, kind, label, N_h, n_h campionate).
-    - ``counts[h, k]``: api dello strato ``h`` che l'audit ha etichettato come classe ``k``;
-      ``unknown[h]``: risposte "Non so", contate a parte.
-    - ``human[k]``: api etichettate a mano come ``k`` fuori dall'audit (conteggio esatto).
-    - ``cc[k]``: classify and count, cioè api con classe finale ``k`` nello snapshot.
-    - ``groups[level]``: per ogni gruppo, ``N[g, h]`` e ``human[g, k]``, più gli stessi conteggi
-      per frame (``frame_N``, ``frame_human``, ``frame_group``) per ricampionare i frame.
-    - ``pairs``: risposte dei due annotatori sulle api doppie.
+    - ``classes``: all classes (predicted, hand-given or seen in the audit); ``reject``: the reject classes.
+    - ``strata``: description of the strata (id, kind, label, N_h, n_h sampled).
+    - ``counts[h, k]``: bees of stratum ``h`` that the audit labelled as class ``k``;
+      ``unknown[h]``: "Scarta ape" (discard bee) answers, counted separately.
+    - ``human[k]``: bees hand-labelled as ``k`` outside the audit (exact count).
+    - ``cc[k]``: classify and count, i.e. bees with final class ``k`` in the snapshot.
+    - ``groups[level]``: for each group, ``N[g, h]`` and ``human[g, k]``, plus the same counts
+      per frame (``frame_N``, ``frame_human``, ``frame_group``) to resample the frames.
+    - ``pairs``: the two annotators' answers on the double-labelled bees.
     """
 
     def __init__(self, classes: list[str], reject: set[str], strata: list[dict[str, Any]], counts: np.ndarray,
@@ -291,36 +291,36 @@ def _interval(samples: np.ndarray) -> tuple[float, float]:
 
 
 def estimate_from_input(inp: EstimationInput, n_boot: int = 1000, seed: int = 11) -> dict[str, Any]:
-    """Stime stratificate di prevalenza, globali e per gruppo, con intervalli.
+    """Stratified prevalence estimates, global and per group, with intervals.
 
-    Notazione: strato ``h`` con ``N_h`` api nella popolazione e ``n_h`` risposte di audit
-    (escluse le "Non so"); ``a_hk`` risposte di classe ``k``; ``r_hk = a_hk / n_h``;
-    ``H_k`` api etichettate a mano come ``k`` (conteggio esatto, mai ricorretto).
+    Notation: stratum ``h`` with ``N_h`` bees in the population and ``n_h`` audit answers
+    (excluding "Scarta ape"); ``a_hk`` answers of class ``k``; ``r_hk = a_hk / n_h``;
+    ``H_k`` bees hand-labelled as ``k`` (exact count, never corrected).
 
-    - Precisione di uno strato: ``r_h,c`` con ``c`` la classe predetta dello strato (per gli
-      strati di scarto: quota di risposte che sono una qualsiasi classe di scarto), con
-      intervallo di Wilson al 95%.
-    - Totale stimato: ``Ñ_k = Σ_h N_h · r_hk + H_k``.
-    - Api valide: ``V = Σ_{k non di scarto} Ñ_k``. Prevalenza: ``p_k = Ñ_k / V`` per le classi non di scarto.
-    - Varianza: ``Var(Ñ_k) = Σ_h N_h² · (1 − n_h/N_h) · r_hk (1 − r_hk) / (n_h − 1)``, zero quando
-      ``n_h = N_h`` (strato censito) o ``n_h ≤ 1``. Per ``p_k``, che è un rapporto, si linearizza:
-      ``Var(p_k) ≈ (1/V²) Σ_h N_h² (1 − n_h/N_h) s²_h / (n_h − 1)`` con ``s²_h`` la varianza nello
-      strato di ``z = 1[k] − p_k · 1[non scarto]``.
-    - Classify and count: quota delle api con classe finale ``k`` sul totale non di scarto,
-      senza alcuna correzione.
-    - Regola del tre: se la classe ``k`` non compare mai tra le ``n_h`` risposte di uno strato,
-      il limite superiore al 95% di ``r_hk`` è circa ``3 / n_h``.
-    - Per gruppo ``g`` (frame, sessione, alveare): ``Ñ_g,k = Σ_h N_g,h · r_hk + H_g,k``.
-      **Ipotesi**: gli errori del modello dentro uno strato sono stimati sull'audit complessivo
-      e assunti uguali in tutti i gruppi. Se un gruppo ha api in uno strato senza risposte di
-      audit, per quello strato si usa la classe predetta così com'è e lo si segnala.
-    - Bootstrap: a ogni replica si ricampionano con reinserimento le risposte di audit dentro
-      ogni strato e, per i gruppi, anche i frame del gruppo. Intervallo = percentili 2.5–97.5.
-      Due accorgimenti: la variazione di ogni strato è scalata per la popolazione finita
-      (``√(1 − n_h/N_h)``, quindi uno strato censito non varia), e si ricampiona da frequenze
-      lisciate ``(a_hk + 1/K) / (n_h + 1)``. Senza lisciatura una classe con zero risposte in
-      uno strato grande avrebbe varianza nulla e l'intervallo delle classi rare coprirebbe
-      il valore vero molto meno del 95% delle volte (circa 77% nelle simulazioni dei test).
+    - Precision of a stratum: ``r_h,c`` with ``c`` the predicted class of the stratum (for
+      reject strata: the share of answers that are any reject class), with a 95%
+      Wilson interval.
+    - Estimated total: ``Ñ_k = Σ_h N_h · r_hk + H_k``.
+    - Valid bees: ``V = Σ_{k not reject} Ñ_k``. Prevalence: ``p_k = Ñ_k / V`` for the non-reject classes.
+    - Variance: ``Var(Ñ_k) = Σ_h N_h² · (1 − n_h/N_h) · r_hk (1 − r_hk) / (n_h − 1)``, zero when
+      ``n_h = N_h`` (fully enumerated stratum) or ``n_h ≤ 1``. For ``p_k``, which is a ratio, it is linearised:
+      ``Var(p_k) ≈ (1/V²) Σ_h N_h² (1 − n_h/N_h) s²_h / (n_h − 1)`` with ``s²_h`` the within-stratum
+      variance of ``z = 1[k] − p_k · 1[not reject]``.
+    - Classify and count: share of bees with final class ``k`` over the non-reject total,
+      without any correction.
+    - Rule of three: if class ``k`` never appears among the ``n_h`` answers of a stratum,
+      the 95% upper bound of ``r_hk`` is about ``3 / n_h``.
+    - Per group ``g`` (frame, session, hive): ``Ñ_g,k = Σ_h N_g,h · r_hk + H_g,k``.
+      **Assumption**: the model's errors within a stratum are estimated on the whole audit
+      and assumed equal in all groups. If a group has bees in a stratum without audit
+      answers, the predicted class is used as-is for that stratum and this is flagged.
+    - Bootstrap: in each replicate the audit answers are resampled with replacement within
+      each stratum and, for groups, the frames of the group as well. Interval = 2.5–97.5 percentiles.
+      Two adjustments: each stratum's variation is scaled for the finite population
+      (``√(1 − n_h/N_h)``, so a fully enumerated stratum does not vary), and resampling uses smoothed
+      frequencies ``(a_hk + 1/K) / (n_h + 1)``. Without smoothing, a class with zero answers in
+      a large stratum would have zero variance and the interval of rare classes would cover
+      the true value much less than 95% of the time (about 77% in the test simulations).
     """
     classes, K, H = inp.classes, len(inp.classes), len(inp.strata)
     col = {c: j for j, c in enumerate(classes)}
@@ -329,7 +329,7 @@ def estimate_from_input(inp: EstimationInput, n_boot: int = 1000, seed: int = 11
     a = inp.counts.reshape(H, K)
     n = a.sum(axis=1)
     r = np.divide(a, n[:, None], out=np.zeros_like(a), where=n[:, None] > 0)
-    missing = n == 0                                # strati senza risposte: si tiene la classe predetta
+    missing = n == 0                                # strata without answers: keep the predicted class
     for h in np.flatnonzero(missing):
         label = inp.strata[h].get("label", "")
         if label in col:
@@ -338,7 +338,7 @@ def estimate_from_input(inp: EstimationInput, n_boot: int = 1000, seed: int = 11
     fpc[missing] = 0.0
 
     def shares(totals: np.ndarray) -> np.ndarray:
-        """Quote sulle sole classi non di scarto (ultimo asse = classi)."""
+        """Shares over the non-reject classes only (last axis = classes)."""
         v = totals[..., valid].sum(axis=-1, keepdims=True)
         return np.divide(totals, v, out=np.zeros_like(totals), where=v > 0)
 
@@ -361,8 +361,8 @@ def estimate_from_input(inp: EstimationInput, n_boot: int = 1000, seed: int = 11
     r_boot = np.broadcast_to(r, (B, H, K)).copy()
     for h in range(H):
         if n[h] > 0 and fpc[h] > 0:
-            # Frequenze lisciate con una pseudo-osservazione per strato, divisa tra le classi:
-            # una classe mai vista tra n_h risposte non è per questo impossibile nello strato.
+            # Smoothed frequencies with one pseudo-observation per stratum, split across classes:
+            # a class never seen among n_h answers is not therefore impossible in the stratum.
             smooth = (a[h] + 1.0 / K) / (n[h] + 1.0)
             draws = rng.multinomial(int(n[h]), smooth, size=B) / n[h]
             r_boot[:, h, :] = np.clip(r[h] + np.sqrt(fpc[h]) * (draws - smooth), 0.0, None)
@@ -372,7 +372,7 @@ def estimate_from_input(inp: EstimationInput, n_boot: int = 1000, seed: int = 11
     reject_share_boot = np.divide(totals_boot[:, ~valid].sum(axis=1), all_boot, out=np.zeros(B), where=all_boot > 0)
 
     observed = a.sum(axis=0)
-    unseen_rate = np.where(n > 0, np.minimum(1.0, 3.0 / np.maximum(n, 1)), 0.0)   # regola del tre, per strato
+    unseen_rate = np.where(n > 0, np.minimum(1.0, 3.0 / np.maximum(n, 1)), 0.0)   # rule of three, per stratum
     upper_rate = np.where(a > 0, r, unseen_rate[:, None])
 
     strata_out = []
@@ -491,7 +491,7 @@ def estimate_from_input(inp: EstimationInput, n_boot: int = 1000, seed: int = 11
 
 def load_estimation_input(snapshot_dir: Union[str, Path], cfg: ALConfig, store: Optional[LabelStore] = None,
                           anomaly_scores: Optional[dict[str, float]] = None) -> EstimationInput:
-    """Legge snapshot, audit set e risposte di audit e li riduce ai conteggi usati dalle stime."""
+    """Read the snapshot, audit set and audit answers and reduce them to the counts used by the estimates."""
     snap = Path(snapshot_dir)
     audit_set = load_audit_set(snap)
     rows = read_csv(snap / "predictions.csv")
@@ -584,7 +584,7 @@ def load_estimation_input(snapshot_dir: Union[str, Path], cfg: ALConfig, store: 
                 g["info"]["anomaly_scored"][gi] += 1
                 g["info"]["anomaly_above"][gi] += int(score >= threshold)
 
-    # Forza della colonia e scarti della pulizia, per gruppo, dal file dei frame.
+    # Colony strength and cleaning rejections, per group, from the frames file.
     frames_csv = read_csv(snap / "frames.csv") if (snap / "frames.csv").exists() else []
     for lv in levels:
         g = grp[lv]
@@ -610,9 +610,9 @@ def load_estimation_input(snapshot_dir: Union[str, Path], cfg: ALConfig, store: 
 
 def estimate(snapshot_dir: Union[str, Path], cfg: ALConfig, n_boot: int = 1000, store: Optional[LabelStore] = None,
              anomaly_scores: Optional[dict[str, float]] = None) -> dict[str, Any]:
-    """Stime corrette per uno snapshot con audit: vedi ``estimate_from_input`` per le formule.
+    """Corrected estimates for a snapshot with an audit: see ``estimate_from_input`` for the formulas.
 
-    Le risposte di audit si leggono dallo store delle etichette (``batch_id = audit:<snapshot>``);
-    per le api doppie vale la risposta del primo annotatore, le coppie servono solo per il kappa.
+    Audit answers are read from the label store (``batch_id = audit:<snapshot>``);
+    for double-labelled bees the first annotator's answer counts; the pairs are used only for kappa.
     """
     return estimate_from_input(load_estimation_input(snapshot_dir, cfg, store, anomaly_scores), n_boot, cfg.colony.seed)

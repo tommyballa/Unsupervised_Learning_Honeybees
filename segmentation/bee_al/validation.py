@@ -1,4 +1,4 @@
-"""Validation set fisso e metriche di valutazione."""
+"""Fixed validation set and evaluation metrics."""
 from __future__ import annotations
 
 import json
@@ -14,10 +14,10 @@ NO_PREDICTION = "__none__"
 def load_or_create_validation_set(
     path: Union[str, Path], image_ids: Sequence[str], size: int, seed: int
 ) -> list[str]:
-    """Campione casuale fissato con un seed e salvato su file.
+    """Random sample fixed by a seed and saved to file.
 
-    Se il file esiste viene riusato così com'è: cambiare ``size`` o ``seed`` nella
-    config non lo rigenera (va cancellato a mano, perdendo la comparabilità dei round).
+    If the file exists it is reused as-is: changing ``size`` or ``seed`` in the
+    config does not regenerate it (it must be deleted by hand, losing comparability across rounds).
     """
     path = Path(path)
     if path.exists():
@@ -41,7 +41,7 @@ def load_or_create_validation_set(
 
 
 def classification_metrics(y_true: Sequence[str], y_pred: Sequence[Optional[str]]) -> dict[str, Optional[float]]:
-    """Accuracy e macro-F1 (media sulle classi presenti nel riferimento)."""
+    """Accuracy and macro-F1 (averaged over the classes present in the reference)."""
     if len(y_true) == 0:
         return {"accuracy": None, "macro_f1": None}
     pred = [NO_PREDICTION if p is None else p for p in y_pred]
@@ -52,7 +52,7 @@ def classification_metrics(y_true: Sequence[str], y_pred: Sequence[Optional[str]
 
 
 def clustering_metrics(y_true: Sequence[str], y_pred: Sequence[Optional[str]]) -> dict[str, Optional[float]]:
-    """NMI e ARI dei cluster predetti rispetto alle etichette di riferimento."""
+    """NMI and ARI of the predicted clusters against the reference labels."""
     if len(y_true) == 0:
         return {"nmi": None, "ari": None}
     pred = [NO_PREDICTION if p is None else p for p in y_pred]

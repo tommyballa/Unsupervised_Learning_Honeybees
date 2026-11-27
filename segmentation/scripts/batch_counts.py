@@ -1,22 +1,22 @@
-"""Conteggi del modello per batch (sessione) da uno snapshot, senza correzione dell'audit.
+"""Model counts per batch (session) from a snapshot, without audit correction.
 
-Uso:
+Usage:
     python scripts/batch_counts.py --snapshot fase2_finale --config config/al_fase2_sam3.yaml
 
-Ogni ape conta nella sua classe finale: l'etichetta data a mano se c'è, altrimenti quella
-predetta dal modello. Le api del validation set contano con la classe predetta. Restano in
-colonne a parte, fuori dalle quote, le classi di scarto (labels.reject_classes), le non
-assegnate (troppo lontane da ogni esempio), le "Scarta ape" e quelle senza predizione.
+Each bee counts in its final class: the hand-given label if there is one, otherwise the one
+predicted by the model. Validation-set bees count with their predicted class. Kept in
+separate columns, outside the shares, are the reject classes (labels.reject_classes), the
+unassigned bees (too far from every example), the "Scarta ape" bees and those without a prediction.
 
-Per ogni batch: foto, api, conteggio di ogni classe, api per foto e due quote:
-- "%": sulle api classificate (tutte le classi non di scarto);
-- "% profile": solo per colony.demographic_classes, sul totale di quelle classi (profilo demografico).
-L'intervallo al 95% delle quote viene da un bootstrap sulle foto del batch: misura quanto la
-quota cambia da foto a foto, NON gli errori del modello (per quelli serve l'audit, vedi
+For each batch: photos, bees, count of each class, bees per photo and two shares:
+- "%": over the classified bees (all non-reject classes);
+- "% profile": only for colony.demographic_classes, over the total of those classes (demographic profile).
+The 95% interval of the shares comes from a bootstrap over the batch's photos: it measures how much the
+share changes from photo to photo, NOT the model's errors (those need the audit, see
 scripts/audit_report.py).
 
-Scrive in <snapshot>/batch_counts/: batch_counts.csv (una riga per batch), photo_counts.csv
-(una riga per foto) e batch_counts.png.
+Writes to <snapshot>/batch_counts/: batch_counts.csv (one row per batch), photo_counts.csv
+(one row per photo) and batch_counts.png.
 """
 import argparse
 import csv
@@ -37,7 +37,7 @@ EXTRA = (UNASSIGNED, SET_ASIDE, NO_PREDICTION)
 
 
 def category(row: dict[str, str]) -> str:
-    """Classe con cui l'ape entra nei conteggi."""
+    """Class with which the bee enters the counts."""
     status = row["status"]
     if status in ("labeled", "predicted", "rejected"):
         return row["final_label"]
@@ -51,7 +51,7 @@ def category(row: dict[str, str]) -> str:
 
 
 def batch_order(sessions: set[str], meta: dict) -> list[str]:
-    """Ordine dei batch: colony.time_order della config dello snapshot, poi gli altri in ordine alfabetico."""
+    """Batch order: colony.time_order from the snapshot config, then the others in alphabetical order."""
     order: list[str] = []
     for seq in meta.get("config", {}).get("colony", {}).get("time_order", {}).values():
         order += [s for s in seq if s in sessions and s not in order]
@@ -59,7 +59,7 @@ def batch_order(sessions: set[str], meta: dict) -> list[str]:
 
 
 def _shares_ci(boot: np.ndarray, cols: list[int], n_boot: int) -> tuple[np.ndarray, np.ndarray]:
-    """Percentili 2,5 e 97,5 delle quote delle colonne ``cols`` sul loro totale, replica per replica."""
+    """2.5 and 97.5 percentiles of the shares of columns ``cols`` over their total, replicate by replicate."""
     part = boot[:, cols]
     tot = part.sum(axis=1, keepdims=True)
     shares = np.divide(part, tot, out=np.zeros_like(part), where=tot > 0)
@@ -69,7 +69,7 @@ def _shares_ci(boot: np.ndarray, cols: list[int], n_boot: int) -> tuple[np.ndarr
 
 def count(rows: list[dict[str, str]], frames: list[dict[str, str]], meta: dict, n_boot: int = 1000, seed: int = 0,
           reject: tuple[str, ...] = (), demographic: tuple[str, ...] = ()):
-    """(righe per batch, righe per foto, classi). Le foto senza api accettate contano comunque come foto."""
+    """(rows per batch, rows per photo, classes). Photos without accepted bees still count as photos."""
     photos: dict[tuple[str, str], Counter] = defaultdict(Counter)
     for f in frames:
         photos[(f["session"], f["frame"])]
@@ -119,23 +119,23 @@ def plot(by_batch: list[dict], classes: list[str], path: Path, demographic: tupl
     labels = [b["batch"] for b in by_batch]
     profile = [c for c in classes if c in demographic]
     others = [c for c in classes if c not in demographic] if profile else classes
-    panels = ([("% profile", profile, "Profilo demografico", "% di " + " + ".join(profile))] if profile else []) + \
-             ([("%", others, "Altre classi" if profile else "Quota per classe", "% delle api classificate")] if others else [])
+    panels = ([("% profile", profile, "Demographic profile", "% of " + " + ".join(profile))] if profile else []) + \
+             ([("%", others, "Other classes" if profile else "Share per class", "% of classified bees")] if others else [])
     fig, axes = plt.subplots(1, len(panels) + 1, figsize=(6.5 * (len(panels) + 1), 5))
     for ax, (key, cols, title, ylabel) in zip(axes, panels):
         for c in cols:
             y = np.array([b[f"{c} {key}"] for b in by_batch])
             err = np.array([[y[i] - b[f"{c} {key} lo"], b[f"{c} {key} hi"] - y[i]] for i, b in enumerate(by_batch)]).T
             ax.errorbar(x, y, yerr=err, marker="o", capsize=4, label=c)
-        ax.set(title=f"{title} (bootstrap sulle foto, 95%)", ylabel=ylabel)
+        ax.set(title=f"{title} (bootstrap over photos, 95%)", ylabel=ylabel)
     for c in classes:
         axes[-1].plot(x, [b[f"{c} per photo"] for b in by_batch], marker="o", label=c)
-    axes[-1].set(title="Api per foto", ylabel="api / foto")
+    axes[-1].set(title="Bees per photo", ylabel="bees / photo")
     for ax in axes:
         ax.set_xticks(x, labels)
         ax.grid(alpha=0.3)
         ax.legend(fontsize=8)
-    fig.suptitle("Conteggi del modello per batch (senza correzione dell'audit)")
+    fig.suptitle("Model counts per batch (without audit correction)")
     fig.tight_layout()
     fig.savefig(path, dpi=130)
     plt.close(fig)
@@ -151,15 +151,15 @@ def write_csv(path: Path, rows: list[dict]) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--snapshot", required=True, help="nome dello snapshot")
-    ap.add_argument("--config", default=None, help="config della fase (default config/al_config.yaml)")
+    ap.add_argument("--snapshot", required=True, help="snapshot name")
+    ap.add_argument("--config", default=None, help="phase config (default config/al_config.yaml)")
     ap.add_argument("--n-boot", type=int, default=1000)
     args = ap.parse_args()
 
     cfg = load_config(args.config)
     folder = snapshot_path(cfg, args.snapshot)
     if not (folder / "predictions.csv").exists():
-        sys.exit(f"Snapshot '{args.snapshot}' non trovato in {folder.parent}")
+        sys.exit(f"Snapshot '{args.snapshot}' not found in {folder.parent}")
     meta = read_meta(folder)
     reject = tuple(dict.fromkeys(list(meta.get("reject_classes", [])) + cfg.labels.reject_classes))
     demographic = tuple(cfg.colony.demographic_classes)
@@ -171,19 +171,19 @@ def main() -> None:
     write_csv(out / "photo_counts.csv", per_photo)
     plot(by_batch, classes, out / "batch_counts.png", demographic)
 
-    print(f"Conteggi del modello per batch, snapshot '{args.snapshot}' (senza audit)\n")
+    print(f"Model counts per batch, snapshot '{args.snapshot}' (without audit)\n")
     extras = [k for k in reject if k in by_batch[0]] + [UNASSIGNED]
-    print("batch     foto    api  " + "  ".join(f"{c:>22}" for c in classes) + "  " + "  ".join(f"{e:>18}" for e in extras))
+    print("batch   photos   bees  " + "  ".join(f"{c:>22}" for c in classes) + "  " + "  ".join(f"{e:>18}" for e in extras))
     for b in by_batch:
         cells = [f"{b[c]:>6} {b[f'{c} %']:5.1f}% [{b[f'{c} % lo']:4.1f}-{b[f'{c} % hi']:4.1f}]" for c in classes]
         print(f"{b['batch']:<8} {b['photos']:>5} {b['bees']:>6}  " + "  ".join(cells) + "  " + "  ".join(f"{b[e]:>18}" for e in extras))
     if demographic:
-        print("\nProfilo demografico (% sul totale di " + ", ".join(demographic) + "):")
+        print("\nDemographic profile (% of the total of " + ", ".join(demographic) + "):")
         for b in by_batch:
             print(f"{b['batch']:<8} " + "  ".join(
                 f"{c} {b[f'{c} % profile']:5.1f}% [{b[f'{c} % profile lo']:4.1f}-{b[f'{c} % profile hi']:4.1f}]"
                 for c in classes if f"{c} % profile" in b))
-    print(f"\nFile in {out}")
+    print(f"\nFiles in {out}")
 
 
 if __name__ == "__main__":

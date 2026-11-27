@@ -1,4 +1,4 @@
-"""Report di uno snapshot con audit: stime, indicatori di colonia e file da scaricare."""
+"""Report for a snapshot with an audit: estimates, colony indicators and downloadable files."""
 from __future__ import annotations
 
 import csv
@@ -28,7 +28,7 @@ def _scores_path(snap: Path) -> Optional[Path]:
 
 
 def fingerprint(snapshot_dir: Union[str, Path], cfg: ALConfig, store: LabelStore, n_boot: int) -> str:
-    """Cambia quando cambia qualcosa che entra nel report: risposte di audit, config, anomaly score."""
+    """Changes whenever something that goes into the report changes: audit answers, config, anomaly scores."""
     snap = Path(snapshot_dir)
     batch = batch_id_of(snap.name)
     h = hashlib.sha1()
@@ -64,7 +64,7 @@ def _write_csv(path: Path, fields: list[str], rows: list[dict[str, Any]]) -> Non
 
 
 def indicator_rows(indicators: dict[str, Any]) -> list[dict[str, Any]]:
-    """Indicatori in forma tabellare: una riga per gruppo × indicatore × voce."""
+    """Indicators in tabular form: one row per group × indicator × item."""
     rows: list[dict[str, Any]] = []
     for g in indicators["groups"]:
         base = {"group": g["group"]}
@@ -105,7 +105,7 @@ def indicator_rows(indicators: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def markdown(estimates: dict[str, Any], indicators: dict[str, Any]) -> str:
-    """Riassunto leggibile del report."""
+    """Human-readable summary of the report."""
     t, audit = estimates["totals"], estimates.get("audit", {})
     lines = [
         f"# Audit report — snapshot `{estimates.get('snapshot', '')}`", "",
@@ -183,10 +183,10 @@ def markdown(estimates: dict[str, Any], indicators: dict[str, Any]) -> str:
 def build_report(snapshot_dir: Union[str, Path], cfg: ALConfig, store: Optional[LabelStore] = None,
                  anomaly_scores_path: Union[str, Path, None] = None, n_boot: Optional[int] = None,
                  force: bool = False) -> dict[str, Any]:
-    """Calcola stime e indicatori di uno snapshot con audit e scrive i file in ``<snapshot>/report/``.
+    """Compute the estimates and indicators of a snapshot with an audit and write the files to ``<snapshot>/report/``.
 
-    Il bootstrap costa qualche secondo: il risultato resta su disco e viene riusato finché non
-    arrivano nuove risposte di audit o non cambia la config che lo riguarda.
+    The bootstrap takes a few seconds: the result is kept on disk and reused until new
+    audit answers arrive or the relevant config changes.
     """
     snap = Path(snapshot_dir)
     if not (snap / AUDIT_FILE).exists():
@@ -195,7 +195,7 @@ def build_report(snapshot_dir: Union[str, Path], cfg: ALConfig, store: Optional[
     out = snap / REPORT_DIR
     out.mkdir(exist_ok=True)
     if anomaly_scores_path is not None:
-        read_scores(anomaly_scores_path)  # si controlla il formato prima di copiarlo
+        read_scores(anomaly_scores_path)  # check the format before copying it
         shutil.copy2(anomaly_scores_path, out / SCORES_FILE)
     n_boot = n_boot or cfg.colony.n_boot
     key = fingerprint(snap, cfg, store, n_boot)
@@ -235,5 +235,5 @@ def build_report(snapshot_dir: Union[str, Path], cfg: ALConfig, store: Optional[
     tmp = cached.with_name(cached.name + ".tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, cached)                                            # per ultimo: è la chiave della cache
+    os.replace(tmp, cached)                                            # last: it is the cache key
     return report

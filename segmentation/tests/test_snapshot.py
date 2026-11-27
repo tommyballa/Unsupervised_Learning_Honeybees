@@ -1,4 +1,4 @@
-"""Snapshot immutabili: una riga per ape, con stato, predizioni e frame di origine."""
+"""Immutable snapshots: one row per bee, with status, predictions and source frame."""
 import csv
 import json
 import subprocess
@@ -52,9 +52,9 @@ def test_snapshot_has_every_file_and_one_row_per_bee(colony):
     assert status["unassigned"] == st["n_unassigned"] > 0
     assert sum(status.values()) == len(engine.bank)
 
-    clusters = engine.final_clusters()                            # stessi cluster dell'engine
+    clusters = engine.final_clusters()                            # same clusters as the engine
     in_clusters = {m["image_id"]: (label, m["source"]) for label, members in clusters.items() for m in members
-                   if m["image_id"] not in engine.validation_ids}   # nello snapshot la validazione ha uno stato suo
+                   if m["image_id"] not in engine.validation_ids}   # in the snapshot validation bees have their own status
     in_snapshot = {r["image_id"]: (r["final_label"], r["source"]) for r in rows if r["status"] in ("labeled", "predicted")}
     assert in_snapshot == in_clusters
     for r in rows:
@@ -126,13 +126,13 @@ def test_snapshots_are_immutable_and_names_are_checked(colony):
             engine.export_snapshot(bad, "a@x.it")
     assert (out / "predictions.csv").read_bytes() == before
     snaps = colony.cfg.results_dir / "snapshots"
-    assert [p.name for p in snaps.iterdir()] == ["uno"]            # nessuna cartella temporanea rimasta
+    assert [p.name for p in snaps.iterdir()] == ["uno"]            # no temporary folder left
 
 
 def test_reproducible_without_new_labels_and_listed(colony):
     engine = labeled_engine(colony)
     a = engine.export_snapshot("a", "a@x.it")
-    engine.refresh()                                              # un ricalcolo senza etichette nuove
+    engine.refresh()                                              # a recomputation without new labels
     b = engine.export_snapshot("b", "a@x.it")
     assert (a / "predictions.csv").read_bytes() == (b / "predictions.csv").read_bytes()
 
@@ -173,7 +173,7 @@ def test_export_script_does_not_add_a_round(colony, tmp_path):
     assert (colony.cfg.results_dir / "al_rounds.jsonl").read_text() == rounds_before
     engine.export_snapshot("da_engine", "a@x.it")
     key = lambda path: [(r["image_id"], r["status"], r["final_label"], r["frame"]) for r in read_csv(path / "predictions.csv")]
-    assert key(out) == key(out.parent / "da_engine")              # stesse predizioni dell'engine dell'hub
+    assert key(out) == key(out.parent / "da_engine")              # same predictions as the hub's engine
 
     again = subprocess.run([sys.executable, str(script), "--name", "da_script", "--config", str(config_path)], capture_output=True, text=True)
     assert again.returncode != 0 and "already exists" in again.stderr
@@ -184,7 +184,7 @@ def test_hub_freezes_and_lists_snapshots(colony, hub_app, monkeypatch, tmp_path)
     monkeypatch.setattr(al_hub.STATE, "engine", engine)
     monkeypatch.chdir(tmp_path)
     c = hub_app.app.test_client()
-    assert c.post("/al-snapshot", data={"name": "x"}).status_code == 302          # senza login non crea nulla
+    assert c.post("/al-snapshot", data={"name": "x"}).status_code == 302          # without login nothing is created
     assert engine.list_snapshots() == []
     c.post("/", data={"email": "t@x.it"})
     assert "No snapshots yet" in c.get("/al-status").get_data(as_text=True)
@@ -195,7 +195,7 @@ def test_hub_freezes_and_lists_snapshots(colony, hub_app, monkeypatch, tmp_path)
     assert "created" in html and "<td>primo</td>" in html and "Freeze snapshot" in html
     assert read_meta(colony.cfg.results_dir / "snapshots" / "primo")["annotator"] == "t@x.it"
 
-    for bad in ("primo", "nome non valido"):                                       # errori come messaggio, non 500
+    for bad in ("primo", "nome non valido"):                                       # errors as a message, not 500
         r = c.post("/al-snapshot", data={"name": bad})
         page = c.get(r.headers["Location"])
         assert r.status_code == 302 and page.status_code == 200 and "Snapshot not created" in page.get_data(as_text=True)
@@ -203,7 +203,7 @@ def test_hub_freezes_and_lists_snapshots(colony, hub_app, monkeypatch, tmp_path)
 
 
 def test_snapshot_writes_files_without_holding_the_engine_lock(colony, monkeypatch):
-    """Scrivere lo snapshot su disco lento dura minuti: intanto l'hub deve poter usare l'engine."""
+    """Writing the snapshot to a slow disk takes minutes: meanwhile the hub must be able to use the engine."""
     engine = labeled_engine(colony, rounds=1)
     real, free = snapshot._write_csv, []
 

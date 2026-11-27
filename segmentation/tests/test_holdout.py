@@ -1,4 +1,4 @@
-"""Batch tenuto da parte per validare il modello, e filtro per batch della pagina dei cluster."""
+"""Batch held out to validate the model, and the per-batch filter of the clusters page."""
 import csv
 import re
 
@@ -15,7 +15,7 @@ from bee_al.label_store import is_training_event
 
 @pytest.fixture
 def held_cfg(tmp_path):
-    """Due cartelle: ``tr`` (training) e ``b7`` (tenuta da parte)."""
+    """Two folders: ``tr`` (training) and ``b7`` (held out)."""
     return config_from_dict(
         {"paths": {"dataset_dirs": {"tr": "tr", "b7": "b7"}},
          "query": {"batch_size": 10, "cold_start_threshold": 10}, "validation": {"size": 20, "holdout_datasets": ["b7"]},
@@ -59,7 +59,7 @@ def test_held_out_bees_are_never_proposed_and_never_learned(held_cfg, synth):
     assert proposed and not proposed & held
     assert engine.status()["holdout"] == {"datasets": ["b7"], "n_bees": len(held), "n_labels": 0}
 
-    # Una correzione dalla pagina dei cluster su un'ape tenuta da parte: evento "holdout", la bank non cambia.
+    # A correction from the clusters page on a held-out bee: "holdout" event, the bank does not change.
     bee = sorted(held)[0]
     before = engine.final_pred.probs.copy()
     assert engine.assign_many("a@x.it", [bee], "Zz") == 1
@@ -67,11 +67,11 @@ def test_held_out_bees_are_never_proposed_and_never_learned(held_cfg, synth):
     assert "Zz" not in engine.bank.classes and np.array_equal(engine.final_pred.probs, before)
     event = engine.store.events()[-1]
     assert event.query_type == "holdout" and not is_training_event(event)
-    assert engine.assign_many("a@x.it", [bee], "Zz") == 0                    # nessun evento inutile
+    assert engine.assign_many("a@x.it", [bee], "Zz") == 0                    # no useless event
     with pytest.raises(ALError):
-        engine.submit("a@x.it", bee, "Zz")                                   # solo dalla pagina dei cluster
+        engine.submit("a@x.it", bee, "Zz")                                   # only from the clusters page
 
-    engine.refresh()                                                         # al riavvio si ricostruisce dallo store
+    engine.refresh()                                                         # on restart it is rebuilt from the store
     assert engine.holdout_labels == {bee: "Zz"} and engine.bank.label_of(bee) is None
     assert not {b.image_id for b in engine.batch} & held
 
@@ -94,7 +94,7 @@ def test_cluster_view_filters_by_batch(held_cfg, synth):
     engine = make_engine(held_cfg, synth)
     _, truth, ids = _ids(synth)
     label_rounds(engine, truth)
-    assert engine.batch_counts() == {"b7": 75, "tr": 225}                   # senza manifest: batch = cartella
+    assert engine.batch_counts() == {"b7": 75, "tr": 225}                   # without a manifest: batch = folder
     assert engine.held_out_batches() == {"b7"}
     name = max(engine.cluster_samples(0), key=lambda c: c["n_predicted"])["label"]
     every = engine.cluster_view("predicted", name, 96, 0, "similar")
@@ -152,7 +152,7 @@ def test_clusters_page_has_a_batch_menu(hub_app, held_cfg, synth, monkeypatch, t
     assert "is held out to validate the model" in held
     tiles = re.findall(r'name="image_(\d+)" value="([^"]+)"', held)
     assert tiles and all(i.startswith("b7__") for _, i in tiles) and "held out" in held
-    again = c.get("/al-clusters").get_data(as_text=True)                     # la scelta resta nella sessione
+    again = c.get("/al-clusters").get_data(as_text=True)                     # the choice persists in the session
     assert all(i.startswith("b7__") for _, i in re.findall(r'name="image_(\d+)" value="([^"]+)"', again))
     every = c.get("/al-clusters?batch=").get_data(as_text=True)
     assert "is held out" not in every

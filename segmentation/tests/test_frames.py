@@ -1,4 +1,4 @@
-"""Collegamento ape -> frame dai manifest dell'estrazione e della pulizia."""
+"""Bee -> frame link from the extraction and cleaning manifests."""
 import json
 
 import pytest
@@ -30,7 +30,7 @@ def test_intervals_follow_the_order_of_the_file(tmp_path):
 
     name = "bee_{:05d}_conf0.87.png".format
     assert [fmap.frame_of(name(i)) for i in (0, 2, 3, 4, 5, 8)] == ["b.JPG", "b.JPG", "c.JPG", "c.JPG", "z.JPG", "z.JPG"]
-    assert fmap.frame_of(name(9)) is None                        # primo id fuori dall'ultimo intervallo
+    assert fmap.frame_of(name(9)) is None                        # first id beyond the last range
     assert fmap.frame_of("bee_123456_conf0.50.png") is None
     assert fmap.frame_of("ape_00001.png") is None and fmap.frame_of("bee_x_conf.png") is None
     assert fmap.frame_of("/some/dir/bee_00004_conf0.90.png") == "c.JPG"
@@ -40,7 +40,7 @@ def test_count_mismatch_makes_the_map_unreliable(tmp_path):
     with pytest.warns(UserWarning, match="next_bee_id"):
         fmap = load_frame_map(_manifest(tmp_path, {"a.JPG": 3, "b.JPG": 2}, next_bee_id=7))
     assert fmap.reliable is False
-    assert fmap.frame_of("bee_00001_conf0.90.png") is None       # non si tira a indovinare
+    assert fmap.frame_of("bee_00001_conf0.90.png") is None       # no guessing
     assert fmap.raw_bees_per_frame() == {"a.JPG": 3, "b.JPG": 2}
 
 
@@ -50,13 +50,13 @@ def test_cleaned_bees_are_a_subset_with_missing_ids(colony):
     for image_id, frame in colony.frame_of.items():
         dataset = dataset_of(image_id, colony.cfg)
         assert maps[dataset].frame_of(image_id.split("__", 1)[1]) == frame
-    assert not any(i.endswith("bee_00000_conf0.90.png") for i in colony.frame_of)   # scartata dalla pulizia
-    assert maps["tr"].frame_of("bee_00000_conf0.90.png") == "hiveA_s1_001.JPG"      # ma il frame si ricava lo stesso
+    assert not any(i.endswith("bee_00000_conf0.90.png") for i in colony.frame_of)   # discarded by the cleaning step
+    assert maps["tr"].frame_of("bee_00000_conf0.90.png") == "hiveA_s1_001.JPG"      # but the frame is still derived
 
 
 def test_each_folder_uses_its_own_manifest(colony):
     maps = load_frame_maps(colony.cfg)
-    same_file = "bee_00010_conf0.90.png"                          # la numerazione riparte da 0 in ogni cartella
+    same_file = "bee_00010_conf0.90.png"                          # numbering restarts from 0 in each folder
     assert maps["tr"].frame_of(same_file) == "hiveA_s1_001.JPG"
     assert maps["te"].frame_of(same_file) == "hiveA_s2_006.JPG"
     assert dataset_of(f"te__{same_file}", colony.cfg) == "te"
@@ -66,10 +66,10 @@ def test_each_folder_uses_its_own_manifest(colony):
 def test_discards_per_frame(colony, tmp_path):
     fmap = load_frame_maps(colony.cfg)["tr"]
     discards = discards_per_frame(tmp_path / "tr" / "cleaned_bees" / "_cleaning_manifest.json", fmap)
-    first = discards["hiveA_s1_001.JPG"]                          # id 0..59: scartati 0, 7, ..., 56
+    first = discards["hiveA_s1_001.JPG"]                          # ids 0..59: discarded 0, 7, ..., 56
     assert first["accepted"] == 51 and first["discarded"] == 9
     assert first["reasons"] == {"border": 5, "blur": 4}
-    assert "hiveA_s1_002.JPG" not in discards                     # frame senza api
+    assert "hiveA_s1_002.JPG" not in discards                     # frame without bees
     assert sum(d["accepted"] + d["discarded"] for d in discards.values()) == 220
     assert discards_per_frame(tmp_path / "non_esiste.json", fmap) == {}
 
@@ -89,7 +89,7 @@ def test_manifest_override_and_missing_manifest(colony, tmp_path):
 def test_session_and_colony_from_the_frame_name():
     pattern = r"(?P<colony>hive[A-Z])_(?P<session>s\d)"
     assert frame_groups("hiveA_s2_003.JPG", "tr", pattern) == ("s2", "hiveA")
-    assert frame_groups("DSC_5365.JPG", "tr", pattern) == ("tr", "")       # non corrisponde: nessuna invenzione
+    assert frame_groups("DSC_5365.JPG", "tr", pattern) == ("tr", "")       # no match: nothing invented
     assert frame_groups("hiveA_s2_003.JPG", "tr", "") == ("tr", "")
     assert frame_groups("hiveA_s2_003.JPG", "tr", r"(?P<session>s\d)") == ("s2", "")
     assert frame_groups("", "tr", pattern) == ("tr", "")
@@ -101,7 +101,7 @@ def test_session_and_colony_from_the_frame_name():
 
 
 def _session_dirs(tmp_path, colony, split):
-    """Copia finta delle cartelle dei frame originali: ``split`` dice a quale sessione va ogni frame."""
+    """Fake copy of the original frame folders: ``split`` says which session each frame goes to."""
     for name, frames in colony.folders.items():
         for frame in frames:
             folder = tmp_path / "orig" / split(frame) / "favi"
@@ -113,17 +113,17 @@ def _session_dirs(tmp_path, colony, split):
 def test_session_from_the_folder_that_holds_the_frame(colony, tmp_path):
     from bee_al.frames import FrameGrouper
 
-    # frame della stessa cartella di dataset finiscono in sessioni diverse, come train/test rispetto a batch_3/batch_4
+    # frames from the same dataset folder end up in different sessions, like train/test versus batch_3/batch_4
     colony.cfg.frames.session_dirs = _session_dirs(tmp_path, colony, lambda f: "giorno1" if int(f[-7:-4]) % 2 else "giorno2")
     colony.cfg.frames.colony = "alveare_1"
     grouper = FrameGrouper(colony.cfg)
     assert grouper.groups("hiveA_s1_001.JPG", "tr") == ("giorno1", "alveare_1")
     assert grouper.groups("hiveA_s1_002.JPG", "tr") == ("giorno2", "alveare_1")
     assert grouper.groups("hiveA_s2_006.JPG", "te") == ("giorno2", "alveare_1")
-    assert grouper.groups("mai_visto.JPG", "tr") == ("tr", "alveare_1")       # non trovato: resta la cartella di dataset
+    assert grouper.groups("mai_visto.JPG", "tr") == ("tr", "alveare_1")       # not found: the dataset folder is kept
     assert grouper.groups("", "te") == ("te", "alveare_1")
 
-    colony.cfg.frames.frame_pattern = r"(?P<colony>hive[A-Z])_(?P<session>s\d)"   # la regex, se corrisponde, vince
+    colony.cfg.frames.frame_pattern = r"(?P<colony>hive[A-Z])_(?P<session>s\d)"   # the regex, if it matches, wins
     assert FrameGrouper(colony.cfg).groups("hiveA_s1_001.JPG", "tr") == ("s1", "hiveA")
     assert FrameGrouper(colony.cfg).groups("DSC_1.JPG", "tr") == ("tr", "alveare_1")
 
@@ -133,11 +133,11 @@ def test_ambiguous_or_missing_session_dirs(colony, tmp_path):
 
     colony.cfg.frames.session_dirs = _session_dirs(tmp_path, colony, lambda f: "giorno1")
     (tmp_path / "orig" / "giorno2").mkdir()
-    (tmp_path / "orig" / "giorno2" / "hiveA_s1_001.JPG").write_bytes(b"jpg")          # stesso nome in due sessioni
+    (tmp_path / "orig" / "giorno2" / "hiveA_s1_001.JPG").write_bytes(b"jpg")          # same name in two sessions
     colony.cfg.frames.session_dirs.update({"giorno2": "orig/giorno2", "giorno3": "orig/non_esiste"})
-    with pytest.warns(UserWarning, match="più cartelle di sessione"):
+    with pytest.warns(UserWarning, match="several session folders"):
         grouper = FrameGrouper(colony.cfg)
-    assert grouper.groups("hiveA_s1_001.JPG", "tr") == ("tr", "")                    # ambiguo: nessuna sessione inventata
+    assert grouper.groups("hiveA_s1_001.JPG", "tr") == ("tr", "")                    # ambiguous: no session invented
     assert grouper.groups("hiveA_s2_003.JPG", "tr") == ("giorno1", "")
     assert grouper.ambiguous == {"hiveA_s1_001.JPG"} and grouper.missing_dirs == [str(tmp_path / "orig" / "non_esiste")]
 

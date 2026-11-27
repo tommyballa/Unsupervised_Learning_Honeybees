@@ -1,4 +1,4 @@
-"""Chiusura di una fase: salva configurazione e cluster su disco, come dataset a cartelle."""
+"""Closing a phase: save the configuration and the clusters to disk, as a folder-per-class dataset."""
 from __future__ import annotations
 
 import csv
@@ -20,17 +20,17 @@ if TYPE_CHECKING:
     from .engine import ALEngine
 
 CLUSTER_FIELDS = ["image_id", "file", "cluster", "status", "source", "confidence", "frame", "session", "colony", "original_path"]
-IN_CLUSTERS = ("labeled", "predicted", "rejected")   # api che hanno una classe finale
+IN_CLUSTERS = ("labeled", "predicted", "rejected")   # bees that have a final class
 
 
 def cluster_folder(label: str) -> str:
-    """Nome di cartella per una classe: spazi in underscore, niente caratteri strani."""
+    """Folder name for a class: spaces become underscores, no odd characters."""
     name = re.sub(r"[^\w.-]+", "_", label.strip(), flags=re.UNICODE).strip("_.")
     return name or "senza_nome"
 
 
 def list_exports(cfg: ALConfig) -> list[dict[str, Any]]:
-    """Esportazioni già fatte in ``export.clusters_dir``, dalla più recente."""
+    """Exports already made in ``export.clusters_dir``, most recent first."""
     base = cfg.clusters_dir
     if base is None or not base.is_dir():
         return []
@@ -45,12 +45,12 @@ def list_exports(cfg: ALConfig) -> list[dict[str, Any]]:
 
 
 class ClusterExporter:
-    """Esporta i cluster in un thread, senza bloccare l'hub.
+    """Export the clusters in a thread, without blocking the hub.
 
-    Prima congela uno snapshot (stesso nome dell'esportazione), poi scrive in
-    ``<export.clusters_dir>/<nome>/`` una cartella per classe con le immagini, più
-    ``clusters.csv`` (tutte le api, anche quelle senza cluster), ``config.yaml`` e ``meta.json``.
-    Si lavora in una cartella temporanea rinominata solo alla fine.
+    It first freezes a snapshot (same name as the export), then writes to
+    ``<export.clusters_dir>/<name>/`` one folder per class with the images, plus
+    ``clusters.csv`` (all bees, including those without a cluster), ``config.yaml`` and ``meta.json``.
+    Work happens in a temporary folder that is renamed only at the end.
     """
 
     def __init__(self, engine: "ALEngine") -> None:
@@ -61,7 +61,7 @@ class ClusterExporter:
         self._thread: Optional[threading.Thread] = None
 
     def start(self, name: str, annotator: str) -> None:
-        """Avvia l'esportazione. ``ValueError`` se il nome non va bene o un'altra è in corso."""
+        """Start the export. ``ValueError`` if the name is invalid or another export is running."""
         cfg = self.engine.cfg
         if self.state == "running":
             raise ValueError("an export is already running")
@@ -81,8 +81,8 @@ class ClusterExporter:
         self._thread.start()
 
     def _run(self, name: str, annotator: str, snapshot_dir: Optional[Path] = None) -> None:
-        """Congela lo snapshot (se non è già dato) e ne scrive i cluster; anche lo snapshot
-        avviene qui, perché su un disco lento scriverlo richiede minuti."""
+        """Freeze the snapshot (unless one is given) and write its clusters; the snapshot is also
+        taken here, because writing it on a slow disk takes minutes."""
         cfg = self.engine.cfg
         out = cfg.clusters_dir / name
         tmp = cfg.clusters_dir / f".tmp-{name}-{os.getpid()}"
@@ -144,7 +144,7 @@ class ClusterExporter:
             os.rename(tmp, out)
             self.progress["finished"] = time.time()
             self.state = "idle"
-        except Exception as e:  # l'esportazione non deve mai far cadere l'hub
+        except Exception as e:  # the export must never bring down the hub
             shutil.rmtree(tmp, ignore_errors=True)
             self.state, self.error = "failed", f"{type(e).__name__}: {e}"
 

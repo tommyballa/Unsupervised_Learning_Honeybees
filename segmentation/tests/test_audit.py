@@ -1,4 +1,4 @@
-"""Modalità Audit: campionamento stratificato, etichettatura alla cieca, isolamento dalla memory bank."""
+"""Audit mode: stratified sampling, blind labelling, isolation from the memory bank."""
 import csv
 import io
 import json
@@ -29,7 +29,7 @@ from test_snapshot import labeled_engine
 
 
 def fake_snapshot(tmp_path, spec, name="snap"):
-    """Snapshot finto: ``spec`` è una lista di (quante api, status, classe, source, confidenza)."""
+    """Fake snapshot: ``spec`` is a list of (how many bees, status, class, source, confidence)."""
     folder = tmp_path / "results" / "snapshots" / name
     folder.mkdir(parents=True)
     rows, i = [], 0
@@ -48,13 +48,13 @@ def fake_snapshot(tmp_path, spec, name="snap"):
 
 
 SPEC = [
-    (6000, "predicted", "Sana", "predicted", 0.97),     # strato grande: large_stratum
-    (300, "predicted", "Sana", "predicted", 0.60),      # stessa classe, fascia di confidenza bassa
-    (25, "predicted", "Malata", "predicted", 0.95),     # strato piccolo: preso per intero
+    (6000, "predicted", "Sana", "predicted", 0.97),     # large stratum: large_stratum
+    (300, "predicted", "Sana", "predicted", 0.60),      # same class, low confidence band
+    (25, "predicted", "Malata", "predicted", 0.95),     # small stratum: taken in full
     (80, "predicted", "Malata", "predicted", 0.50),
-    (120, "rejected", "Sfocata", "predicted", 0.80),    # classe di scarto predetta: uno strato, senza fasce
+    (120, "rejected", "Sfocata", "predicted", 0.80),    # predicted reject class: one stratum, no bands
     (70, "unassigned", "", "", None),
-    (50, "labeled", "Sana", "human", 1.0),              # tutto il resto è fuori dalla popolazione
+    (50, "labeled", "Sana", "human", 1.0),              # everything else is outside the population
     (10, "rejected", "Sfocata", "human", 1.0),
     (20, "validation", "", "", None),
     (5, "unknown", "", "", None),
@@ -98,20 +98,20 @@ def test_strata_and_allocations(tmp_path):
     by_id = {r["image_id"]: r for r in rows}
     sampled = [b["image_id"] for b in audit["bees"]]
     assert len(set(sampled)) == 435 and sorted(audit["order"]) == sorted(sampled) and audit["order"] != sampled
-    # esclusioni: nessuna etichettata a mano, di validazione, "Non so" o senza predizione
+    # exclusions: no hand-labelled, validation, "Scarta ape" or unpredicted bees
     assert {by_id[i]["status"] for i in sampled} == {"predicted", "rejected", "unassigned"}
     assert not any(by_id[i]["source"] == "human" for i in sampled)
-    for b in audit["bees"]:                                           # ogni ape sta nello strato giusto
+    for b in audit["bees"]:                                           # every bee is in the right stratum
         r = by_id[b["image_id"]]
         expected = UNASSIGNED_STRATUM if r["status"] == "unassigned" else (
             "Sfocata|reject" if r["status"] == "rejected" else f"{r['final_label']}|{'>=0.9' if float(r['confidence']) >= 0.9 else '<0.9'}")
         assert b["stratum"] == expected
 
-    # doppia etichettatura: circa il 10%, almeno una per strato
+    # double labelling: about 10%, at least one per stratum
     double = Counter(b["stratum"] for b in audit["bees"] if b["double"])
     assert double == {"Sana|>=0.9": 25, "Sana|<0.9": 4, "Malata|>=0.9": 2, "Malata|<0.9": 4, "Sfocata|reject": 4, UNASSIGNED_STRATUM: 4}
 
-    # lo strato di ogni ape della popolazione è salvato per le stime
+    # the stratum of every bee in the population is saved for the estimates
     strata_csv = read_csv(folder / "audit_strata.csv")
     assert len(strata_csv) == 6595 and Counter(r["stratum"] for r in strata_csv)["Sana|>=0.9"] == 6000
 
@@ -140,7 +140,7 @@ def test_anomaly_scores_split_only_the_chosen_class(tmp_path):
     cfg = config_from_dict({"audit": {"anomaly_split_class": "  sana ", "anomaly_quantile": 0.9}}, root=tmp_path)
     folder, rows = fake_snapshot(tmp_path, SPEC)
     sana = [r["image_id"] for r in rows if r["status"] == "predicted" and r["final_label"] == "Sana"]
-    scores = {image_id: float(i) for i, image_id in enumerate(sana[:-10])}     # 10 api senza score: stanno sotto
+    scores = {image_id: float(i) for i, image_id in enumerate(sana[:-10])}     # 10 bees without a score: they go below
     create_audit_set(folder, cfg, scores)
     audit = load_audit_set(folder)
     strata = {s["id"]: s for s in audit["strata"]}
@@ -151,7 +151,7 @@ def test_anomaly_scores_split_only_the_chosen_class(tmp_path):
     assert strata["Sana|>=0.9|anomaly_high"]["anomaly_bin"] == "high" and audit["anomaly_scores"] is True
     assert parse_scores((folder / "anomaly_scores.csv").read_text()) == scores
 
-    of, plain = assign_strata(rows, cfg.audit, "", scores)                      # senza classe indicata: nessuna divisione
+    of, plain = assign_strata(rows, cfg.audit, "", scores)                      # no class given: no split
     assert not any("anomaly" in s for s in plain)
     for text in ("a,b\n1,2\n", "image_id,score\nx,abc\n"):
         with pytest.raises(ValueError):
@@ -188,7 +188,7 @@ def test_audit_labels_never_enter_the_bank_or_the_validation_metrics(colony):
     probs_before = engine.final_pred.probs.copy()
     events_before = len(engine.store.events())
 
-    wrong = {i: "Classe Solo Audit" for i in colony.truth}             # etichette che il modello non deve mai vedere
+    wrong = {i: "Classe Solo Audit" for i in colony.truth}             # labels the model must never see
     done = label_audit(engine, wrong, "a@x.it")
     assert len(done) == progress["total"]
     events = engine.store.events()[events_before:]
@@ -203,11 +203,11 @@ def test_audit_labels_never_enter_the_bank_or_the_validation_metrics(colony):
         assert engine.val_labels == {} and engine.history[-1]["n_validation"] == 0
 
     unchanged()
-    entry = engine.refresh()                                           # nemmeno dopo un ricalcolo completo
+    entry = engine.refresh()                                           # not even after a full recomputation
     unchanged()
     assert entry["n_labels"] == before[0] and entry["effective"] is False
 
-    restarted = ALEngine(colony.cfg, colony.emb)                       # né dopo un riavvio
+    restarted = ALEngine(colony.cfg, colony.emb)                       # nor after a restart
     assert restarted.bank.class_counts() == before[2] and "Classe Solo Audit" not in restarted.bank.classes
     assert restarted.audit_progress()["done"] == sum(1 for b in restarted.audit["bees"] if not b["double"])
 
@@ -219,7 +219,7 @@ def test_audit_bees_leave_normal_labeling(colony):
     seen = []
     for _ in range(4):
         seen += label_batch(engine, colony.truth)
-    assert seen and not audit_ids & set(seen)                          # mai nei batch successivi
+    assert seen and not audit_ids & set(seen)                          # never in later batches
 
     one = sorted(audit_ids)[0]
     n_events = len(engine.store.events())
@@ -228,11 +228,11 @@ def test_audit_bees_leave_normal_labeling(colony):
     with pytest.raises(ALError, match="audit"):
         engine.submit("a@x.it", one, "Sana", manual=True)
     with pytest.raises(ALError):
-        engine.submit("a@x.it", seen[0], "Sana", mode="audit")         # e un'ape normale non entra nell'audit
+        engine.submit("a@x.it", seen[0], "Sana", mode="audit")         # and a normal bee does not enter the audit
     assert len(engine.store.events()) == n_events
     shown = {b["image_id"] for c in engine.cluster_samples(n=500) for b in c["samples"]}
     shown |= {b["image_id"] for b in engine.unassigned_samples(n=500)["samples"]}
-    assert not audit_ids & shown                                       # e non compaiono nella pagina dei cluster
+    assert not audit_ids & shown                                       # and they do not appear on the clusters page
 
 
 def test_double_bees_need_two_different_annotators(colony):
@@ -248,23 +248,23 @@ def test_double_bees_need_two_different_annotators(colony):
     assert 0 < len(doubles) < len(bees)
 
     first = label_audit(engine, colony.truth, "a@x.it")
-    assert sorted(first) == sorted(bees) and len(set(first)) == len(first)   # ognuna una volta sola per annotatore
-    assert first == engine.audit["order"]                                    # nell'ordine salvato, strati mescolati
-    assert engine.next_image("a@x.it", mode="audit") is None                 # le doppie non tornano allo stesso annotatore
+    assert sorted(first) == sorted(bees) and len(set(first)) == len(first)   # each one only once per annotator
+    assert first == engine.audit["order"]                                    # in the saved order, strata mixed
+    assert engine.next_image("a@x.it", mode="audit") is None                 # double-labelled bees do not go back to the same annotator
     progress = engine.audit_progress()
     assert progress["done"] == len(bees) - len(doubles) and progress["annotators"] == {"a@x.it": len(bees)}
 
     b_item = engine.next_image("b@x.it", mode="audit")
     assert b_item.image_id in doubles and b_item.query_type == "audit"
-    assert engine.next_image("b@x.it", mode="audit").image_id == b_item.image_id   # ricaricare non cambia ape
+    assert engine.next_image("b@x.it", mode="audit").image_id == b_item.image_id   # reloading does not change the bee
     c_item = engine.next_image("c@x.it", mode="audit")
-    assert c_item.image_id != b_item.image_id                                # resta un solo posto: va a un'altra ape
+    assert c_item.image_id != b_item.image_id                                # only one slot left: goes to another bee
     clock.t += colony.cfg.hub.assignment_timeout_s + 1
-    assert engine.next_image("c@x.it", mode="audit").image_id == b_item.image_id   # assegnazione scaduta
+    assert engine.next_image("c@x.it", mode="audit").image_id == b_item.image_id   # assignment expired
 
     engine.submit("c@x.it", b_item.image_id, colony.truth[b_item.image_id], mode="audit")
 
-    second = label_audit(engine, colony.truth, "b@x.it")                    # a b restano le altre doppie
+    second = label_audit(engine, colony.truth, "b@x.it")                    # b gets the remaining double-labelled bees
     assert sorted(second) == sorted(doubles - {b_item.image_id})
     assert engine.audit_progress()["done"] == len(bees) and engine.next_image("c@x.it", mode="audit") is None
     assert all(list(engine.audit_labels[i]) == ["a@x.it", "c@x.it" if i == b_item.image_id else "b@x.it"] for i in doubles)
@@ -276,7 +276,7 @@ def test_unknown_removal_and_per_annotator_answers(colony):
     a = engine.next_image("a@x.it", mode="audit").image_id
     engine.submit("a@x.it", a, "non so", mode="audit")
     assert engine.audit_labels[a] == {"a@x.it": UNKNOWN_LABEL} and engine.bank.unknown_indices().size == 0
-    engine.submit("a@x.it", a, "Sana", mode="audit")                    # correzione: vale l'ultima di quell'annotatore
+    engine.submit("a@x.it", a, "Sana", mode="audit")                    # correction: that annotator's last answer counts
     engine.submit("b@x.it", a, "Malata", mode="audit")
     assert engine.audit_labels[a] == {"a@x.it": "Sana", "b@x.it": "Malata"}
     engine.submit("a@x.it", a, REMOVED_LABEL, mode="audit")
@@ -301,7 +301,7 @@ def test_restart_rebuilds_the_audit_state_from_the_store(colony):
     nxt = restarted.next_image("a@x.it", mode="audit")
     assert nxt.image_id == engine.audit["order"][7]
 
-    # senza il file dell'audit attivo si riprende l'ultimo snapshot che ha un audit set
+    # without the active-audit file, the latest snapshot with an audit set is resumed
     (colony.cfg.results_dir / "active_audit.json").unlink()
     assert ALEngine(colony.cfg, colony.emb).audit_progress()["snapshot"] == "s1"
 
@@ -322,7 +322,7 @@ def test_switching_audits_and_errors(colony):
     label_audit(engine, colony.truth, "a@x.it", limit=3)
     engine.create_audit("s2")
     assert engine.audit_progress()["snapshot"] == "s2" and engine.audit_progress()["done"] == 0
-    assert engine.load_audit("s1")["done"] >= 1                         # le risposte del primo audit sono ancora lì
+    assert engine.load_audit("s1")["done"] >= 1                         # the answers of the first audit are still there
     assert {s["name"]: s["has_audit"] for s in engine.list_snapshots()} == {"s1": True, "s2": True}
 
 
@@ -339,7 +339,7 @@ def test_no_audit_means_no_audit_mode(colony):
 @pytest.fixture
 def hub(colony, hub_app, monkeypatch, tmp_path):
     colony.cfg.audit.per_stratum, colony.cfg.audit.double_fraction = 6, 0.34
-    colony.cfg.hub.show_suggestion = True                              # in audit non deve comparire comunque
+    colony.cfg.hub.show_suggestion = True                              # must not appear in audit mode anyway
     engine = labeled_engine(colony)
     monkeypatch.setattr(al_hub.STATE, "engine", engine)
     monkeypatch.chdir(tmp_path)
@@ -364,10 +364,10 @@ def test_hub_creates_activates_and_labels_an_audit(hub, colony):
     image_id = re.search(r'name="image_id" value="([^"]+)"', page).group(1)
     assert image_id == engine.audit["order"][0] and "Audit Labeling" in page and f"Audit: 0 / {total} labeled" in page
     assert "Scarta ape" in page and 'href="/al-labeling?mode=audit"' in page
-    # alla cieca: né suggerimento, né classe predetta, né strato
+    # blind: no suggestion, no predicted class, no stratum
     stratum = next(b["stratum"] for b in engine.audit["bees"] if b["image_id"] == image_id)
     assert "kNN suggestion" not in page and stratum not in page and "stratum" not in page.lower()
-    assert "kNN suggestion" in hub.get("/al-labeling").get_data(as_text=True)      # in modalità normale c'è
+    assert "kNN suggestion" in hub.get("/al-labeling").get_data(as_text=True)      # in normal mode it is there
 
     hub.post("/al-labeling?mode=audit", data={"image_id": image_id, "label": "sana", "action": "label"})
     assert engine.audit_labels[image_id] == {"t@x.it": "Sana"} and engine.bank.label_of(image_id) is None
