@@ -1,0 +1,19 @@
+{
+  "model": "cfa",
+  "tag": "mobilenet_v2",
+  "backbone": "mobilenet_v2",
+  "img_size": [
+    768,
+    768
+  ],
+  "params_M": 2.672449,
+  "size_MB": 10.194583892822266,
+  "gflops": 17.98711296,
+  "gpu_latency_ms": 31.81950014550239,
+  "gpu_peak_MB_bs1": 395.3310546875,
+  "gpu_model_MB": 18.37744140625,
+  "gpu_throughput_bs32": 48.61957805185327,
+  "gpu": "NVIDIA RTX A6000",
+  "cpu_latency_ms": 1433.7559000123292,
+  "cpu_threads": 4
+}

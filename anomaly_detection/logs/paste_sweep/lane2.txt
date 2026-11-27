@@ -1,0 +1,2 @@
+p4_ep3 --epochs 3
+p6_rot --epochs 6 --aug rot

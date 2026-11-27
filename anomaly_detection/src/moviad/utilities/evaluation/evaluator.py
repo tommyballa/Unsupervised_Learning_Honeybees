@@ -1,0 +1,65 @@
+from __future__ import annotations
+
+from typing import Callable
+from tqdm import tqdm
+import torch
+import numpy as np
+
+from .metrics import MetricLvl, Metric
+from moviad.models.vad_model import VADModel
+
+
+def min_max_norm(x):
+    return (x - x.min()) / (x.max() - x.min())
+
+
+class Evaluator:
+    """
+    This class will evaluate the trained model on the test set
+    and it will produce the evaluation metrics needed
+
+    Args:
+        test_dataloader (Dataloader): test dataloader
+        device (torch.device): device where to run the model
+    """
+
+    @staticmethod
+    def evaluate(model: VADModel, dataloader, metrics: list[Metric], device, postprocess: Callable = min_max_norm) -> dict:
+        """
+        Args:
+            model: a model object on which you can call model.predict(batched_images)
+                and returns a tuple of anomaly_maps and anomaly_scores
+            postprocess (Callable): a function to postprocess the predicted anomaly maps
+        Returns:
+            dict: a dictionary with metric names as keys and computed metric values as values
+        """
+        model.eval()
+
+        gt_mask, gt_label, pred_anom_map, pred_anom_score = [], [], [], []
+
+        for image, label, mask, path in tqdm(dataloader, desc="Eval"):
+            # fp32: in bf16 le distanze (Mahalanobis di PaDiM, |f|^2+|c|^2-2fc di CFA)
+            # perdono precisione (quelle di CFA diventano anche negative, NaN dopo la sqrt);
+            # .float() perché numpy non supporta il bf16
+            with torch.no_grad():
+                anom_maps, anom_scores = model(image.to(device))
+            gt_mask.append((mask.cpu().numpy() > 0).astype(np.int8))
+            gt_label.append((label.cpu().numpy() > 0).astype(np.int8))
+            pred_anom_map.append(anom_maps.float().cpu().numpy())
+            pred_anom_score.append(anom_scores.float().cpu().numpy())
+
+        gt_mask = np.concatenate(gt_mask)
+        gt_label = np.concatenate(gt_label)
+        pred_anom_map = postprocess(np.concatenate(pred_anom_map))
+        pred_anom_score = np.concatenate(pred_anom_score)
+
+        report = {}
+        for metric in metrics:
+            if metric.level == MetricLvl.IMAGE:
+                gt, pred = gt_label, pred_anom_score
+            else:
+                gt, pred = gt_mask, pred_anom_map
+
+            report[metric.name] = metric.compute(gt, pred)
+
+        return report

@@ -1,0 +1,1 @@
+c2_r18_1024 --backbone resnet18 --lr 0.4 --img-size 1024 --epochs 0.187 --eval-steps 100

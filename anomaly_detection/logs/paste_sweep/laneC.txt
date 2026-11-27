@@ -1,0 +1,2 @@
+c1_r18_768 --backbone resnet18 --lr 0.4 --img-size 768 --epochs 0.187 --eval-steps 50
+c3_r18_noboot --backbone resnet18 --lr 0.4 --bootstrap -1 --epochs 0.187 --eval-steps 50
